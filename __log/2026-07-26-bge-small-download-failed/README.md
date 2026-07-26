@@ -53,3 +53,39 @@ Phase 1 T1 步骤 5/5：`SentenceTransformer('BAAI/bge-small-zh-v1.5')` 首次�
 
 - **Phase 1 继续推进**，T1 视为"依赖装完，模型待补"
 - Phase 2 T2.1（embedding 层实现）前必须解决
+
+---
+
+## 最终解决（2026-07-26 · Phase 2 P2.T0）
+
+**采用方案 3：modelscope（阿里模型库）**
+
+### 步骤
+
+```bash
+pip install modelscope
+python -c "
+from modelscope import snapshot_download
+p = snapshot_download('AI-ModelScope/bge-small-zh-v1.5', cache_dir='./models')
+print(p)
+"
+```
+
+模型落到：`./models/models/AI-ModelScope--bge-small-zh-v1.5/snapshots/master`
+
+### 加载验证
+
+```python
+from sentence_transformers import SentenceTransformer
+m = SentenceTransformer('./models/models/AI-ModelScope--bge-small-zh-v1.5/snapshots/master')
+# emb dim = 512 ✓
+# encode ['测试文本', '上海明天会下雨吗'] → shape (2, 512) ✓
+```
+
+### 结论
+
+- **hf-mirror.com 用 requests 底层某种连接问题**（curl 通、python-requests 不通），未深究
+- **modelscope 稳定可用**，国内网络首选
+- 本地模型路径已在 `src/skillforge/router/embed.py` 的 `DEFAULT_MODEL_DIR` 硬编码
+- 下载时长：约 40s（模型体积 ~96MB，11 MB/s）
+- 需要 gitignore `models/` 目录（数据大不入库）

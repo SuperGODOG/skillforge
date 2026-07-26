@@ -1,0 +1,79 @@
+{
+  "meta": {
+    "created": "2026-07-26",
+    "purpose": "Phase 2 三层路由 Recall 评测集（含硬负例，务实规模）",
+    "total": 50,
+    "breakdown": {
+      "positive": 30,
+      "hard_negative": 18,
+      "unrelated_negative": 2
+    },
+    "targets": {
+      "recall_at_1": 0.80,
+      "recall_at_3": 0.90
+    },
+    "notes": [
+      "expected=null 表示应拒绝路由（返回 chosen=None）",
+      "硬负例='字面上含 skill 触发词但意图与该 skill 冲突'（not_for 段的场景）",
+      "评测时：正例 recall@k = expected ∈ top-k；负例 recall@k = top-k 里不含任何 skill（即拒绝或空）"
+    ]
+  },
+  "cases": [
+    {"id": "wq_p_01", "query": "北京今天天气", "expected": "weather_query", "type": "positive"},
+    {"id": "wq_p_02", "query": "上海明天会下雨吗", "expected": "weather_query", "type": "positive"},
+    {"id": "wq_p_03", "query": "广州这周末温度多少", "expected": "weather_query", "type": "positive"},
+    {"id": "wq_p_04", "query": "深圳的降水情况怎么样", "expected": "weather_query", "type": "positive"},
+    {"id": "wq_p_05", "query": "杭州今天有雨吗", "expected": "weather_query", "type": "positive"},
+    {"id": "wq_p_06", "query": "成都后天最高温多少度", "expected": "weather_query", "type": "positive"},
+    {"id": "wq_p_07", "query": "武汉的实时气温现在是多少", "expected": "weather_query", "type": "positive"},
+    {"id": "wq_p_08", "query": "南京明天下雪吗", "expected": "weather_query", "type": "positive"},
+    {"id": "wq_p_09", "query": "重庆今天有大雾吗", "expected": "weather_query", "type": "positive"},
+    {"id": "wq_p_10", "query": "昆明今天需要穿几件衣服", "expected": "weather_query", "type": "positive"},
+
+    {"id": "wr_p_01", "query": "帮我写一份本周的周报", "expected": "write_weekly_report", "type": "positive"},
+    {"id": "wr_p_02", "query": "把这些工作项整理成周报", "expected": "write_weekly_report", "type": "positive"},
+    {"id": "wr_p_03", "query": "生成本周周报模板", "expected": "write_weekly_report", "type": "positive"},
+    {"id": "wr_p_04", "query": "我的本周工作汇报要怎么写", "expected": "write_weekly_report", "type": "positive"},
+    {"id": "wr_p_05", "query": "这周做了 A B C 三件事，帮我整理成周报", "expected": "write_weekly_report", "type": "positive"},
+    {"id": "wr_p_06", "query": "我要给老板写周报了", "expected": "write_weekly_report", "type": "positive"},
+    {"id": "wr_p_07", "query": "本周总结怎么写", "expected": "write_weekly_report", "type": "positive"},
+    {"id": "wr_p_08", "query": "帮我把这些工作点归纳成周报的四段", "expected": "write_weekly_report", "type": "positive"},
+    {"id": "wr_p_09", "query": "帮我起草这周的工作汇报", "expected": "write_weekly_report", "type": "positive"},
+    {"id": "wr_p_10", "query": "我要提交周报了帮我看下要写什么", "expected": "write_weekly_report", "type": "positive"},
+
+    {"id": "er_p_01", "query": "讲一下 (a|b)*c 是怎么匹配的", "expected": "explain_regex", "type": "positive"},
+    {"id": "er_p_02", "query": "为什么 .* 会回溯这么慢", "expected": "explain_regex", "type": "positive"},
+    {"id": "er_p_03", "query": "这个正则 \\d{4}-\\d{2}-\\d{2} 是什么意思", "expected": "explain_regex", "type": "positive"},
+    {"id": "er_p_04", "query": "讲讲正则里的贪婪和非贪婪的区别", "expected": "explain_regex", "type": "positive"},
+    {"id": "er_p_05", "query": "分组 (?:) 和 () 有什么区别", "expected": "explain_regex", "type": "positive"},
+    {"id": "er_p_06", "query": "什么是正则的锚点", "expected": "explain_regex", "type": "positive"},
+    {"id": "er_p_07", "query": "讲一下 lookahead 是什么", "expected": "explain_regex", "type": "positive"},
+    {"id": "er_p_08", "query": "正则的回溯原理是什么", "expected": "explain_regex", "type": "positive"},
+    {"id": "er_p_09", "query": "这段正则我看不懂 [a-z]+@\\w+\\.\\w+ 你讲讲", "expected": "explain_regex", "type": "positive"},
+    {"id": "er_p_10", "query": "帮我理解一下 (?P<name>...) 的意思", "expected": "explain_regex", "type": "positive"},
+
+    {"id": "wq_n_01", "query": "北京最近三年的年均降水量是多少", "expected": null, "type": "hard_negative", "why": "气候学分析而非当前/预报天气；not_for 明确"},
+    {"id": "wq_n_02", "query": "什么是台风的形成原理", "expected": null, "type": "hard_negative", "why": "气象学知识讲解；not_for 明确"},
+    {"id": "wq_n_03", "query": "天气预报是怎么算出来的", "expected": null, "type": "hard_negative", "why": "原理讲解而非查询"},
+    {"id": "wq_n_04", "query": "昨天北京的天气怎么样", "expected": null, "type": "hard_negative", "why": "历史查询超出能力边界（今天起未来 3 天）"},
+    {"id": "wq_n_05", "query": "全球变暖对中国的气候有什么长期影响", "expected": null, "type": "hard_negative", "why": "气候趋势/影响分析；not_for 明确"},
+    {"id": "wq_n_06", "query": "降水概率是怎么算出来的", "expected": null, "type": "hard_negative", "why": "气象原理讲解"},
+
+    {"id": "wr_n_01", "query": "帮我写会议纪要", "expected": null, "type": "hard_negative", "why": "会议纪要结构与周报差异；not_for 明确"},
+    {"id": "wr_n_02", "query": "帮我写这个月的月度总结", "expected": null, "type": "hard_negative", "why": "月度总结时间跨度不同；not_for 明确"},
+    {"id": "wr_n_03", "query": "帮我写下周的工作计划", "expected": null, "type": "hard_negative", "why": "前瞻规划 vs 周报回顾；not_for 明确"},
+    {"id": "wr_n_04", "query": "什么是一份好的周报", "expected": null, "type": "hard_negative", "why": "询问概念而非生成周报"},
+    {"id": "wr_n_05", "query": "帮我写年终汇报", "expected": null, "type": "hard_negative", "why": "年度总结时间跨度不同"},
+    {"id": "wr_n_06", "query": "帮我写今天的日报", "expected": null, "type": "hard_negative", "why": "日报时间跨度不同"},
+
+    {"id": "er_n_01", "query": "帮我写一个正则匹配所有邮箱地址", "expected": null, "type": "hard_negative", "why": "代码生成任务而非讲解；not_for 明确"},
+    {"id": "er_n_02", "query": "用 Python 的 re 模块怎么写命名捕获", "expected": null, "type": "hard_negative", "why": "特定库 API 用法；not_for 明确"},
+    {"id": "er_n_03", "query": "这个正则性能太差要怎么优化", "expected": null, "type": "hard_negative", "why": "性能调优超出教学范围；not_for 明确"},
+    {"id": "er_n_04", "query": "PCRE 和 Python re 有什么 API 差异", "expected": null, "type": "hard_negative", "why": "特定库 API 差异；not_for 明确"},
+    {"id": "er_n_05", "query": "帮我写一个提取所有中国手机号的正则", "expected": null, "type": "hard_negative", "why": "代码生成任务"},
+    {"id": "er_n_06", "query": "怎么用正则做全局替换", "expected": null, "type": "hard_negative", "why": "特定库 API 用法"},
+
+    {"id": "unrel_01", "query": "帮我推荐一部好看的科幻电影", "expected": null, "type": "unrelated_negative", "why": "完全不属于任何 skill 覆盖领域"},
+    {"id": "unrel_02", "query": "讲讲量子力学的基本原理", "expected": null, "type": "unrelated_negative", "why": "完全不属于任何 skill 覆盖领域"}
+  ]
+}

@@ -1,17 +1,18 @@
 """SkillForge CLI 入口
 
 用法：
-    skillforge demo [--query "北京今天天气"] [--skill weather_query]
-    skillforge route <query>       # Phase 2
-    skillforge evaluate            # Phase 3
-    skillforge evolve --skill X    # Phase 4
+    skillforge demo [--query "..." ] [--skill weather_query]
+    skillforge route <query> [--use-llm] [--top-k 5]      # Phase 2
+    skillforge evaluate                                    # Phase 3
+    skillforge evolve --skill X                            # Phase 4
 """
 from __future__ import annotations
 import argparse
 import json
+import os
 from pathlib import Path
 
-from . import SkillRegistry
+from . import SkillRegistry, IntentRouter
 
 
 def cmd_demo(args: argparse.Namespace) -> None:
@@ -75,6 +76,57 @@ def cmd_demo(args: argparse.Namespace) -> None:
     _print_hr(f"Demo 完成 · 完整日志: {log_path}")
 
 
+def cmd_route(args: argparse.Namespace) -> None:
+    """Phase 2 演示：三层级联路由（规则 → embed → LLM 兜底）"""
+    repo_root: Path = args.root
+    db_path = repo_root / "runs" / "skillforge.db"
+    skills_dir = repo_root / "skills"
+
+    _print_hr(f"IntentRouter · query = {args.query!r}")
+
+    reg = SkillRegistry(db_path=db_path, skills_dir=skills_dir, repo_root=repo_root)
+    reg.load_skills_from_dir()
+
+    llm = None
+    if args.use_llm:
+        try:
+            from dotenv import load_dotenv
+            from hello_agents import HelloAgentsLLM
+            load_dotenv(repo_root / ".env")
+            llm = HelloAgentsLLM(
+                api_key=os.environ["LLM_API_KEY"],
+                model=os.environ["LLM_MODEL_ID"],
+                base_url=os.environ["LLM_BASE_URL"],
+            )
+            print("  ✓ LLM 兜底已启用 (DeepSeek)")
+        except KeyError as e:
+            print(f"  ⚠️  .env 缺失 {e}，退化为规则+embed 两层")
+        except Exception as e:
+            print(f"  ⚠️  LLM 初始化失败：{e}，退化为规则+embed 两层")
+
+    router = IntentRouter(registry=reg, llm=llm)
+    result = router.route(args.query)
+
+    print()
+    print(f"chosen    : {result.chosen or '(NONE — 拒绝路由)'}")
+    print(f"hit_layer : {result.hit_layer}")
+    print(f"latency   : {result.latency_ms} ms")
+    print()
+    print("scores:")
+    for layer, sc in result.scores.items():
+        if isinstance(sc, dict):
+            if not sc:
+                print(f"  {layer}: (空)")
+            else:
+                for name, val in sc.items():
+                    v = f"{val:.4f}" if isinstance(val, float) else str(val)
+                    print(f"  {layer}.{name}: {v}")
+        else:
+            print(f"  {layer}: {sc}")
+
+    reg.close()
+
+
 def _simple_rule_match(reg: SkillRegistry, query: str) -> str | None:
     """简易规则匹配（Phase 2 会被 IntentRouter 替换）"""
     best_name, best_hits = None, 0
@@ -111,8 +163,10 @@ def main() -> None:
     demo_p.add_argument("--query", default="北京今天天气", help="用户查询")
     demo_p.add_argument("--skill", default=None, help="指定 skill_name（否则用规则匹配）")
 
-    route_p = sub.add_parser("route", help="Phase 2：路由测试（未实现）")
-    route_p.add_argument("query")
+    route_p = sub.add_parser("route", help="Phase 2：三层级联路由")
+    route_p.add_argument("query", help="用户查询")
+    route_p.add_argument("--use-llm", action="store_true", help="启用 LLM 兜底（需 .env 有 LLM_API_KEY）")
+    route_p.add_argument("--top-k", type=int, default=5, help="embed 层 top-K（默认 5）")
 
     sub.add_parser("evaluate", help="Phase 3：评估（未实现）")
 
@@ -123,8 +177,10 @@ def main() -> None:
 
     if args.cmd == "demo":
         cmd_demo(args)
+    elif args.cmd == "route":
+        cmd_route(args)
     else:
-        print(f"[skillforge] cmd={args.cmd}  (Phase 2/3/4 实现)")
+        print(f"[skillforge] cmd={args.cmd}  (Phase 3/4 实现)")
 
 
 if __name__ == "__main__":

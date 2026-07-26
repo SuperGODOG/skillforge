@@ -15,6 +15,9 @@ runs/*.db-*
 runs/*.jsonl
 runs/*.log
 
+# 本地模型缓存（modelscope 下载的 bge-small 等，走 __log 里的 setup 脚本重下）
+models/
+
 # python 构建 / 测试
 *.egg-info/
 *.egg
