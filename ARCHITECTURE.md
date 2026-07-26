@@ -1,8 +1,10 @@
-# SkillForge 架构文档（预估版）
+# SkillForge 架构文档
 
 > 与《SkillForge-项目方案书-v3》完全对齐的架构视图。方案书讲"为什么"和"面试怎么答"；本文档讲"组件怎么划分、数据怎么流、接口长什么样"。修改前请先看方案书附录 A.2 一致性口径清单。
 >
-> 修订日期：2026-07-26 · 状态：Phase 1 前预估（实施中会以本文档为基线做增量修订）
+> 初版：2026-07-26（Phase 1 前预估）· 修订：2026-07-27（Phase 4 全部完成，末尾 §10 记实施差异）
+>
+> **文档使用指南**：§1-§9 是**架构基线**（Phase 1 前设计），§10 是**实施差异修订**（哪些改了、为什么改）。两者共同构成完整架构视图，冲突处以 §10 为准。
 
 ---
 
@@ -621,3 +623,63 @@ class ReleaseStateMachine:
 | §8 ADR | 首次显式列出（提炼自方案书全文取舍） |
 
 **修改本文件时请同步检查**：方案书附录 A.2 一致性口径清单里的"必须坚守 / 必须避免"两栏。
+
+---
+
+## 10. Phase 4 完成后的实际实现修订（2026-07-27）
+
+**核心结论**：架构基线 §1-§9 与实际实现**高度一致**，一致性口径 100% 遵守。以下是 8 处实施差异，按类型分组。
+
+### 10.1 结构差异（4 处）
+
+| # | 预估（§1-§9） | 实际实现 | 原因 |
+|---|---|---|---|
+| 1 | `evolver/` 拆包（failure_collector / root_cause / patch_generator / validator / publisher 5 文件） | **单文件 `evolver.py` 400+ 行**，内部函数 `_collect_failures / _analyze_root_cause / _generate_patches / _validate_patch / _publish_patch / _archive_failure` | 单文件更适合"六步 pipeline"的强连贯性；避免过度拆分。等有多个演化策略再拆包。 |
+| 2 | `runs/failures/` 一个目录归档所有失败 | `runs/failures/` + **新增 `runs/suggestions/`** 分类归档 | L1 DECLINED 归档失败 / L2/L3 归档只出建议——两者语义不同应分开。 |
+| 3 | `EvalResult` 只含 4 项汇总（structure/effect/objective/p0_pass） | **加 `case_verdicts` 与 `case_outputs` 两个 list 字段** | Phase 4 元 Agent 需要每 case 明细定位失败样本，不能只看汇总。 |
+| 4 | `evaluation_sets/` 只列 4 个手工评测集 | **新增 `runs/blind_eval_samples.json`**（21 条盲评样本 + golden verdicts） | Phase 3 保底盲评产物；含 skill/baseline 输出对 + Judge/human proxy 双判定，属项目交付物应入库。 |
+
+### 10.2 参数与阈值调优（3 处）
+
+| # | 预估（§4-B） | 实际实现 | 原因 |
+|---|---|---|---|
+| 5 | 路由 embed `HIGH_CONF=?`，未定 | **`HIGH_CONF=0.75, MARGIN=0.10, LOW_CONF=0.35`** | 50 条硬负例评测集调优后的值；R@1 从 62% → 98%（详见 `__log/2026-07-26-router-hardnegative-fix/`）。 |
+| 6 | Watchdog `threshold_hours=24` | 同（默认）但 **SQL 从 Python isoformat 改为 SQLite 内建 `datetime('now', '-Nh')`** | Python 带时区 isoformat 与 SQLite 无时区 CURRENT_TIMESTAMP 比较不匹配；改用 SQLite 内建时间函数。 |
+| 7 | bge-small-zh-v1.5 走 HuggingFace | **走 modelscope**（阿里模型库） | 国内 hf-mirror 不稳（curl 通但 python-requests 不通），modelscope 40s 下完（详见 `__log/2026-07-26-bge-small-download-failed/`）。`embed.py` `DEFAULT_MODEL_DIR` 硬编码本地路径。 |
+
+### 10.3 已知缺陷与改进方向（1 处）
+
+| # | 缺陷 | 影响 | 改进路径 |
+|---|---|---|---|
+| 8 | Judge 在 task_completion 维度**幻觉识别弱**（Phase 3 保底盲评 62% 分歧） | 天气 skill 编造 API 输出被 Judge 判 A_better；task_completion 分数被虚高 | Judge prompt 加"未验证具体数据 = 幻觉 → 无论多完整判 B_better"红线规则（详见 `__log/2026-07-27-phase3-blind-eval/README.md`）。属**已知缺陷 + 明确改进方向**，Phase 5+ 处理。 |
+
+### 10.4 数字对账
+
+| 指标 | 方案书 / §1 预估 | 实际 |
+|---|---|---|
+| 代码量（Python） | ~900 行核心 | **1600 行核心 + 3300 行 tests/scripts** = 4907 行合计 |
+| 路由 Recall@1 | ≥ 80% | **98%** |
+| 路由 Recall@3 | ≥ 90% | **100%** |
+| pytest 数量 | Phase 1 交付 10 | **74 全绿** |
+| 元 Agent 成功率 | ~30% | **1/3=33%**（1 次真实迭代，L1 DECLINED 2 / L2 REVIEW 1 +4.90 分） |
+| Judge/人工分歧 | < 30% 交付 | robustness 19% ✓, readability 24% ✓, **task_completion 62% ❌**（已知缺陷） |
+
+### 10.5 一致性口径清单校对（方案书 A.2）
+
+**全部 14 条口径遵守**（100% 一致，Phase 4 完成后逐条校对）：
+- ✅ 渐进式披露只有两层（元数据 + 完整 Body）
+- ✅ Agent 主动调 `use_skill(name, reason)`，框架不拦截 prompt
+- ✅ `trigger.keywords` 只作路由排序信号不做自动展开（Phase 2 首版违反，62%→98% 是修回口径的结果）
+- ✅ 三层路由不写死百分比（`HIGH_CONF/MARGIN/LOW_CONF` 是置信度门槛而非覆盖率）
+- ✅ Embedding 用结构化检索卡片（`[Capability][Use When][Examples][Not For]`）
+- ✅ 硬负例评测集 50 条、Recall@1 ≥ 80% / Recall@3 ≥ 90%
+- ✅ 结构分 40% 不阻断，效果分 60% 才是门槛
+- ✅ 效率维度用客观 token 比不用 LLM 打分
+- ✅ Judge 配对比较 A/tied/B
+- ✅ 棘轮硬 5 条 + 软 10%
+- ✅ 元 Agent 是候选生成器不是最终决策者，成功率 ~30%
+- ✅ L1 自动 / L2 REVIEW / L3 只出建议
+- ✅ SQLite 唯一发布事实源，四步固定顺序
+- ✅ 评估可信度声明四条（相对回归/非绝对/非全自动/非用户满意度）
+
+**必须避免的叙述**也全部遵守（未硬编码百分比、未拉踩 LangChain、未承诺全自动等）。
