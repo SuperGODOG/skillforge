@@ -1,0 +1,74 @@
+"""Skill / Route / Evaluation / Release 数据模型
+
+- SkillMeta 系列：Pydantic BaseModel（需要 YAML frontmatter 解析 + 校验）
+- Route/Eval/Ratchet/Patch/Release：dataclass（组件间内部传递够用）
+
+参见 ARCHITECTURE §5、方案书 §4.1
+"""
+from __future__ import annotations
+from dataclasses import dataclass, field
+from typing import Literal, Optional
+from pydantic import BaseModel, Field
+
+
+class Trigger(BaseModel):
+    keywords: list[str] = Field(default_factory=list)
+
+
+class Evaluation(BaseModel):
+    last_score: Optional[float] = None
+    last_release_id: Optional[str] = None
+
+
+class SkillMeta(BaseModel):
+    """SKILL.md 的 YAML frontmatter 结构"""
+    name: str
+    version: str
+    description: str
+    use_when: str
+    not_for: list[str] = Field(default_factory=list)
+    dependencies: list[str] = Field(default_factory=list)
+    trigger: Trigger = Field(default_factory=Trigger)
+    examples: list[str] = Field(default_factory=list)
+    evaluation: Evaluation = Field(default_factory=Evaluation)
+
+
+@dataclass
+class RouteResult:
+    chosen: Optional[str]
+    hit_layer: Literal["rule", "embed", "llm"]
+    scores: dict
+    latency_ms: float
+
+
+@dataclass
+class EvalResult:
+    release_id: str
+    structure_score: dict[str, float]
+    effect_score: dict[str, float]
+    objective_metrics: dict[str, float]
+    p0_pass: bool
+
+
+@dataclass
+class RatchetVerdict:
+    decision: Literal["PASS", "REVIEW", "DECLINED"]
+    reasons: list[str] = field(default_factory=list)
+
+
+@dataclass
+class Patch:
+    skill_name: str
+    level: Literal["L1", "L2", "L3"]
+    diff: str
+    rationale: str
+
+
+@dataclass
+class Release:
+    release_id: str
+    skill_name: str
+    version: str
+    commit_hash: Optional[str]
+    status: Literal["PREPARING", "PUBLISHED", "ABANDONED"]
+    level: Optional[str]

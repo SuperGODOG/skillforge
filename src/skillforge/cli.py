@@ -1,0 +1,131 @@
+"""SkillForge CLI 入口
+
+用法：
+    skillforge demo [--query "北京今天天气"] [--skill weather_query]
+    skillforge route <query>       # Phase 2
+    skillforge evaluate            # Phase 3
+    skillforge evolve --skill X    # Phase 4
+"""
+from __future__ import annotations
+import argparse
+import json
+from pathlib import Path
+
+from . import SkillRegistry
+
+
+def cmd_demo(args: argparse.Namespace) -> None:
+    """Phase 1 演示：SkillRegistry 元数据索引 + use_skill 完整链路"""
+    repo_root: Path = args.root
+    db_path = repo_root / "runs" / "skillforge.db"
+    skills_dir = repo_root / "skills"
+
+    _print_hr("SkillForge Phase 1 Demo · Agent 主导渐进式披露最小闭环")
+
+    # Step 1: 加载
+    print("\n▶ Step 1: 加载 skills/ 目录（Pydantic 解析 SKILL.md frontmatter）")
+    reg = SkillRegistry(db_path=db_path, skills_dir=skills_dir, repo_root=repo_root)
+    reg.load_skills_from_dir()
+    names = reg.list_names()
+    print(f"  ✓ 已注册 {len(names)} 个 skill: {names}")
+
+    # Step 2: 元数据索引
+    print("\n▶ Step 2: 元数据索引（会追加到 Agent 的 system prompt）")
+    _hr()
+    print(reg.build_index())
+    _hr()
+
+    # Step 3: 决策哪个 Skill
+    query = args.query
+    chosen = args.skill or _simple_rule_match(reg, query)
+
+    print(f"\n▶ Step 3: 模拟 Agent 决策")
+    print(f"  用户查询：{query!r}")
+    if not chosen:
+        print(f"  ⚠️  未匹配到 skill（规则层无命中），Phase 2 会有 embedding + LLM 兜底")
+        reg.close()
+        return
+    print(f"  Agent 决定：调用 use_skill({chosen!r}, ...)")
+
+    # Step 4: 走 use_skill
+    print(f"\n▶ Step 4: 加载 Skill Body（SQLite→Git 全链路，失败降级到磁盘）")
+    reason = f"用户查询 '{query}'，判断需要 {chosen} 提供的能力"
+    body = reg.use_skill(chosen, reason)
+    lines = body.splitlines()
+    preview = "\n".join(lines[:15])
+    print(f"  ✓ body 长度 {len(body)} chars（{len(lines)} 行）\n")
+    _hr()
+    print(preview)
+    if len(lines) > 15:
+        print(f"  … （省略 {len(lines) - 15} 行）")
+    _hr()
+
+    # Step 5: 日志
+    print(f"\n▶ Step 5: router.jsonl 最新一条")
+    log_path = reg.router_log
+    if log_path.exists():
+        last = log_path.read_text(encoding="utf-8").splitlines()[-1]
+        record = json.loads(last)
+        print(json.dumps(record, ensure_ascii=False, indent=2))
+    else:
+        print(f"  ⚠️  {log_path} 不存在")
+
+    reg.close()
+
+    _print_hr(f"Demo 完成 · 完整日志: {log_path}")
+
+
+def _simple_rule_match(reg: SkillRegistry, query: str) -> str | None:
+    """简易规则匹配（Phase 2 会被 IntentRouter 替换）"""
+    best_name, best_hits = None, 0
+    for name in reg.list_names():
+        meta = reg.get_meta(name)
+        hits = sum(1 for kw in meta.trigger.keywords if kw in query)
+        if hits > best_hits:
+            best_hits, best_name = hits, name
+    return best_name
+
+
+def _hr() -> None:
+    print("-" * 72)
+
+
+def _print_hr(title: str) -> None:
+    print("=" * 72)
+    print(title)
+    print("=" * 72)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        prog="skillforge",
+        description="Agent Skill 自进化元 Agent 系统",
+    )
+    parser.add_argument(
+        "--root", type=Path, default=Path.cwd(),
+        help="项目根目录（默认: 当前工作目录）",
+    )
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    demo_p = sub.add_parser("demo", help="Phase 1 演示：use_skill 完整链路")
+    demo_p.add_argument("--query", default="北京今天天气", help="用户查询")
+    demo_p.add_argument("--skill", default=None, help="指定 skill_name（否则用规则匹配）")
+
+    route_p = sub.add_parser("route", help="Phase 2：路由测试（未实现）")
+    route_p.add_argument("query")
+
+    sub.add_parser("evaluate", help="Phase 3：评估（未实现）")
+
+    evolve_p = sub.add_parser("evolve", help="Phase 4：元 Agent 迭代（未实现）")
+    evolve_p.add_argument("--skill", required=True)
+
+    args = parser.parse_args()
+
+    if args.cmd == "demo":
+        cmd_demo(args)
+    else:
+        print(f"[skillforge] cmd={args.cmd}  (Phase 2/3/4 实现)")
+
+
+if __name__ == "__main__":
+    main()
