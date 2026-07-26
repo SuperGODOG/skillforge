@@ -116,6 +116,9 @@ class SkillEvaluator(Tool):
         skill_metrics_list = []
         p0_pass = True
 
+        case_verdicts: list[dict] = []  # Phase 4 元 Agent 输入
+        case_outputs: list[dict] = []
+
         for i, case in enumerate(cases):
             query = case["query"]
             ref = case.get("reference")
@@ -129,12 +132,22 @@ class SkillEvaluator(Tool):
             base_metrics_list.append(base_m)
             skill_metrics_list.append(skill_m)
 
+            per_case = {"case_id": case_id, "query": query}
             for dim in verdicts:
                 v = self.judge.compare(query, skill_out, base_out, dim, reference=ref)
                 verdicts[dim].append((case_id, v))
+                per_case[dim] = v
                 # P0 语义：task 维度上 skill 版被判 B_better（不如 baseline） → P0 fail
                 if case_id in p0_ids and dim == "task_completion" and v == "B_better":
                     p0_pass = False
+            case_verdicts.append(per_case)
+            case_outputs.append({
+                "case_id": case_id,
+                "query": query,
+                "reference": ref,
+                "output_skill": skill_out,
+                "output_baseline": base_out,
+            })
 
         # 效果分：胜=1 平=0.5 负=0 加权
         effect = {
@@ -158,6 +171,8 @@ class SkillEvaluator(Tool):
             effect_score=effect,
             objective_metrics=obj,
             p0_pass=p0_pass,
+            case_verdicts=case_verdicts,
+            case_outputs=case_outputs,
         )
 
     # ----------------- 辅助 -----------------

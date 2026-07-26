@@ -48,6 +48,10 @@ class EvalResult:
     effect_score: dict[str, float]
     objective_metrics: dict[str, float]
     p0_pass: bool
+    # Phase 4 元 Agent 需要每 case 明细定位失败样本
+    case_verdicts: list[dict] = field(default_factory=list)
+    # 保留 skill/baseline 输出对，供元 Agent 归因（可选，大数据量）
+    case_outputs: list[dict] = field(default_factory=list)
 
 
 @dataclass

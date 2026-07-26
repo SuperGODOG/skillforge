@@ -12,7 +12,7 @@ import json
 import os
 from pathlib import Path
 
-from . import SkillRegistry, IntentRouter, SkillEvaluator
+from . import SkillRegistry, IntentRouter, SkillEvaluator, SkillEvolver, ReleaseStateMachine
 
 
 def cmd_demo(args: argparse.Namespace) -> None:
@@ -186,6 +186,63 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
     _print_hr("完成")
 
 
+def cmd_evolve(args: argparse.Namespace) -> None:
+    """Phase 4 演示：SkillEvolver 元 Agent 六步迭代"""
+    repo_root: Path = args.root
+    db_path = repo_root / "runs" / "skillforge.db"
+    skills_dir = repo_root / "skills"
+
+    _print_hr(f"SkillEvolver · skill={args.skill}  eval_set={args.eval_set}  max_candidates={args.max_candidates}")
+
+    reg = SkillRegistry(db_path=db_path, skills_dir=skills_dir, repo_root=repo_root)
+    reg.load_skills_from_dir()
+
+    try:
+        from dotenv import load_dotenv
+        from hello_agents import HelloAgentsLLM
+        load_dotenv(repo_root / ".env")
+        llm = HelloAgentsLLM(
+            api_key=os.environ["LLM_API_KEY"],
+            model=os.environ["LLM_MODEL_ID"],
+            base_url=os.environ["LLM_BASE_URL"],
+        )
+    except KeyError as e:
+        print(f"  ❌ .env 缺失 {e}，元 Agent 无法启动")
+        return
+
+    evaluator = SkillEvaluator(registry=reg, llm=llm)
+    sm = ReleaseStateMachine(db_path=db_path, repo_root=repo_root)
+
+    evolver = SkillEvolver(
+        registry=reg, evaluator=evaluator, llm=llm, state_machine=sm,
+    )
+    outcome = evolver.evolve_full(
+        args.skill,
+        max_candidates=args.max_candidates,
+        eval_set_for_iter=args.eval_set,
+        verbose=True,
+    )
+
+    print()
+    _print_hr("迭代产出")
+    print(f"skill:            {outcome.skill_name}")
+    print(f"baseline_score:   {outcome.baseline_score:.2f}")
+    print(f"patches_generated: {outcome.patches_generated}")
+    print(f"published (L1 auto): {len(outcome.patches_published)}  {outcome.patches_published}")
+    print(f"review (L2 建议):    {len(outcome.patches_review)}")
+    for p in outcome.patches_review[:3]:
+        print(f"    · {p}")
+    print(f"declined (归档):     {len(outcome.patches_declined)}")
+    for p in outcome.patches_declined[:3]:
+        print(f"    · {p}")
+    if outcome.error:
+        print(f"error: {outcome.error}")
+
+    reg.close()
+    sm.close()
+    _print_hr("完成")
+
+
 def _simple_rule_match(reg: SkillRegistry, query: str) -> str | None:
     """简易规则匹配（Phase 2 会被 IntentRouter 替换）"""
     best_name, best_hits = None, 0
@@ -233,8 +290,12 @@ def main() -> None:
                         help="评估集（默认 baseline_dev；可选 baseline_hidden）")
     eval_p.add_argument("--verbose", action="store_true", help="逐 case 打印进度")
 
-    evolve_p = sub.add_parser("evolve", help="Phase 4：元 Agent 迭代（未实现）")
-    evolve_p.add_argument("--skill", required=True)
+    evolve_p = sub.add_parser("evolve", help="Phase 4：元 Agent 六步迭代（半自动）")
+    evolve_p.add_argument("--skill", required=True, help="要迭代的 skill_name")
+    evolve_p.add_argument("--max-candidates", type=int, default=3,
+                          help="一次生成候选数（默认 3）")
+    evolve_p.add_argument("--eval-set", default="baseline_hidden",
+                          help="迭代评估用哪个集（默认 baseline_hidden，8 条快）")
 
     args = parser.parse_args()
 
@@ -244,8 +305,10 @@ def main() -> None:
         cmd_route(args)
     elif args.cmd == "evaluate":
         cmd_evaluate(args)
+    elif args.cmd == "evolve":
+        cmd_evolve(args)
     else:
-        print(f"[skillforge] cmd={args.cmd}  (Phase 4 实现)")
+        print(f"[skillforge] cmd={args.cmd}")
 
 
 if __name__ == "__main__":

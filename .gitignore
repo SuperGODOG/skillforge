@@ -32,3 +32,6 @@ htmlcov/
 .vscode/
 .idea/
 .DS_Store
+
+# Claude Code 本地会话追踪（不入库）
+memory/
