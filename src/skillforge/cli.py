@@ -12,7 +12,7 @@ import json
 import os
 from pathlib import Path
 
-from . import SkillRegistry, IntentRouter
+from . import SkillRegistry, IntentRouter, SkillEvaluator
 
 
 def cmd_demo(args: argparse.Namespace) -> None:
@@ -127,6 +127,65 @@ def cmd_route(args: argparse.Namespace) -> None:
     reg.close()
 
 
+def cmd_evaluate(args: argparse.Namespace) -> None:
+    """Phase 3 演示：八维评估器（结构分 + Judge 配对 + 客观指标 + 棘轮）"""
+    repo_root: Path = args.root
+    db_path = repo_root / "runs" / "skillforge.db"
+    skills_dir = repo_root / "skills"
+
+    _print_hr(f"SkillEvaluator · skill={args.skill}  eval_set={args.eval_set}")
+
+    reg = SkillRegistry(db_path=db_path, skills_dir=skills_dir, repo_root=repo_root)
+    reg.load_skills_from_dir()
+
+    # 加载 LLM（Judge 与 Agent 共用；生产建议分开）
+    try:
+        from dotenv import load_dotenv
+        from hello_agents import HelloAgentsLLM
+        load_dotenv(repo_root / ".env")
+        llm = HelloAgentsLLM(
+            api_key=os.environ["LLM_API_KEY"],
+            model=os.environ["LLM_MODEL_ID"],
+            base_url=os.environ["LLM_BASE_URL"],
+        )
+    except KeyError as e:
+        print(f"  ❌ .env 缺失 {e}，评估无法进行（Phase 3 强依赖 LLM）")
+        return
+
+    evaluator = SkillEvaluator(registry=reg, llm=llm)
+
+    print(f"  ▶ 开始评估...（每个 case 3 次 LLM 调用 + Judge 3 维 × 每维 1 次 = 6 次调用）")
+    result = evaluator.evaluate_skill(
+        args.skill,
+        eval_set=args.eval_set,
+        verbose=args.verbose,
+    )
+
+    print()
+    _print_hr("评估报告")
+    print(f"结构分（40 分，权重 40%，不阻断发布）:")
+    for k, v in result.structure_score.items():
+        print(f"  {k:12s}: {v:>5.2f}")
+    print(f"  {'小计':12s}: {sum(result.structure_score.values()):>5.2f} / 40")
+
+    print(f"\n效果分（60 分，权重 60%，发布门槛）:")
+    for k, v in result.effect_score.items():
+        print(f"  {k:12s}: {v:>5.2f}")
+    print(f"  {'小计':12s}: {sum(result.effect_score.values()):>5.2f} / 60")
+
+    total = sum(result.structure_score.values()) + sum(result.effect_score.values())
+    print(f"\n总分: {total:.2f} / 100")
+
+    print(f"\n客观指标（平均）:")
+    for k, v in result.objective_metrics.items():
+        print(f"  {k:24s}: {v:>8.2f}")
+
+    print(f"\nP0 用例: {'✓ 全通过' if result.p0_pass else '❌ 有失败（棘轮硬门槛 5 触发）'}")
+
+    reg.close()
+    _print_hr("完成")
+
+
 def _simple_rule_match(reg: SkillRegistry, query: str) -> str | None:
     """简易规则匹配（Phase 2 会被 IntentRouter 替换）"""
     best_name, best_hits = None, 0
@@ -168,7 +227,11 @@ def main() -> None:
     route_p.add_argument("--use-llm", action="store_true", help="启用 LLM 兜底（需 .env 有 LLM_API_KEY）")
     route_p.add_argument("--top-k", type=int, default=5, help="embed 层 top-K（默认 5）")
 
-    sub.add_parser("evaluate", help="Phase 3：评估（未实现）")
+    eval_p = sub.add_parser("evaluate", help="Phase 3：八维评估器 + 棘轮")
+    eval_p.add_argument("--skill", required=True, help="要评估的 skill_name")
+    eval_p.add_argument("--eval-set", default="baseline_dev",
+                        help="评估集（默认 baseline_dev；可选 baseline_hidden）")
+    eval_p.add_argument("--verbose", action="store_true", help="逐 case 打印进度")
 
     evolve_p = sub.add_parser("evolve", help="Phase 4：元 Agent 迭代（未实现）")
     evolve_p.add_argument("--skill", required=True)
@@ -179,8 +242,10 @@ def main() -> None:
         cmd_demo(args)
     elif args.cmd == "route":
         cmd_route(args)
+    elif args.cmd == "evaluate":
+        cmd_evaluate(args)
     else:
-        print(f"[skillforge] cmd={args.cmd}  (Phase 3/4 实现)")
+        print(f"[skillforge] cmd={args.cmd}  (Phase 4 实现)")
 
 
 if __name__ == "__main__":
