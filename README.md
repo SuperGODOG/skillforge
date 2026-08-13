@@ -1,5 +1,7 @@
 <div align="center">
 
+![SkillForge](assets/skillforge-banner.png)
+
 # SkillForge
 
 **Agent Skill 自进化元 Agent 系统**

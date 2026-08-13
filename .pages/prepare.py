@@ -12,7 +12,8 @@ SOURCES = [
     "ARCHITECTURE.md",
     "INTERVIEW_PREP.md",
     "SkillForge-项目方案书-v3.md",
-    "docs"
+    "docs",
+    "assets"
 ]
 
 def main():
