@@ -19,6 +19,23 @@
 
 ---
 
+## 📑 目录
+
+- [一句话定位](#一句话定位)
+- [功能特性](#-功能特性)
+- [四阶段交付](#-四阶段交付)
+- [架构简图](#-架构简图)
+- [快速开始](#-快速开始)
+- [项目结构](#-项目结构)
+- [核心设计决策](#-核心设计决策)
+- [数字对账](#-数字对账)
+- [文档地图](#-文档地图)
+- [Roadmap](#-roadmapphase-5-优先级--详见-issues_log)
+- [开发环境要求](#-开发环境要求)
+- [License](#-license)
+
+---
+
 ## 一句话定位
 
 **"生产 Skill 的元 Agent 系统"** —— 大多数 Agent 项目聚焦"用 Skill 干活"；本项目聚焦让 Skill 本身**可评测、可版本管理、可自动改进**的工程闭环。
@@ -27,7 +44,20 @@
 
 ---
 
-## 四阶段交付
+## ✨ 功能特性
+
+| 能力 | 说明 |
+|------|------|
+| 🔧 **use_skill 主动加载** | Agent 显式调用 `use_skill(name, reason)`，不拦截 prompt，归因 100% 可回放 |
+| 🧭 **三层级联路由** | 规则 → bge-small embedding → LLM 兜底，R@1=98% / R@3=100%（50 条硬负例校准） |
+| 📊 **八维评估器** | 结构 40 分 + 效果 60 分，Judge 配对比较对抗分数漂移，棘轮门槛防"表面漂亮" |
+| 🔄 **元 Agent 六步闭环** | baseline → collect → root_cause → generate → validate → 分级发布（L1 自动 / L2 L3 建议） |
+| 🗄 **SQLite 唯一事实源** | Git（内容版本）+ SQLite（发布状态）+ JSONL（审计）三存储解耦，状态机原子切换 |
+| 🧪 **74 条 pytest** | 4.4s 全绿，CLI 一键复现全部评测数字 |
+
+---
+
+## 🗓 四阶段交付
 
 <table>
 <thead><tr>
@@ -67,7 +97,7 @@
 
 ---
 
-## 架构简图
+## 🏗 架构简图
 
 ```mermaid
 flowchart LR
@@ -102,7 +132,7 @@ flowchart LR
 
 ---
 
-## Quick Start
+## 🚀 快速开始
 
 ### 1️⃣ 环境准备（约 5 分钟）
 
@@ -126,8 +156,6 @@ EOF
 ```
 
 **验证成功**：`./.venv/bin/pytest tests/ -q` 应显示 `74 passed in ~4s`。
-
----
 
 ### 2️⃣ 四个 CLI 命令覆盖四个 Phase
 
@@ -226,8 +254,6 @@ EOF
 ```
 </details>
 
----
-
 ### 3️⃣ 完整评测复现（Phase 2/3 门槛验证）
 
 ```bash
@@ -238,7 +264,7 @@ pytest tests/ -v                              # 74/74 全绿 · 4.4s
 
 ---
 
-## 项目结构
+## 📁 项目结构
 
 <details>
 <summary>展开目录树</summary>
@@ -286,7 +312,7 @@ skillforge/
 
 ---
 
-## 五大核心设计决策
+## 🎯 核心设计决策
 
 > **设计不是拍脑袋** —— 每个决策都有备选方案 + 选择理由 + 关联影响。详见 [ARCHITECTURE.md §8](ARCHITECTURE.md) 10 条 ADR 和方案书 §4。
 
@@ -302,7 +328,7 @@ skillforge/
 
 ---
 
-## 数字对账
+## 📊 数字对账
 
 | 指标 | 方案书门槛 | 实测 | 达标 |
 |---|---|---|---|
@@ -315,7 +341,7 @@ skillforge/
 
 ---
 
-## 文档地图
+## 📚 文档地图
 
 | 文档 | 用途 | 面试参考位置 |
 |---|---|---|
@@ -327,7 +353,7 @@ skillforge/
 
 ---
 
-## Roadmap（Phase 5 优先级 · 详见 [ISSUES_LOG](ISSUES_LOG.md#收尾一句话建议)）
+## 🛣 Roadmap（Phase 5 优先级 · 详见 ISSUES_LOG）
 
 1. **Judge prompt 补幻觉红线** — 立刻兑现 Phase 3 交付（task 分歧 62% → <30%）
 2. **GitHub Actions + Docker Compose** — 降面试演示门槛
@@ -337,7 +363,7 @@ skillforge/
 
 ---
 
-## 开发环境要求
+## 💻 开发环境要求
 
 - **OS**: Linux / macOS（Windows WSL2 可）
 - **Python**: 3.10+（测试环境 3.12）
@@ -348,7 +374,7 @@ skillforge/
 
 ---
 
-## 演化说明（本项目的"元数据"）
+## 🧬 演化说明（本项目的"元数据"）
 
 - **方案书 v3** 是**设计冻结点**（写于 Phase 1 前，含 A.2 一致性口径 14+7 条）
 - **ARCHITECTURE.md** 是**架构基线**（Phase 4 完成后 §10 记 8 处实施差异）
@@ -358,11 +384,11 @@ skillforge/
 
 ---
 
-## License
+## 📄 License
 
 MIT · 本项目为个人学习/面试演示项目，欢迎 fork 学习或提 issue 讨论设计取舍。
 
-## Acknowledgements
+## 🙏 Acknowledgements
 
 - [hello-agents](https://pypi.org/project/hello-agents/) — Agent 抽象基座
 - [BAAI/bge-small-zh-v1.5](https://huggingface.co/BAAI/bge-small-zh-v1.5) — 中文 embedding
