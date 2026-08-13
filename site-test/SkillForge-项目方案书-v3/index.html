@@ -1,0 +1,3066 @@
+
+<!doctype html>
+<html lang="zh" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Agent Skill 自进化元 Agent 系统 · Agent 主导渐进式披露 + 三层路由（规则+bge+LLM R@1=98%）+ 八维评估器 + 元 Agent 半自动闭环 · 4907 行 Python · pytest 74/74">
+      
+      
+      
+        <link rel="canonical" href="https://supergodog.github.io/skillforge/SkillForge-%E9%A1%B9%E7%9B%AE%E6%96%B9%E6%A1%88%E4%B9%A6-v3/">
+      
+      
+        <link rel="prev" href="../INTERVIEW_PREP/">
+      
+      
+        <link rel="next" href="../docs/INTERVIEW_DESIGN_MAP/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>SkillForge - Skillforge · SuperGODOG</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#skillforge" class="md-skip">
+          跳转至
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="页眉">
+    <a href=".." title="Skillforge · SuperGODOG" class="md-header__button md-logo" aria-label="Skillforge · SuperGODOG" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Skillforge · SuperGODOG
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              SkillForge
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-hidden="true"  type="radio" name="__palette" id="__palette_0">
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-hidden="true"  type="radio" name="__palette" id="__palette_1">
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="搜索" placeholder="搜索" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="查找">
+        
+        <button type="reset" class="md-search__icon md-icon" title="清空当前内容" aria-label="清空当前内容" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            正在初始化搜索引擎
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/SuperGODOG/skillforge" title="前往仓库" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    skillforge
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="导航栏" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Skillforge · SuperGODOG" class="md-nav__button md-logo" aria-label="Skillforge · SuperGODOG" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Skillforge · SuperGODOG
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/SuperGODOG/skillforge" title="前往仓库" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    skillforge
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ARCHITECTURE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SkillForge 架构文档
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../INTERVIEW_PREP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SkillForge · 面试深挖手册（面试官视角）
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SkillForge
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SkillForge
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="目录">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      目录
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        目录
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        一、项目概述
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        二、面试引导策略
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="二、面试引导策略">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21-30" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.1 第一层：30 秒开场（抛钩子）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#22" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.2 第二层：追问后展开实现
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#23" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.3 第三层：展示工程取舍
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        三、技术选型
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="三、技术选型">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 框架
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 存储
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3.2 存储">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        跨存储一致性协议
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.3 评估
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        四、架构设计（5 个核心组件）
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="四、架构设计（5 个核心组件）">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-skillmd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 SKILL.md 定义规范
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 渐进式披露引擎（Agent 主导）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 三层路由（去掉硬编码百分比）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#44" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.4 八维评估器 + 棘轮机制
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4.4 八维评估器 + 棘轮机制">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#40-60" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        八维定义（结构分 40% + 效果分 60%）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        棘轮机制（双层门槛 + 分级阻断）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#judge" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Judge 配对比较协议
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        评估集构造
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#judge_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Judge 模型选择与偏见缓解
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        评估可信度声明（必须写进方案书）
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#45-skillevolver-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.5 SkillEvolver 元 Agent（半自动）
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        五、前置知识
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        六、实施计划
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="六、实施计划">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        排期风险与降级预案
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        七、面试应答模板（深度版）
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="七、面试应答模板（深度版）">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#71" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.1 第一层：抛出概念
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7.1 第一层：抛出概念">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#30" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        标准开场话术（30 秒）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        埋的 3 个钩子
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#72" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.2 第二层：展开实现细节
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7.2 第二层：展开实现细节">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#q-skill-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q: Skill 是怎么注入上下文的？框架帮 Agent 展开了吗？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q-skill-mcp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q: 多个 Skill 用同一个 MCP 工具怎么选？会不会打架？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q-tools-llm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q: 渐进式披露具体怎么做？跟"把所有 tools 描述一次给 LLM"有什么本质不同？
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#73" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.3 第三层：展示工程取舍
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7.3 第三层：展示工程取舍">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#q-embedding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q: 为什么不用纯 embedding？三层是不是过度设计？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q: 棘轮机制会不会导致改进停滞？改一下就说"退步了"卡住怎么办？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q-langchain-agent-anthropic-skills" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q: 你这套跟 LangChain Agent / Anthropic 官方 Skills 什么关系？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q-llm-as-a-judge" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q: LLM-as-a-Judge 怎么保证没有偏见？
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#74" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.4 三个必备预案
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7.4 三个必备预案">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#q-4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q: 多给你 4 周你会先加什么？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q: 元 Agent 成功率大概多少？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q: 这个项目最大的技术难点是什么？
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_13" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        附录
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="附录">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A.1 框架扩展关系
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a2-v3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A.2 一致性口径清单（v3 唯一真源）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A.3 关键指标一览
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A.4 项目规模
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        附录 B：简历项目介绍写法
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="附录 B：简历项目介绍写法">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#b1-8-5-6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B.1 推荐版本（8 行紧凑版，5-6 秒可扫读）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#b2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B.2 每一行的钩子设计（面试引导用）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#b3-linkedin-headline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B.3 一句话版本（用于个人简介 / LinkedIn Headline）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#b4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B.4 三行超短版（用于表格式简历，如"项目经历"栏位空间受限）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#b5-v3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B.5 写简历的三条硬规则（v3 方案书的一致性延伸）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#b6-star-3-5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B.6 STAR 展开（如需要 3-5 句话叙述性版本，如求职信/自我介绍）
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docs
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Docs
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../docs/INTERVIEW_DESIGN_MAP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interview Design Map — SuperGODOG__skillforge
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="目录">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      目录
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        目录
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        一、项目概述
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        二、面试引导策略
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="二、面试引导策略">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21-30" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.1 第一层：30 秒开场（抛钩子）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#22" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.2 第二层：追问后展开实现
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#23" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.3 第三层：展示工程取舍
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        三、技术选型
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="三、技术选型">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 框架
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 存储
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3.2 存储">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        跨存储一致性协议
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.3 评估
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        四、架构设计（5 个核心组件）
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="四、架构设计（5 个核心组件）">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-skillmd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 SKILL.md 定义规范
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 渐进式披露引擎（Agent 主导）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 三层路由（去掉硬编码百分比）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#44" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.4 八维评估器 + 棘轮机制
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4.4 八维评估器 + 棘轮机制">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#40-60" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        八维定义（结构分 40% + 效果分 60%）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        棘轮机制（双层门槛 + 分级阻断）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#judge" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Judge 配对比较协议
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        评估集构造
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#judge_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Judge 模型选择与偏见缓解
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        评估可信度声明（必须写进方案书）
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#45-skillevolver-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.5 SkillEvolver 元 Agent（半自动）
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        五、前置知识
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        六、实施计划
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="六、实施计划">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        排期风险与降级预案
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        七、面试应答模板（深度版）
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="七、面试应答模板（深度版）">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#71" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.1 第一层：抛出概念
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7.1 第一层：抛出概念">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#30" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        标准开场话术（30 秒）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        埋的 3 个钩子
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#72" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.2 第二层：展开实现细节
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7.2 第二层：展开实现细节">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#q-skill-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q: Skill 是怎么注入上下文的？框架帮 Agent 展开了吗？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q-skill-mcp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q: 多个 Skill 用同一个 MCP 工具怎么选？会不会打架？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q-tools-llm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q: 渐进式披露具体怎么做？跟"把所有 tools 描述一次给 LLM"有什么本质不同？
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#73" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.3 第三层：展示工程取舍
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7.3 第三层：展示工程取舍">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#q-embedding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q: 为什么不用纯 embedding？三层是不是过度设计？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q: 棘轮机制会不会导致改进停滞？改一下就说"退步了"卡住怎么办？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q-langchain-agent-anthropic-skills" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q: 你这套跟 LangChain Agent / Anthropic 官方 Skills 什么关系？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q-llm-as-a-judge" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q: LLM-as-a-Judge 怎么保证没有偏见？
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#74" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.4 三个必备预案
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7.4 三个必备预案">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#q-4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q: 多给你 4 周你会先加什么？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q: 元 Agent 成功率大概多少？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q: 这个项目最大的技术难点是什么？
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_13" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        附录
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="附录">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A.1 框架扩展关系
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a2-v3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A.2 一致性口径清单（v3 唯一真源）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A.3 关键指标一览
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A.4 项目规模
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        附录 B：简历项目介绍写法
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="附录 B：简历项目介绍写法">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#b1-8-5-6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B.1 推荐版本（8 行紧凑版，5-6 秒可扫读）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#b2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B.2 每一行的钩子设计（面试引导用）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#b3-linkedin-headline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B.3 一句话版本（用于个人简介 / LinkedIn Headline）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#b4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B.4 三行超短版（用于表格式简历，如"项目经历"栏位空间受限）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#b5-v3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B.5 写简历的三条硬规则（v3 方案书的一致性延伸）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#b6-star-3-5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B.6 STAR 展开（如需要 3-5 句话叙述性版本，如求职信/自我介绍）
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="skillforge">SkillForge</h1>
+<p><strong>Agent Skill 自进化工厂 —— 项目方案书 v3</strong></p>
+<p>基于 hello-agents 框架扩展 · 面向 Agent 工程师面试备考</p>
+<hr />
+<h2 id="_1">目录</h2>
+<ul>
+<li>一、项目概述</li>
+<li>二、面试引导策略</li>
+<li>三、技术选型</li>
+<li>四、架构设计（5 个核心组件）</li>
+<li>五、前置知识</li>
+<li>六、实施计划（4 周 × 4 Phase）</li>
+<li>七、面试应答模板（深度版）</li>
+<li>附录：框架扩展关系 + 一致性口径清单</li>
+</ul>
+<hr />
+<h2 id="_2">一、项目概述</h2>
+<p>SkillForge 是一个<strong>元 Agent 系统</strong>——它不是"用 Skill 干活的 Agent"，而是"<strong>生产 Skill 的 Agent</strong>"。核心闭环是：<strong>收集失败案例 → 分析根因 → 生成候选改进 → 评估 → 棘轮机制卡不退步 → 分级发布</strong>，让 Agent Skill（SKILL.md）像软件资产一样可评测、可演化、可版本管理。</p>
+<p><strong>一句话定位</strong>：做一个"造 Skill 的 Agent"，而不是"用 Skill 干活的 Agent"。</p>
+<p><strong>项目规模</strong>：约 900 行 Python，4 周业余时间；仅依赖 hello-agents + 标准库 + sentence-transformers；无外部 DB 服务；CLI 模式即可完整演示。</p>
+<p><strong>面试价值</strong>：项目位于 Meta 层（不是应用型），与业务型项目（如旅游助手、客服 Agent）是<strong>正交定位</strong>——两类项目考察不同能力，无高低之分。面试引导采用三层递进：<strong>第一层抛概念</strong>（Skill vs function call / Agent 主导渐进式披露 / 元 Agent 半自动闭环），<strong>第二层展开实现</strong>（use_skill 机制、三层路由、棘轮机制），<strong>第三层展示取舍</strong>（评估可信度、跨存储一致性、Judge 偏见）。目标覆盖 <strong>20 分钟深度技术讨论</strong>。</p>
+<p><strong>关键工程原则</strong>（贯穿全文）：</p>
+<ol>
+<li><strong>Agent 主导，框架不拦截 prompt</strong> —— 渐进式披露由 Agent 通过 <code>use_skill(name, reason)</code> 显式发起，加载行为可归因、可评估</li>
+<li><strong>规则优先，Embedding 补充，LLM 兜底</strong> —— 三层路由级联，不写死覆盖率百分比</li>
+<li><strong>结构分不阻断发布，效果分才是发布门槛</strong> —— 八维评估分工明确</li>
+<li><strong>元 Agent 是候选生成器，不是最终决策者</strong> —— L1 自动、L2 REVIEW、L3 只出建议</li>
+<li><strong>SQLite 是唯一发布事实源</strong> —— 三存储写入按状态机固定顺序，任一步失败旧版本继续生效</li>
+<li><strong>评估边界诚实声明</strong> —— 相对回归筛选器，不是绝对质量证明器</li>
+</ol>
+<hr />
+<h2 id="_3">二、面试引导策略</h2>
+<p>按"三层递进"设计话术：第一层抛钩子引诱追问，第二层展开实现细节，第三层展示工程取舍。目标覆盖 20 分钟深度讨论。</p>
+<hr />
+<h3 id="21-30">2.1 第一层：30 秒开场（抛钩子）</h3>
+<p>面试官问"介绍一下项目"时的标准回答。三句话对应三个钩子，每个钩子都留有可追问的技术缺口。</p>
+<table>
+<thead>
+<tr>
+<th>你主动说</th>
+<th>埋的钩子（面试官可能追问）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>我做了一个叫 SkillForge 的元 Agent 系统，它不是"用 Skill 干活的 Agent"，而是"生产 Skill 的 Agent"。</td>
+<td>Skill 和 function call / tool 有什么区别？为什么值得单独抽象？</td>
+</tr>
+<tr>
+<td>Skill 的加载走渐进式披露，只有两层：元数据索引随 system prompt 一起注入，完整说明书按需返回。加载不是框架自动展开的，是 Agent 在 ReAct 循环里自己调 <code>use_skill(name)</code> 加载的。</td>
+<td>那 Skill 是怎么被 Agent 看到的？框架有没有拦截 prompt？多个候选怎么选？</td>
+</tr>
+<tr>
+<td>生成新 Skill 走一条半自动闭环：元 Agent 提候选 → 八维评估器打分 → 棘轮机制卡不退步 → 按 L1/L2/L3 分级发布，只有低风险的 L1 是自动发布。</td>
+<td>评估怎么保证不是自吹自擂？棘轮会不会卡死改进？元 Agent 成功率多少？</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="22">2.2 第二层：追问后展开实现</h3>
+<p>前三个是核心技术钩子，任何一个都足以聊 5 分钟。</p>
+<table>
+<thead>
+<tr>
+<th>面试官追问</th>
+<th>你的回答（展开技术细节）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Skill 是怎么注入上下文的？框架帮 Agent 展开了吗？</td>
+<td>只注入元数据索引，不预注入 Body。每个已注册 Skill 我提取 <code>name + description + use_when</code> 三个字段，拼成一段文字索引，随 system prompt 一次性给 Agent。<strong>注意这不是 Anthropic 工具协议里的 tool 列表，就是一段文字索引</strong>。同时我注册一个特殊工具 <code>use_skill(name, reason)</code>，Agent 在 ReAct 循环里读到索引后自己判断需要哪个 Skill，主动调用 <code>use_skill</code>，框架把该 Skill 的完整 Body 作为 tool 结果拼回 conversation，之后 Agent 用返回的说明书继续正常 ReAct。<strong>框架不拦截 prompt、不静默修改 system_prompt</strong>，加载完全由 Agent 决策，每次 <code>use_skill</code> 都写路由日志便于事后归因。</td>
+</tr>
+<tr>
+<td>多个 Skill 用同一个 MCP 工具怎么选？会不会打架？</td>
+<td>走三层路由级联去重：先规则层按 keyword + 权重命中，top-1 领先 top-2 大于阈值就直接返回；否则进 embedding 层，Skill 描述用"检索卡片"结构化编码（capability + use_when + examples + not_for 四段拼接）返回 top-K；还定不下来才进 LLM 层做二选一。<strong>同一意图下最终只放行一个 Skill</strong>，避免两个 Skill 抢同一次调用。工具本身是共享的，Skill 是使用工具的"套路 + 边界"，路由选中的是套路。</td>
+</tr>
+<tr>
+<td>三层路由每一层的 fallback 条件到底是什么？为什么这么切？</td>
+<td>规则层 fallback 条件是"top-1 与 top-2 分差 &lt; 阈值"或"没有 keyword 命中"，触发就落到 embedding；embedding 层 fallback 条件是"top-K 里没有明显领先者"或"最高相似度低于置信阈值"，触发就落到 LLM。切法背后有个成本-延迟考虑：规则层 &lt;5ms 覆盖高置信路径，embedding ~50ms 覆盖语义相近但没有关键词命中的路径，LLM ~500ms 只用在真正歧义的少数场景。<strong>真实分布 Phase 2 结束基于路由日志统计</strong>，我不写死百分比。</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="23">2.3 第三层：展示工程取舍</h3>
+<p>四个问题都是面试官用来试深度的，需要给出取舍的理由，而不是只报结论。</p>
+<table>
+<thead>
+<tr>
+<th>面试官追问</th>
+<th>你的回答（展开取舍）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>为什么不直接上纯 embedding？三层是不是过度设计？</td>
+<td>纯 embedding 有两个成本我不想吃：一是延迟，规则层能秒杀的高频路径没必要过一次编码；二是可控性，embedding 在"语义相近但意图不同"的 Skill 之间容易误命中，硬负例评测集里这种 case 特别多。规则层帮我承接高置信路径，embedding 承接语义相似路径，LLM 兜底歧义。<strong>分层是为路由日志能归因</strong>——出错时能定位是哪一层选错了、要补哪一层。纯 embedding 一个黑盒选错了没法归因。</td>
+</tr>
+<tr>
+<td>棘轮机制会不会导致改进停滞？改一下就说"退步了"卡住？</td>
+<td>会有这个风险，所以我做了两层门槛。硬门槛是不可退步项：总分不退、效果分不退、任务完成度和鲁棒性下降 ≥ 5%、任一 P0 用例由通过变失败——这四类自动阻断。软门槛是变化 ≥ 10% 触发人工审核 REVIEW，<strong>不阻断，只是要人看一眼</strong>。另外 Judge 是配对比较（新旧输出让 Judge 判"A 好 / 持平 / B 好"）不是打绝对分，能一定程度对抗分数漂移。<strong>如果十次全被卡也是有价值的信号</strong>——说明我的候选生成策略需要重新想，而不是把棘轮放宽。</td>
+</tr>
+<tr>
+<td>元 Agent 成功率就 30%，这有什么价值？为啥不搞成全自动？</td>
+<td>30% 是我坦诚的预期数字（10 次迭代约 3 次通过棘轮），价值不在替代人做发布决策，在于<strong>自动过滤明显错的改动</strong>。三个具体收益：一是失败 patch 全归档到 <code>runs/failures/</code> 附根因分析，等于给未来的候选生成攒了负样本；二是通过棘轮的候选人工只需要 review 1-2 个，而不是 review 全部 3-5 个；三是自动跑评估集这一步的工时被完全省掉。<strong>全自动发布我明确不做</strong>——评估集只有 40 条，Judge 又有自评偏见风险，这个可信度不足以支持全自动化，元 Agent 的定位是"候选生成器"不是"最终决策者"。</td>
+</tr>
+<tr>
+<td>三处写一半崩了怎么办？你 Git、SQLite、JSONL 三个存储怎么保证一致性？</td>
+<td>我把 SQLite 当<strong>唯一发布事实源</strong>，只有 <code>skills.current_release_id</code> 指向哪个 release，那个才是线上生效版本。写入协议固定四步：SQLite 插 PREPARING 行 → Git commit 回写 commit_hash → JSONL 追加评估记录 → SQLite 原子 UPDATE PREPARING → PUBLISHED 同时更新 <code>current_release_id</code>。<strong>任何一步崩，SQLite 保留 PREPARING、<code>current_release_id</code> 不变，旧版本继续生效</strong>；Git commit 和 JSONL 记录留着供审计。加一个 Watchdog 定时把超 24h 未 PUBLISHED 的行改成 ABANDONED。release_id 是 UUID 全局唯一，第四步 UPDATE 加了状态条件（<code>WHERE status='PREPARING'</code>），重放整个流程幂等。</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="_4">三、技术选型</h2>
+<h3 id="31">3.1 框架</h3>
+<table>
+<thead>
+<tr>
+<th>组件</th>
+<th>选型</th>
+<th>理由</th>
+<th>是否已掌握</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Agent 基类</td>
+<td><code>SimpleAgent</code> + <code>ReActAgent</code>（hello-agents Lesson 1-2）</td>
+<td>已在课程练习中跑通，元 Agent 直接继承 <code>SimpleAgent</code>，无需引入新框架</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>工具注册</td>
+<td><code>ToolRegistry</code>（hello-agents）</td>
+<td>特殊工具 <code>use_skill(name, reason)</code> 走同一注册机制，与已有工具协议一致</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>记忆</td>
+<td><code>MemoryTool</code>（hello-agents）</td>
+<td>用于元 Agent 迭代过程中的短期上下文，不引入向量记忆</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>元 Agent</td>
+<td><code>SkillEvolver</code> 继承 <code>SimpleAgent</code></td>
+<td>复用 ReAct 循环，只在系统提示和工具集上定制；不新造调度框架</td>
+<td>✅（基类）/ 🟡（本项目新写）</td>
+</tr>
+<tr>
+<td>LLM</td>
+<td><code>HelloAgentsLLM</code>（DeepSeek，已有 API Key）</td>
+<td>无需申请新账号，成本可控，支持长上下文</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Judge</td>
+<td>DeepSeek（同上 LLM），采用新旧输出<strong>配对比较</strong></td>
+<td>复用现有 API；配对协议降低分数漂移；自评偏见通过人工盲评校准兜底</td>
+<td>✅（API）/ 🟡（配对协议）</td>
+</tr>
+<tr>
+<td>Embedding</td>
+<td><code>bge-small-zh-v1.5</code> 本地起（sentence-transformers）；<code>bge-m3</code> 精度模式可选</td>
+<td>中文 Skill 描述场景表现好；本地跑无外部依赖；小模型 CPU 可推</td>
+<td>🟡（需补 sentence-transformers 本地服务）</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="32">3.2 存储</h3>
+<table>
+<thead>
+<tr>
+<th>数据</th>
+<th>方案</th>
+<th>理由</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Skill 源码（SKILL.md）</td>
+<td>Git 本地仓库</td>
+<td>天然 diff 审计、版本回滚，与开发者习惯一致，无需自造版本系统</td>
+</tr>
+<tr>
+<td>元数据 + 发布状态 + <code>current_release_id</code></td>
+<td>SQLite</td>
+<td><strong>唯一发布事实源</strong>；单文件零运维；支持事务，天然实现状态机原子切换</td>
+</tr>
+<tr>
+<td>评估轨迹（每条评估一行 JSON）</td>
+<td>JSONL</td>
+<td>追加写、易 <code>grep</code>/<code>jq</code> 分析；不承担一致性责任，只作为审计流水</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_5">跨存储一致性协议</h4>
+<p>三个存储承担不同职责，<strong>发布状态以 SQLite 为唯一事实源</strong>：Git 只是源码库，JSONL 只是审计流水，两者都不代表"当前生效版本"。当外部（路由层、Agent、评估器）询问"某 Skill 当前发布版本是什么"时，答案始终来自 SQLite 的 <code>skills.current_release_id</code>。这样即使 Git 或 JSONL 中间步骤失败，也不会污染线上版本。</p>
+<p>写入采用固定顺序的状态机，<code>release_id</code>（UUID）在第 1 步生成并贯穿全流程作为幂等键：</p>
+<ol>
+<li><strong>SQLite 插入 release row</strong>：状态置为 <code>PREPARING</code>，写入 <code>release_id</code></li>
+<li><strong>Git 提交候选</strong>：生成 <code>commit_hash</code> 回写 SQLite 对应 release row</li>
+<li><strong>JSONL 追加评估记录</strong>：每条记录携带 <code>release_id</code></li>
+<li><strong>SQLite 原子更新</strong>：<code>PREPARING → PUBLISHED</code>，同时把 <code>skills.current_release_id</code> 指向新 release_id（<code>UPDATE ... WHERE status='PREPARING'</code>，非该状态不生效）</li>
+</ol>
+<p><strong>失败语义</strong>：任一步失败则 SQLite 状态停留在 <code>PREPARING</code>，<code>current_release_id</code> 不变，旧版本继续生效对外服务。已写入的 Git commit 和 JSONL 记录<strong>不回滚</strong>，保留供审计（发布失败本身也是有价值的历史）。</p>
+<p><strong>Watchdog</strong>：后台定时任务清理超过 24 小时仍未 <code>PUBLISHED</code> 的 <code>PREPARING</code> 行，状态改为 <code>ABANDONED</code>；Git 与 JSONL 记录仍不清理。</p>
+<p><strong>幂等</strong>：因第 4 步 <code>UPDATE</code> 带有 <code>WHERE status='PREPARING'</code> 条件，整套流程可安全重放 —— 已 <code>PUBLISHED</code> 的行不会被二次修改，中断后重试从任意步骤重入都收敛到同一结果。</p>
+<hr />
+<h3 id="33">3.3 评估</h3>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>方法</th>
+<th>工具</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>结构分静态检查</td>
+<td>Pydantic 校验 SKILL.md 的 YAML Schema：<code>name</code> / <code>description</code> / <code>dependencies</code> / <code>use_when</code> / <code>trigger.keywords</code> / <code>not_for</code> 齐全性，依赖工具可访问性；<strong>不阻断发布，仅完整性检查</strong></td>
+<td>Pydantic + 自写校验器</td>
+</tr>
+<tr>
+<td>效果分 Judge 配对比较</td>
+<td>给 Judge 输入同一场景 + 新旧两次输出，让其判 "A 更好 / 持平 / B 更好"，不评绝对分；覆盖任务完成度、鲁棒性、可读性三个维度</td>
+<td>DeepSeek（HelloAgentsLLM） + 配对 prompt 模板</td>
+</tr>
+<tr>
+<td>客观指标采集</td>
+<td>运行时埋点采集调用轮数、token 数、端到端延迟；效率维度<strong>不用 LLM 主观打分</strong></td>
+<td>Python 装饰器 + SQLite/JSONL 记录</td>
+</tr>
+<tr>
+<td>棘轮机制</td>
+<td>双层门槛 + 分级阻断：<strong>硬门槛</strong>（总分不退步、效果分不退步、任务完成度/鲁棒性下降 ≥ 5%、任一 P0 用例由通过转失败）自动阻断发布；<strong>软门槛</strong>（任一维度变化 ≥ 10%，含上升）触发人工 REVIEW</td>
+<td>自写规则引擎，读取评估 JSONL</td>
+</tr>
+<tr>
+<td>评估集构造</td>
+<td>40 条基线（<strong>32 条开发集</strong>可迭代可见 + <strong>8 条隐藏集</strong>发布前跑、不告诉元 Agent），从中标注 <strong>10 条 P0</strong> 覆盖核心链路；路由层另备 <strong>50 条硬负例</strong>做 Recall 评测</td>
+<td>手工标注 + JSONL 存储；Phase 3 追加 ≥ 20 条人工盲评校准 Judge 偏差</td>
+</tr>
+</tbody>
+</table>
+<p><strong>评估可信度声明</strong>：本评估器仅适用于固定场景下的相对回归与候选筛选，不足以证明绝对质量，不足以支持高风险改动的全自动发布，分数不宣称与用户真实满意度相关；能力边界通过每 20 次评估抽 1 条的人工盲评逐步验证，Phase 3 出具一次 Judge/人工偏差报告。</p>
+<hr />
+<h2 id="5">四、架构设计（5 个核心组件）</h2>
+<p>五个组件按数据流串联：<strong>SKILL.md 规范</strong>（定义 Skill 结构） → <strong>渐进式披露引擎</strong>（Agent 主动加载） → <strong>三层路由</strong>（多候选选一） → <strong>八维评估器 + 棘轮</strong>（版本准入门槛） → <strong>SkillEvolver 元 Agent</strong>（生成候选改进）。</p>
+<p>架构关系图（文字版）：</p>
+<pre><code>Agent ReAct 循环
+   │
+   ├── 读元数据索引（4.1 SKILL.md → 4.2 索引层）
+   ├── 走三层路由挑候选（4.3 规则 → embedding → LLM）
+   ├── 调 use_skill(name, reason)（4.2 特殊工具）
+   │      └── 返回完整 Body 拼回 conversation
+   └── 执行任务
+
+评估闭环（后台异步）
+   │
+   ├── 收集运行日志
+   ├── 八维评估（4.4：结构分 + 效果分 + 客观指标）
+   ├── 棘轮门槛（4.4：硬门槛阻断 + 软门槛 REVIEW）
+   └── SkillEvolver 生成候选（4.5：L1 自动 / L2 REVIEW / L3 建议）
+</code></pre>
+<hr />
+<h3 id="41-skillmd">4.1 SKILL.md 定义规范</h3>
+<p>每个 Skill 是一个 Markdown 文件，YAML frontmatter + Markdown body。YAML 字段既支撑索引层元数据、又支撑路由层的结构化检索卡片编码。</p>
+<p><strong>YAML 字段</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+<th>示例</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td>string</td>
+<td>Skill 标识（snake_case，全局唯一）</td>
+<td><code>weather_query</code></td>
+</tr>
+<tr>
+<td><code>version</code></td>
+<td>semver</td>
+<td>语义版本号</td>
+<td><code>1.0.0</code></td>
+</tr>
+<tr>
+<td><code>description</code></td>
+<td>string</td>
+<td>一句话描述，索引层可见</td>
+<td><code>查询任意城市实时天气</code></td>
+</tr>
+<tr>
+<td><code>use_when</code></td>
+<td>string</td>
+<td>触发场景描述，索引层 + 检索卡片使用</td>
+<td><code>用户询问某城市当前/未来天气</code></td>
+</tr>
+<tr>
+<td><code>not_for</code></td>
+<td>list[string]</td>
+<td>明确不适用的场景（提高路由准确率）</td>
+<td><code>["历史天气查询", "气候趋势分析"]</code></td>
+</tr>
+<tr>
+<td><code>dependencies</code></td>
+<td>list[string]</td>
+<td>依赖的工具/MCP 服务器</td>
+<td><code>["amap_mcp_server"]</code></td>
+</tr>
+<tr>
+<td><code>trigger.keywords</code></td>
+<td>list[string]</td>
+<td>候选关键词（路由排序信号，不做自动展开）</td>
+<td><code>["天气", "温度", "下雨"]</code></td>
+</tr>
+<tr>
+<td><code>examples</code></td>
+<td>list[string]</td>
+<td>少量正例（检索卡片编码使用）</td>
+<td><code>["北京今天天气", "上海会下雨吗"]</code></td>
+</tr>
+<tr>
+<td><code>evaluation.last_score</code></td>
+<td>float</td>
+<td>上次评估总分（元数据）</td>
+<td><code>8.2</code></td>
+</tr>
+<tr>
+<td><code>evaluation.last_release_id</code></td>
+<td>uuid</td>
+<td>上次发布的 release_id</td>
+<td><code>550e8400-...</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Markdown Body 结构</strong>（<code>use_skill</code> 返回的完整内容）：</p>
+<pre><code class="language-markdown">## Overview
+[Skill 概览：解决什么问题、边界在哪]
+
+## Instructions
+[具体使用指导：如何调用依赖工具、参数如何构造、结果如何解读]
+
+## Examples
+[完整正例：输入 → 期望 Agent 行为 → 输出]
+
+## Constraints
+[约束条件：不能做什么、什么情况下要拒绝、边界处理]
+</code></pre>
+<p><strong>设计要点</strong>：
+- <strong>去掉旧版 <code>disclosure_level</code> 字段</strong>：Agent 主导后不再需要分层配置，一律走"元数据索引 → use_skill 拉 Body"两层
+- <strong><code>use_when</code> 与 <code>not_for</code> 成对出现</strong>：Agent 判断需要哪个 Skill 时同时看正反例，路由 embedding 编码也用两者
+- <strong><code>trigger.keywords</code> 降级为排序信号</strong>：只影响规则层匹配分数与索引展示顺序，不做自动展开</p>
+<hr />
+<h3 id="42-agent">4.2 渐进式披露引擎（Agent 主导）</h3>
+<p><strong>核心决策</strong>：只有两层，<strong>Agent 主动加载，框架不拦截 prompt</strong>。</p>
+<table>
+<thead>
+<tr>
+<th>层级</th>
+<th>加载内容</th>
+<th>Token 消耗</th>
+<th>加载时机</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>元数据索引层</strong></td>
+<td>所有已注册 Skill 的 <code>name + description + use_when</code> 拼成的文字索引</td>
+<td>单 Skill ~80 token，10 个 Skill 约 800 token</td>
+<td>系统初始化时随 system prompt 一次性注入</td>
+</tr>
+<tr>
+<td><strong>完整实现层</strong></td>
+<td>该 Skill 的完整 Body（Overview + Instructions + Examples + Constraints）</td>
+<td>~2-5K token / Skill</td>
+<td>Agent 主动调 <code>use_skill(name, reason)</code> 时按需返回</td>
+</tr>
+</tbody>
+</table>
+<p><strong>注意</strong>：元数据索引是 <strong>一段文字</strong>，不是 Anthropic 工具协议里的 <code>tools</code> 参数——不占 tool slot，也不受 tools 数量限制。</p>
+<p><strong>特殊工具签名</strong>：</p>
+<pre><code class="language-python">def use_skill(name: str, reason: str) -&gt; str:
+    &quot;&quot;&quot;
+    加载指定 Skill 的完整说明书。
+
+    Args:
+        name: SKILL 标识（必须在索引里存在）
+        reason: 加载理由（必填，用于路由日志归因）
+
+    Returns:
+        Skill 完整 Body 文本；找不到返回错误信息，Agent 应降级到只用 description
+    &quot;&quot;&quot;
+</code></pre>
+<p><strong>加载流程</strong>：</p>
+<pre><code>1. 系统启动
+   ├── 扫描 skills/ 目录，Pydantic 解析所有 SKILL.md
+   ├── 从 SQLite 读每个 Skill 的 current_release_id 对应的 commit_hash
+   ├── 拼元数据索引 → 追加到 system prompt
+   └── 注册 use_skill 到 ToolRegistry
+
+2. Agent ReAct 循环
+   ├── 读到索引，判断&quot;这次该用哪个 Skill&quot;
+   ├── 主动调 use_skill(&quot;weather_query&quot;, &quot;用户问北京今天天气&quot;)
+   ├── 框架从 Git 读该 Skill 的完整 Body，作为 tool 结果拼回 conversation
+   ├── 写路由日志（含 name / reason / 命中层次 / 延迟）
+   └── Agent 用返回的说明书继续正常 ReAct
+</code></pre>
+<p><strong>为什么这么做</strong>（面试可讲）：</p>
+<ol>
+<li><strong>加载器拦截 prompt 会破坏 ReAct 可解释性</strong> —— Agent 不知道自己看到的 tools 为什么变化，评估器也无法归因</li>
+<li><strong><code>use_skill</code> 是显式 action，可被评估器直接观察</strong> —— 每次加载都有 <code>reason</code> 归因，路由日志可分析</li>
+<li><strong>trigger 自动展开在语义相近 Skill 之间容易误触发</strong> —— 比如"写周报"和"写会议纪要"，靠 trigger 自动展开会双双命中</li>
+</ol>
+<p><strong>降级策略</strong>：
+- <code>use_skill</code> 参数错误（name 不在索引）：返回错误信息，Agent 降级到只用 description 完成任务或明确告知用户
+- <code>use_skill</code> 加载 Body 失败（Git 读文件异常）：返回降级信息 + description，Agent 决定是否重试</p>
+<hr />
+<h3 id="43">4.3 三层路由（去掉硬编码百分比）</h3>
+<p><strong>级联结构</strong>（不写死覆盖率百分比）：</p>
+<table>
+<thead>
+<tr>
+<th>层级</th>
+<th>方法</th>
+<th>延迟</th>
+<th>触发下一层的 fallback 条件</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>规则层</strong></td>
+<td>keyword 命中 + 权重排序</td>
+<td>&lt;5ms</td>
+<td>top-1 与 top-2 分差 &lt; 20；或没有任何 keyword 命中</td>
+</tr>
+<tr>
+<td><strong>Embedding 层</strong></td>
+<td>结构化检索卡片编码 + 余弦相似度 top-K</td>
+<td>~50ms（本地 bge-small）</td>
+<td>top-K 无明显领先者；或最高相似度低于置信阈值</td>
+</tr>
+<tr>
+<td><strong>LLM 层</strong></td>
+<td>把 top-K 候选描述交给 LLM 做二选一</td>
+<td>~500ms</td>
+<td>—（兜底层，不再向下）</td>
+</tr>
+</tbody>
+</table>
+<p><strong>结构化检索卡片编码规则</strong>（Embedding 层核心）：</p>
+<p>每个 Skill 编码为一段结构化文本，四段拼接：</p>
+<pre><code>[Capability] {description}
+[Use When] {use_when}
+[Examples] {examples[0]} | {examples[1]} | ...
+[Not For] {not_for[0]} | {not_for[1]} | ...
+</code></pre>
+<p><code>Not For</code> 段的作用：让"语义相近但不该匹配"的场景在向量空间中被主动推远。比如"写周报"的 not_for 里明确列出"写会议纪要"，两者向量距离就会拉开。</p>
+<p><strong>Embedding 模型选择</strong>：
+- 默认：<code>bge-small-zh-v1.5</code>（本地 CPU 可推，中文场景表现好，模型体积 ~100MB）
+- 精度模式：<code>bge-m3</code>（多语言 + 更强表征，体积 ~2GB，需 GPU 或耐心）
+- 加载方式：sentence-transformers 直接 <code>SentenceTransformer(model_name)</code></p>
+<p><strong>LLM 层调用 prompt</strong>（简化）：</p>
+<pre><code>用户查询：{query}
+候选 Skill（按 embedding 相似度排序）：
+1. {skill_a.name}: {skill_a.description} (相似度: 0.85)
+2. {skill_b.name}: {skill_b.description} (相似度: 0.82)
+3. {skill_c.name}: {skill_c.description} (相似度: 0.79)
+
+请判断哪个 Skill 最匹配这个查询，只输出 name。如果都不匹配，输出 NONE。
+</code></pre>
+<p><strong>准入门槛</strong>（Phase 2 交付验证）：
+- 硬负例评测集 50 条（务实规模，独立开发者可造）
+- <strong>Recall@1 ≥ 80%、Recall@3 ≥ 90%</strong>
+- 达不到就退回补规则或补检索卡片，而不是硬顶指标</p>
+<p><strong>真实覆盖率分布</strong>：Phase 2 完成后基于路由日志统计（不预设 80/15/5）。</p>
+<hr />
+<h3 id="44">4.4 八维评估器 + 棘轮机制</h3>
+<h4 id="40-60">八维定义（结构分 40% + 效果分 60%）</h4>
+<p><strong>结构分（40%，Pydantic 静态检查，不阻断发布）</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>检查项</th>
+<th>权重</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Schema 完整性</td>
+<td><code>name / description / dependencies / use_when</code> 齐全</td>
+<td>15%</td>
+</tr>
+<tr>
+<td>Trigger 质量</td>
+<td><code>keywords</code> 精确无歧义，<code>not_for</code> 明确</td>
+<td>10%</td>
+</tr>
+<tr>
+<td>Prompt 健壮性</td>
+<td>Body 中包含边界条件说明（Constraints 段）</td>
+<td>10%</td>
+</tr>
+<tr>
+<td>依赖可用性</td>
+<td>声明的工具/MCP 可访问（启动时探测）</td>
+<td>5%</td>
+</tr>
+</tbody>
+</table>
+<p>结构分<strong>只用于发现表单问题</strong>，不作为发布阻断门槛。目的是让开发者能收到"你 SKILL.md 没写完整"的反馈，但不因此卡住发布。</p>
+<p><strong>效果分（60%，Judge 配对 + 客观指标，发布门槛）</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>评判标准</th>
+<th>权重</th>
+<th>数据源</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>任务完成度</td>
+<td>能否正确完成任务</td>
+<td>25%</td>
+<td><strong>Judge 配对比较</strong></td>
+</tr>
+<tr>
+<td>鲁棒性</td>
+<td>异常输入时降级或明确拒绝</td>
+<td>15%</td>
+<td><strong>Judge 配对比较</strong></td>
+</tr>
+<tr>
+<td>效率</td>
+<td>调用轮数 / token / 端到端延迟</td>
+<td>10%</td>
+<td><strong>客观指标采集（非 LLM 打分）</strong></td>
+</tr>
+<tr>
+<td>可读性</td>
+<td>SKILL.md 描述清晰度</td>
+<td>10%</td>
+<td>Judge 配对比较</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_6">棘轮机制（双层门槛 + 分级阻断）</h4>
+<p><strong>硬门槛（自动阻断发布，任一触发即挡）</strong>：</p>
+<ol>
+<li>总分退步</li>
+<li>效果分退步</li>
+<li>任务完成度下降 ≥ 5%</li>
+<li>鲁棒性下降 ≥ 5%</li>
+<li>任一 P0 用例由通过变失败</li>
+</ol>
+<p><strong>软门槛（触发人工审核 REVIEW，不阻断）</strong>：</p>
+<ul>
+<li>任一维度变化 ≥ 10%（含上升——变好也要看一眼，防 Judge 被表面漂亮的输出骗过）</li>
+</ul>
+<h4 id="judge">Judge 配对比较协议</h4>
+<p>不评绝对分，评相对：</p>
+<pre><code>输入：同一场景 + 新版本输出 A + 旧版本输出 B
+输出：A 更好 / 持平 / B 更好（三选一）+ 理由
+
+覆盖维度：任务完成度、鲁棒性、可读性（不评效率，效率走客观指标）
+</code></pre>
+<p>好处是能对抗 Judge 分数漂移（绝对分容易被措辞、长度带偏），代价是每次评估要跑两次输出。</p>
+<h4 id="_7">评估集构造</h4>
+<ul>
+<li><strong>40 条基线</strong>：</li>
+<li>32 条<strong>开发集</strong>（元 Agent 可见，迭代反馈）</li>
+<li>8 条<strong>隐藏集</strong>（发布前跑，不告诉元 Agent，防过拟合）</li>
+<li>从中标注 <strong>10 条 P0</strong>（覆盖核心链路，硬阻断标准）</li>
+<li><strong>50 条硬负例</strong>（路由层专用，测 Recall）</li>
+</ul>
+<h4 id="judge_1">Judge 模型选择与偏见缓解</h4>
+<ul>
+<li><strong>主 Judge</strong>：DeepSeek（HelloAgentsLLM，已有 API）</li>
+<li><strong>自评偏见风险坦诚</strong>：被评 Skill 若也走 DeepSeek，存在自评偏见</li>
+<li><strong>缓解</strong>：</li>
+<li>配对比较代替绝对打分</li>
+<li>每 20 次评估抽 1 条<strong>人工盲评校准</strong></li>
+<li>Judge 与人工分歧 &gt; 30% 调 Judge prompt</li>
+<li>Phase 3 保底跑一次 ≥ 20 条人工校准，出偏差报告</li>
+</ul>
+<h4 id="_8">评估可信度声明（必须写进方案书）</h4>
+<ol>
+<li>本评估器<strong>仅适用于固定场景下的相对回归 + 候选筛选</strong></li>
+<li><strong>不足以证明绝对质量</strong></li>
+<li><strong>不足以支持高风险改动的全自动发布</strong></li>
+<li><strong>分数不宣称与用户真实满意度相关</strong></li>
+<li>能力边界通过人工盲评逐步验证，Phase 3 出偏差报告</li>
+</ol>
+<hr />
+<h3 id="45-skillevolver-agent">4.5 SkillEvolver 元 Agent（半自动）</h3>
+<p><strong>定位</strong>：<strong>候选生成器 + 初筛器，不是最终决策者</strong>。继承 <code>SimpleAgent</code>，职责是根据失败案例自动生成 Skill 改进候选。</p>
+<p><strong>六步流程</strong>（① 完整不省略）：</p>
+<pre><code>① 收集失败案例
+   ├── 从评估 JSONL 拉出：分数低于阈值 / 棘轮拦截 / P0 挂掉的迭代
+   └── 聚类去重（相似失败合并处理）
+
+② 分析根因
+   ├── LLM 判断失败类型：
+   │      trigger 不准（路由拿错）
+   │      prompt 模糊（Instructions 不清晰）
+   │      依赖失效（工具挂了）
+   │      边界处理缺失（Constraints 没覆盖）
+   └── 输出根因标签 + 置信度
+
+③ 生成候选改进
+   ├── 一次生成 3-5 个 patch（不同角度尝试）
+   ├── 每个 patch 附推理链
+   └── 标记 patch 级别（L1/L2/L3）
+
+④ 验证
+   ├── 每个候选跑完整评估集（含隐藏集）
+   ├── 跑棘轮门槛
+   └── 采集客观指标
+
+⑤ 分级发布
+   ├── L1（补充 examples / not_for / 完善描述）
+   │      └── 验证通过 → 自动发布
+   ├── L2（修改 trigger / instructions）
+   │      └── 验证通过 → 挂 REVIEW，人工确认后发布
+   └── L3（修改工具权限 / 安全约束）
+   │      └── 只生成建议 patch，不自动改，人工重写
+
+⑥ 归档
+   ├── 成功 patch → Git commit + SQLite PUBLISHED
+   └── 失败 patch → runs/failures/&lt;release_id&gt;.md（含根因分析）
+          └── 不进主分支，作为负样本沉淀
+</code></pre>
+<p><strong>分级标准明细</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>级别</th>
+<th>改动范围</th>
+<th>风险</th>
+<th>自动化程度</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L1</td>
+<td><code>examples</code> / <code>not_for</code> / <code>description</code> 补充</td>
+<td>低（不改语义边界）</td>
+<td>验证通过自动发布</td>
+</tr>
+<tr>
+<td>L2</td>
+<td><code>trigger.keywords</code> / Instructions Body 修改</td>
+<td>中（可能影响路由和行为）</td>
+<td>验证通过挂 REVIEW，人工确认</td>
+</tr>
+<tr>
+<td>L3</td>
+<td><code>dependencies</code> 修改 / Constraints 安全约束</td>
+<td>高（工具权限/安全边界）</td>
+<td>只生成建议，人工重写并复核</td>
+</tr>
+</tbody>
+</table>
+<p><strong>预期成功率坦诚</strong>：<strong>~30%</strong>（10 次迭代约 3 次通过棘轮）。价值不在替代人做发布决策，在于：</p>
+<ol>
+<li><strong>自动淘汰明显错的改动</strong>——70% 被挡在门外，人只需 review 通过棘轮的 30%</li>
+<li><strong>负样本沉淀</strong>——失败 patch 全归档附根因，等于给未来的候选生成攒模式库</li>
+<li><strong>评估闭环压测</strong>——反复冲击评估集，暴露 Judge 偏见与评估集覆盖漏洞</li>
+</ol>
+<p><strong>Phase 4 交付要求</strong>：至少跑 <strong>10 次真实迭代</strong>，成功/失败案例全部留档，形成"元 Agent 效果证据链"（面试必问）。</p>
+<hr />
+<h2 id="_9">五、前置知识</h2>
+<table>
+<thead>
+<tr>
+<th>知识模块</th>
+<th>状态</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>hello-agents Lesson 1-5</td>
+<td>✅</td>
+<td>课程练习均已完成，理解 Agent 循环、工具调用、记忆机制</td>
+</tr>
+<tr>
+<td>ToolRegistry / SimpleAgent / MemoryTool</td>
+<td>✅</td>
+<td>已在课程练习中直接使用，元 Agent 与特殊工具 <code>use_skill</code> 均基于此扩展</td>
+</tr>
+<tr>
+<td>Git 基本命令</td>
+<td>✅</td>
+<td>熟悉 add/commit/diff/log，够用于程序化调 <code>subprocess</code> 管理 Skill 源码</td>
+</tr>
+<tr>
+<td>sentence-transformers 本地起 embedding 服务</td>
+<td>🟡</td>
+<td>Phase 2 前需补：<code>bge-small-zh-v1.5</code> 加载、批量编码、余弦相似度检索、CPU 内存占用测试</td>
+</tr>
+<tr>
+<td>SQLite 事务与状态机</td>
+<td>🟡</td>
+<td>Phase 3 前需补：<code>BEGIN IMMEDIATE</code> 与条件 <code>UPDATE</code> 的原子性、跨进程锁、Watchdog 定时任务的实现方式</td>
+</tr>
+<tr>
+<td>硬负例评测集构造方法</td>
+<td>🟡</td>
+<td>Phase 2 前需补：如何针对 Skill 描述系统性构造语义邻近但不该命中的用例，避免 Recall 指标虚高</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="_10">六、实施计划</h2>
+<table>
+<thead>
+<tr>
+<th>阶段</th>
+<th>内容</th>
+<th>交付门槛</th>
+<th>代码量</th>
+<th>时间</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Phase 1</strong></td>
+<td>SKILL.md YAML Schema（Pydantic）+ Body 解析；Skill 索引层注入 system prompt；特殊工具 <code>use_skill(name, reason)</code>；Body 按需返回</td>
+<td>10 条基础链路测试通过：① <code>use_skill</code> 正常调用 ② 索引里没有的 skill_name 返回错误 ③ 多候选排序稳定 ④ Body 加载失败降级到只用 description ⑤ 参数错误的 <code>use_skill</code> 优雅处理</td>
+<td>~150 行</td>
+<td>第 1 周</td>
+</tr>
+<tr>
+<td><strong>Phase 2</strong></td>
+<td>规则引擎（keyword + 权重）；本地 <code>bge-small-zh-v1.5</code> embedding；结构化检索卡片编码（<code>capability + use_when + examples + not_for</code>）；LLM 兜底 top-K 二选一；50 条硬负例评测集</td>
+<td>Recall@1 ≥ 80% AND Recall@3 ≥ 90%；30 条路由边界测试通过（规则命中 / embedding 命中 / LLM 兜底 / 无匹配拒绝 / 硬负例区分）</td>
+<td>~250 行</td>
+<td>第 2 周</td>
+</tr>
+<tr>
+<td><strong>Phase 3</strong></td>
+<td>Pydantic 结构分静态检查；Judge 新旧配对比较；客观指标采集器（轮数/token/延迟）；棘轮硬门槛 + 软门槛；SQLite 状态机 + 三存储写入协议；40 条基线（32 开发 + 8 隐藏隔离）；≥ 20 条人工盲评校准</td>
+<td>可跑通一次完整"评估 → 棘轮 → 发布"闭环；产出 Judge / 人工偏差报告；发布状态在任一中间步骤失败时旧版本仍生效</td>
+<td>~300 行</td>
+<td>第 3 周</td>
+</tr>
+<tr>
+<td><strong>Phase 4</strong></td>
+<td><code>SkillEvolver</code> 继承 <code>SimpleAgent</code>：根因分析 → 3-5 个候选 patch 生成 → 验证 → L1/L2/L3 分级发布；失败归档 <code>runs/failures/&lt;release_id&gt;.md</code>；端到端演示脚本</td>
+<td>完成 ≥ 10 次真实迭代，全部留档；产出 ≥ 3 条成功案例 + ≥ 5 条失败案例可现场展示；演示脚本一键复现</td>
+<td>~200 行</td>
+<td>第 4 周</td>
+</tr>
+</tbody>
+</table>
+<p><strong>总计</strong>：~900 行代码，4 周业余时间。</p>
+<h3 id="_11">排期风险与降级预案</h3>
+<p>4 周业余时间偏紧张，评估集手工标注、人工盲评校准、元 Agent 十次迭代都是消耗性动作，任一环节延误都会挤压后续阶段。降级顺序按"评估闭环 &gt; 面试演示完整度 &gt; 元 Agent 自动化程度"排序：</p>
+<ul>
+<li><strong>Phase 1-3 是硬底线</strong>：渐进式披露引擎、三层路由、评估器 + 棘轮 + 跨存储一致性必须保交付。这三层撑起面试可讲的核心技术叙事，任何一层缺失都会让方案沦为"idea 展示"。</li>
+<li><strong>Phase 4 允许收敛到 L1</strong>：若第 4 周只剩 3-4 天，元 Agent 只跑 L1 分级（补 <code>examples</code> / <code>not_for</code> / 完善描述，验证通过自动发布），L2（改 trigger/instructions 挂 REVIEW）与 L3（工具权限/安全约束只出建议）暂缓；迭代次数从 10 次降到 5 次，但成功/失败案例仍需完整归档。</li>
+<li><strong>评估集数量可下调但结构不能改</strong>：40 条基线可临时压到 30 条（开发 24 + 隐藏 6），P0 数量维持 10 条不动，隐藏集比例不低于 20%；硬负例 50 条可压到 30 条，但不能取消（否则 Recall 指标失去意义）。</li>
+<li><strong>人工盲评校准不可省</strong>：即使总样本量减半（≥ 20 条降到 ≥ 10 条），Judge/人工偏差报告仍需在 Phase 3 结束时产出，这是评估可信度声明的唯一支撑证据。</li>
+<li><strong>代码量透支的止损点</strong>：任一 Phase 超 1.5 倍预估代码量（如 Phase 3 超过 450 行）立即回顾是否越界；越界内容优先砍"漂亮但非必要"的功能（如可视化 dashboard、CLI 交互美化）。</li>
+</ul>
+<hr />
+<h2 id="_12">七、面试应答模板（深度版）</h2>
+<p>这一章是把第二章的三层递进按"演练手册"展开——每个问答独立成小节，答案更完整，可以直接照着念熟。分四个子章：抛出概念、展开实现、展示取舍、必备预案。</p>
+<hr />
+<h3 id="71">7.1 第一层：抛出概念</h3>
+<h4 id="30">标准开场话术（30 秒）</h4>
+<p>"我做了一个叫 SkillForge 的项目，定位是<strong>元 Agent 系统——生产 Skill 的 Agent，不是用 Skill 干活的 Agent</strong>。基于 hello-agents 框架，独立开发，代码量约 900 行。</p>
+<p>它做三件事：第一，把 Skill 抽象成有完整生命周期的对象——描述、触发、实现、评估、版本都在一起；第二，Skill 的加载走渐进式披露，只有两层，且<strong>由 Agent 主动调用 <code>use_skill</code> 加载，框架不拦截 prompt</strong>；第三，新 Skill 的生成走一条半自动闭环——元 Agent 提候选，八维评估器打分，棘轮机制卡不退步，按 L1/L2/L3 分级发布。</p>
+<p>目标不是 demo，是把评估闭环 + 跨存储一致性这些工程细节讲清楚。"</p>
+<h4 id="3">埋的 3 个钩子</h4>
+<ol>
+<li><strong>Skill vs function call 的抽象差别</strong>：钩子在"完整生命周期"。面试官若追问，就展开 Skill 是"套路 + 边界 + 说明书 + 评估分 + 版本记录"，function call 只是"工具函数签名"。</li>
+<li><strong>Agent 主导渐进式披露</strong>：钩子在"只有两层"和"框架不拦截 prompt"。面试官若追问就展开 <code>use_skill</code> 机制。</li>
+<li><strong>元 Agent 半自动闭环</strong>：钩子在"半自动"和"L1/L2/L3 分级"。面试官若追问就展开棘轮机制 + 分级发布策略 + 成功率坦诚。</li>
+</ol>
+<hr />
+<h3 id="72">7.2 第二层：展开实现细节</h3>
+<h4 id="q-skill-agent">Q: Skill 是怎么注入上下文的？框架帮 Agent 展开了吗？</h4>
+<p>只注入元数据索引，Body 不预注入。我为每个已注册 Skill 提取 <code>name + description + use_when</code> 三个字段，拼成一段文字索引跟 system prompt 一起给 Agent。<strong>特别注意，这只是一段文字，不是 Anthropic 工具协议里那个 tool 列表</strong>——不占 tool slot。</p>
+<p>然后我注册一个特殊工具 <code>use_skill(name: str, reason: str) -&gt; str</code>。Agent 在 ReAct 循环里读到索引后自己判断"这次该用哪个 Skill"，主动调用 <code>use_skill("skill_x", "用户在问……")</code>，框架把该 Skill 的完整 Body（Instructions + Examples + Constraints）作为 tool 结果拼回 conversation。之后 Agent 拿着说明书继续正常 ReAct。</p>
+<p><strong>框架不拦截 prompt、不静默改 system_prompt</strong>。这么做的理由有三个：一是加载器拦截 prompt 会破坏 ReAct 的可解释性，Agent 不知道自己看到的东西为什么变了；二是 <code>use_skill</code> 是显式 action，评估器可直接观察归因；三是 trigger.keywords 自动展开在语义相近的 Skill 之间容易误触发。所以 keywords 我只用作路由排序的推荐信号，不做自动展开。</p>
+<h4 id="q-skill-mcp">Q: 多个 Skill 用同一个 MCP 工具怎么选？会不会打架？</h4>
+<p>工具是共享资源，Skill 是"使用工具的套路 + 边界"，路由选出来的是套路，不是工具。我走三层路由级联去重：</p>
+<ul>
+<li>规则层按 keyword + 权重命中，top-1 领先 top-2 大于阈值直接返回；</li>
+<li>定不下来进 embedding 层，Skill 描述用<strong>结构化检索卡片</strong>（<code>capability + use_when + examples + not_for</code> 四段拼接）编码，返回 top-K；</li>
+<li>还有歧义进 LLM 层，把 top-K 候选描述交给 LLM 二选一。</li>
+</ul>
+<p><strong>同一意图下最终只放行一个 Skill</strong>，避免两个 Skill 抢同一次调用。检索卡片里的 <code>not_for</code> 字段专门用来在 embedding 阶段就把"看起来像但其实不该匹配"的场景推开。路由结果全部写日志，事后归因是哪一层选中的、有没有走到 LLM 兜底。</p>
+<h4 id="q-tools-llm">Q: 渐进式披露具体怎么做？跟"把所有 tools 描述一次给 LLM"有什么本质不同？</h4>
+<p>本质不同在于<strong>决策权归属</strong>和<strong>加载时机</strong>。</p>
+<p>传统做法是把所有 tools 的 schema + description 全塞进 tools 参数一次给 LLM，LLM 每轮都要在完整列表里选。这在 tools 少的时候没问题，但 Skill 是有 Instructions + Examples + Constraints 的完整说明书，全塞进去 token 撑不住。</p>
+<p>我的做法是两层：<strong>第一层</strong>只塞元数据（<code>name + description + use_when</code>）——只是文字索引，一次注入；<strong>第二层</strong>是完整 Body，不预注入，等 Agent 自己判断需要时调 <code>use_skill(name)</code> 拉。加载动作是 Agent 主动发起的 tool call，不是框架偷偷改 prompt。</p>
+<p>好处有三：token 只在真正用到时才付；<code>use_skill</code> 是显式 action 可归因；路由日志里能看到 Agent 每次"选择加载什么"背后的推理（<code>reason</code> 参数强制填）。代价是 Agent 得学会看索引做选择，好在 ReAct + 结构化索引对现代 LLM 不算难任务。</p>
+<hr />
+<h3 id="73">7.3 第三层：展示工程取舍</h3>
+<h4 id="q-embedding">Q: 为什么不用纯 embedding？三层是不是过度设计？</h4>
+<p>不是过度设计，是分摊延迟 + 分层归因。</p>
+<p>纯 embedding 有两个成本我不想吃。一是<strong>延迟</strong>：规则层能命中的高频路径 &lt;5ms，走 embedding 得 ~50ms，白白多一个数量级；二是<strong>可控性</strong>：embedding 在"语义相近但意图不同"的 Skill 之间容易误命中——比如"写周报"和"写会议纪要"向量距离很近但触发场景完全不同，硬负例评测集里这种 case 特别多。</p>
+<p>三层的分工是：规则层承接高置信精确匹配；embedding 承接语义相似但没有明确关键词的路径；LLM 只在真正歧义时兜底。<strong>分层的另一个价值是归因</strong>——路由日志里能看到"这次命中是规则层的哪个 keyword"、"embedding 相似度多少"、"有没有走到 LLM"。纯 embedding 一个黑盒选错了没法定位是描述写坏了、卡片结构不对、还是模型不适合。</p>
+<p>准入门槛也务实：50 条硬负例（不是 100-200，独立开发者造不动），Recall@1 ≥ 80%、Recall@3 ≥ 90%。达不到就退回补规则或者补检索卡片，而不是硬顶指标。</p>
+<h4 id="q">Q: 棘轮机制会不会导致改进停滞？改一下就说"退步了"卡住怎么办？</h4>
+<p>会有停滞风险，我用<strong>双层门槛 + 分级阻断 + 配对比较</strong>三重设计缓解。</p>
+<p>双层门槛：<strong>硬门槛</strong>（自动阻断发布）只卡四类——总分退步、效果分退步、任务完成度或鲁棒性下降 ≥ 5%、任一 P0 用例由通过变失败。其它所有变化都不阻断。<strong>软门槛</strong>（触发人工审核 REVIEW，不阻断）：任一维度变化 ≥ 10% 含上升——变好也要看一眼，防止 Judge 被表面漂亮的输出骗过。</p>
+<p>Judge 用<strong>配对比较</strong>：给同一场景 + 新旧两次输出，让 Judge 判"A 好 / 持平 / B 好"，不评绝对分。这样能对抗 Judge 分数漂移——绝对分很容易被措辞、格式带偏，相对判断稳定得多。</p>
+<p><strong>如果十次全被卡，也是有价值的信号</strong>——说明候选生成策略需要重想（比如根因分析错了、patch 幅度太大），而不是把棘轮放宽。放宽棘轮等于把评估闭环拆了。</p>
+<h4 id="q-langchain-agent-anthropic-skills">Q: 你这套跟 LangChain Agent / Anthropic 官方 Skills 什么关系？</h4>
+<p><strong>跟 LangChain 是不同抽象层</strong>。LangChain 是 Agent 编排框架，解决"怎么让 LLM 调用工具、串工作流、管记忆"这一层；我这套是往上一层——<strong>"怎么生产可复用、有评估、能自进化的 Skill"这个元层</strong>。LangChain 里你写好一个 chain 就上线了，SkillForge 里一个 Skill 上线前要过八维评估 + 棘轮 + 分级发布。用 LangChain 也完全可以承接我的产出物；两者是正交关系，不是替代关系。</p>
+<p><strong>跟 Anthropic 官方 Skills 是"参考规范但聚焦不同"</strong>。我借鉴了官方 SKILL.md 的 YAML frontmatter 结构（<code>name / description / dependencies</code> 这些字段），但官方主要提供"Skill 怎么定义和加载"的规范，我聚焦"Skill 怎么被生产出来、怎么评估、怎么在多版本间安全切换"。跟 MCP 也是正交关系——MCP 定义"怎么用工具"，我在上一层定义"用工具的套路怎么迭代出来"。所以官方 Skills 和 MCP 我都能接，不冲突。</p>
+<h4 id="q-llm-as-a-judge">Q: LLM-as-a-Judge 怎么保证没有偏见？</h4>
+<p><strong>我不假装没偏见，我讲缓解措施</strong>。四条：</p>
+<p>一，<strong>配对比较代替绝对打分</strong>。Judge 拿到"场景 + 新输出 + 旧输出"三份材料，只判"A 好 / 持平 / B 好"。绝对分容易被格式、措辞、长度带偏，相对判断稳定得多。</p>
+<p>二，<strong>Judge 与被评 Skill 潜在同源</strong>——我 Judge 用 DeepSeek，被评 Skill 也可能走 DeepSeek，自评偏见风险真实存在，我在方案书里明写了这一条。缓解手段是每 20 次评估抽 1 条做<strong>人工盲评校准</strong>，Judge 与人工分歧 &gt; 30% 就调 Judge prompt。</p>
+<p>三，<strong>Phase 3 保底一次 ≥ 20 条人工校准</strong>，出偏差报告，不是随口说"我校准过"。</p>
+<p>四，<strong>评估可信度声明</strong>四条写进方案书：只适用于固定场景下的相对回归 + 候选筛选、不能证明绝对质量、不支持高风险改动全自动发布、分数不宣称与用户满意度相关。</p>
+<p>一句话总结：<strong>我不是在做"客观质量评估器"，我在做"相对回归筛选器"</strong>，边界画清楚，Judge 才有用。</p>
+<hr />
+<h3 id="74">7.4 三个必备预案</h3>
+<h4 id="q-4">Q: 多给你 4 周你会先加什么？</h4>
+<p><strong>优先补评估可信度这一块，不是加新功能</strong>。三个具体动作：</p>
+<p>一，扩人工盲评样本，从 Phase 3 的 ≥ 20 条扩到 100 条以上，覆盖各种类型的 Skill 修改，形成一个 Judge 校准的稳定基线。</p>
+<p>二，扩隐藏集，从 8 条扩到 30 条以上，并按场景类型分层（trigger 类、instructions 类、边界处理类），防止元 Agent 在开发集上过拟合。</p>
+<p>三，跑更多元 Agent 迭代（30+ 次），系统性归因失败原因，反过来优化根因分析 prompt 和候选生成策略——这一步只有量够了才能沉淀出模式。</p>
+<p>之所以不加新功能：新功能会拉低现有闭环的可信度，评估基线不稳定的时候加东西是把自己搞糊涂。这个项目最大的护城河是"评估闭环讲得清、经得起追问",不是功能多。</p>
+<h4 id="q-agent">Q: 元 Agent 成功率大概多少？</h4>
+<p><strong>~30%，坦诚给数字</strong>。10 次迭代大约 3 次能通过棘轮进到 L1/L2 发布。</p>
+<p>这个数字有价值在三点：<strong>一是自动淘汰</strong>——70% 明显错的改动被自动挡在门外，人只需要 review 3 次而不是 review 10 次；<strong>二是负样本沉淀</strong>——失败的 7 次 patch 全归档到 <code>runs/failures/&lt;release_id&gt;.md</code> 附根因分析，等于给未来的候选生成攒了模式；<strong>三是评估闭环压测</strong>——跑 10 次意味着评估集被反复冲击 10 次，能暴露 Judge 偏见、评估集覆盖漏洞。</p>
+<p><strong>我明确不做全自动发布</strong>——评估集只有 40 条、Judge 有自评偏见风险，可信度不足以支持全自动。元 Agent 的定位是"候选生成器 + 初筛器",不是"最终决策者"。这个边界清楚了，30% 就是可交付的数字，不是需要遮掩的短板。</p>
+<h4 id="q_1">Q: 这个项目最大的技术难点是什么？</h4>
+<p><strong>评估闭环的可信度</strong>,不是路由、也不是元 Agent。</p>
+<p>三个具体难点叠加：<strong>一是 Judge 偏见</strong>——DeepSeek 做 Judge 又评自己家 API 出来的 Skill，自评偏见是真的，我只能靠配对比较 + 人工盲评校准缓解，不能消除；<strong>二是元 Agent 生成质量</strong>——候选 patch 是 LLM 生成的,可能"表面看起来合理但实际引入 regression",光靠评估分不一定能立刻抓到；<strong>三是小测试集叠加风险</strong>——40 条基线 + 8 条隐藏集,统计意义有限,Judge 一次 flip 分数就可能翻盘。</p>
+<p>三个问题<strong>互相放大</strong>:小测试集让 Judge 单次偏见影响变大;元 Agent 迭代次数多了会在小测试集上过拟合;Judge 又偷偷学到了元 Agent 的风格偏好。三者环环相扣。</p>
+<p>所以我把闭环设计成保守的:硬门槛卡死不退步;L1 自动、L2 REVIEW、L3 只出建议;Phase 3 保底跑一次人工校准出偏差报告。<strong>难点不是"消除风险",而是"承认风险 + 把边界画清楚 + 用工程手段兜底"</strong>。这才是能拿到面试上讲的东西。</p>
+<hr />
+<h2 id="_13">附录</h2>
+<h3 id="a1">A.1 框架扩展关系</h3>
+<p>所有新组件均在 hello-agents 现有抽象上扩展，不引入新框架。</p>
+<table>
+<thead>
+<tr>
+<th>新组件</th>
+<th>扩展自</th>
+<th>职责</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SkillRegistry</code></td>
+<td><code>ToolRegistry</code></td>
+<td>Skill 版本注册 + 元数据索引拼装 + <code>use_skill</code> 特殊工具注册</td>
+</tr>
+<tr>
+<td><code>SkillEvaluator</code></td>
+<td><code>Tool</code></td>
+<td>八维评估器：结构分静态检查 + Judge 配对比较 + 客观指标采集 + 棘轮门槛判定</td>
+</tr>
+<tr>
+<td><code>IntentRouter</code></td>
+<td><code>Tool</code></td>
+<td>三层路由：规则 → embedding → LLM 级联 + 路由日志</td>
+</tr>
+<tr>
+<td><code>SkillEvolver</code></td>
+<td><code>SimpleAgent</code></td>
+<td>元 Agent：失败收集 → 根因分析 → 候选生成 → 验证 → 分级发布</td>
+</tr>
+<tr>
+<td><code>ReleaseStateMachine</code></td>
+<td>自写（无扩展）</td>
+<td>SQLite 状态机：PREPARING → PUBLISHED 原子切换 + Watchdog</td>
+</tr>
+</tbody>
+</table>
+<h3 id="a2-v3">A.2 一致性口径清单（v3 唯一真源）</h3>
+<p>面试或后续修改时以此清单校对，避免叙述漂移。</p>
+<p><strong>必须坚守的口径</strong>：</p>
+<ul>
+<li>✅ 渐进式披露 <strong>只有两层</strong>：元数据索引层 + 完整实现层</li>
+<li>✅ 加载由 <strong>Agent 主动调 <code>use_skill(name, reason)</code></strong> 发起，<strong>框架不拦截 prompt</strong></li>
+<li>✅ <code>trigger.keywords</code> 只作为<strong>路由排序信号</strong>，不做自动展开</li>
+<li>✅ 三层路由为 <strong>"规则优先、Embedding 补充、LLM 兜底"</strong>，<strong>不写死百分比</strong></li>
+<li>✅ Embedding 使用 <strong>结构化检索卡片</strong>（capability + use_when + examples + not_for）</li>
+<li>✅ 硬负例评测集 <strong>50 条</strong>，Recall@1 ≥ <strong>80%</strong>、Recall@3 ≥ <strong>90%</strong></li>
+<li>✅ 结构分 40% <strong>不阻断发布</strong>，效果分 60% 才是发布门槛</li>
+<li>✅ 效率维度用<strong>客观指标</strong>（轮数/token/延迟），<strong>不用 LLM 主观打分</strong></li>
+<li>✅ Judge 采用 <strong>新旧输出配对比较</strong>，不评绝对分</li>
+<li>✅ 棘轮硬门槛五条，软门槛 <strong>≥ 10% 触发 REVIEW</strong></li>
+<li>✅ 元 Agent 是<strong>候选生成器</strong>，不是最终决策者，<strong>成功率 ~30%</strong></li>
+<li>✅ <strong>L1 自动 / L2 REVIEW / L3 只出建议</strong></li>
+<li>✅ <strong>SQLite 是唯一发布事实源</strong>，写入协议四步固定顺序</li>
+<li>✅ <code>release_id</code> UUID 幂等，Watchdog 24h 清理 PREPARING</li>
+<li>✅ 评估可信度声明四条（相对回归 / 非绝对质量 / 非全自动发布 / 非用户满意度）</li>
+</ul>
+<p><strong>必须避免的叙述</strong>：</p>
+<ul>
+<li>❌ "加载器在 Agent.run() 之前拦截 prompt 拼接"（与 Agent 主导冲突）</li>
+<li>❌ "加载器自动展开第 2 层 / 第 3 层"（v3 只有两层，且不自动展开）</li>
+<li>❌ 硬编码 80% / 15% / 5% 覆盖率</li>
+<li>❌ "LangChain 所有工具一次塞进 prompt"（不准确，且拉踩）</li>
+<li>❌ "天然比 XX 助手高一个抽象级"（拉踩，改为"正交定位"）</li>
+<li>❌ 承诺元 Agent 全自动发布高风险改动</li>
+<li>❌ 声称评估分与用户真实满意度相关</li>
+</ul>
+<h3 id="a3">A.3 关键指标一览</h3>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>目标值</th>
+<th>Phase</th>
+<th>备注</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Recall@1（路由）</td>
+<td>≥ 80%</td>
+<td>Phase 2 交付门槛</td>
+<td>50 条硬负例评测集</td>
+</tr>
+<tr>
+<td>Recall@3（路由）</td>
+<td>≥ 90%</td>
+<td>Phase 2 交付门槛</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>元 Agent 成功率</td>
+<td>~30%</td>
+<td>Phase 4 观测</td>
+<td>10 次迭代约 3 次通过棘轮</td>
+</tr>
+<tr>
+<td>Judge/人工分歧</td>
+<td>&lt; 30%</td>
+<td>Phase 3 保底</td>
+<td>≥ 20 条人工盲评校准</td>
+</tr>
+<tr>
+<td>硬门槛：任务完成度下降</td>
+<td>≥ 5% 阻断</td>
+<td>全程</td>
+<td>棘轮硬门槛</td>
+</tr>
+<tr>
+<td>硬门槛：鲁棒性下降</td>
+<td>≥ 5% 阻断</td>
+<td>全程</td>
+<td>棘轮硬门槛</td>
+</tr>
+<tr>
+<td>软门槛：任一维度变化</td>
+<td>≥ 10% 触发 REVIEW</td>
+<td>全程</td>
+<td>含上升</td>
+</tr>
+<tr>
+<td>隐藏集比例</td>
+<td>≥ 20%（8/40）</td>
+<td>Phase 3</td>
+<td>防元 Agent 过拟合</td>
+</tr>
+<tr>
+<td>Watchdog 清理阈值</td>
+<td>24 h</td>
+<td>全程</td>
+<td>PREPARING → ABANDONED</td>
+</tr>
+</tbody>
+</table>
+<h3 id="a4">A.4 项目规模</h3>
+<ul>
+<li><strong>代码量</strong>：约 900 行 Python</li>
+<li><strong>依赖</strong>：hello-agents + pydantic + sentence-transformers + 标准库（sqlite3 / subprocess）</li>
+<li><strong>外部服务</strong>：无（bge-small-zh 本地起，DeepSeek API 已有 Key）</li>
+<li><strong>演示方式</strong>：CLI 一键复现，无需部署</li>
+<li><strong>时间</strong>：4 周业余时间（Phase 1-3 硬底线，Phase 4 允许收敛到 L1）</li>
+</ul>
+<hr />
+<blockquote>
+<p><strong>v3 修订说明</strong>：本方案书 v3 基于多 Agent 评审 + 十轮 grill-me 决策 + v2 问题清单，全面重写。核心修订：</p>
+<ol>
+<li>渐进式披露改为 Agent 主导（v2 部分章节残留加载器拦截旧版）</li>
+<li>补齐跨存储一致性协议（v2 完全缺失）</li>
+<li>三层路由去掉硬编码百分比 + 补 Embedding 模型选型</li>
+<li>八维评估器补配对比较 + 客观指标 + 分级门槛</li>
+<li>元 Agent 半自动化（L1/L2/L3 + 30% 成功率坦诚）</li>
+<li>Phase 门槛按 Phase 归位（v2 表格错位到 Phase 1）</li>
+<li>删除 LangChain 拉踩 + "高一个抽象级" 话术</li>
+<li>前置知识诚实标记（v2 全打 ✅ 不可信）</li>
+</ol>
+<p>修订日期：2026-07-26</p>
+</blockquote>
+<hr />
+<h2 id="b">附录 B：简历项目介绍写法</h2>
+<h3 id="b1-8-5-6">B.1 推荐版本（8 行紧凑版，5-6 秒可扫读）</h3>
+<pre><code>SkillForge · Agent Skill 自进化工厂 | 个人项目 | 2026.07 – 2026.08
+基于 hello-agents 框架扩展，定位为「生产 Skill 的元 Agent 系统」。约 900 行 Python，CLI 完整演示。
+
+• 渐进式披露引擎：Agent 主导加载，注册特殊工具 use_skill(name, reason)；只暴露元数据索引，
+  完整 Body 按需返回。框架不拦截 prompt，加载动作 100% 可归因。
+• 三层路由（规则→bge-small-zh→LLM 兜底）：结构化检索卡片（capability/use_when/examples/not_for）
+  编码；50 条硬负例评测集，Recall@1 ≥ 80%、Recall@3 ≥ 90%。
+• 八维评估器 + 棘轮机制：Judge 采用新旧输出配对比较（非绝对分）；效率维度走客观指标；
+  硬门槛五条自动阻断、软门槛 10% 触发人工 REVIEW。
+• SkillEvolver 元 Agent（半自动）：L1 自动 / L2 REVIEW / L3 只出建议；成功率约 30%，失败 patch
+  归档 runs/failures/ 沉淀负样本；跨存储采用 SQLite 状态机 PREPARING→PUBLISHED 原子切换。
+</code></pre>
+<h3 id="b2">B.2 每一行的钩子设计（面试引导用）</h3>
+<p>每条 bullet 都对应一个可展开的面试话题——<strong>面试官扫简历大概率会挑一条追问</strong>，你按方案书第 7 章的答案深展开。</p>
+<table>
+<thead>
+<tr>
+<th>简历行</th>
+<th>埋的钩子</th>
+<th>面试展开位置</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>use_skill(name, reason)</code>、"框架不拦截 prompt"</td>
+<td>为什么不让加载器自动展开？ReAct 可解释性怎么保证？</td>
+<td>方案书 §7.2 Q1</td>
+</tr>
+<tr>
+<td><code>Recall@1 ≥ 80%</code> + <code>硬负例评测集</code></td>
+<td>为什么不用纯 embedding？硬负例怎么造？</td>
+<td>§7.3 Q1</td>
+</tr>
+<tr>
+<td><code>配对比较（非绝对分）</code> + <code>硬门槛五条</code></td>
+<td>Judge 偏见怎么处理？棘轮会不会导致改进停滞？</td>
+<td>§7.3 Q2、Q4</td>
+</tr>
+<tr>
+<td><code>L1 自动 / L2 REVIEW / L3 只出建议</code> + <code>成功率 30%</code></td>
+<td>为什么不搞全自动？30% 有什么价值？</td>
+<td>§7.4 Q2</td>
+</tr>
+<tr>
+<td><code>SQLite 状态机 PREPARING→PUBLISHED</code></td>
+<td>三处存储写一半崩了怎么办？</td>
+<td>§2.3 Q4</td>
+</tr>
+</tbody>
+</table>
+<h3 id="b3-linkedin-headline">B.3 一句话版本（用于个人简介 / LinkedIn Headline）</h3>
+<blockquote>
+<p>独立设计并实现"生产 Skill 的元 Agent 系统"：基于 hello-agents 的 900 行 Python 实现，涵盖 Agent 主导渐进式披露、三层路由（规则+bge/embedding+LLM）、八维评估器+棘轮、SkillEvolver 半自动闭环，跨存储采用 SQLite 状态机保证一致性。</p>
+</blockquote>
+<h3 id="b4">B.4 三行超短版（用于表格式简历，如"项目经历"栏位空间受限）</h3>
+<ul>
+<li><strong>SkillForge · 元 Agent 系统</strong>（个人 · 900 行 Python）</li>
+<li>核心组件：渐进式披露引擎（<code>use_skill</code> Agent 主导） / 三层路由（规则+bge-small+LLM，Recall@1 ≥ 80%） / 八维评估器+棘轮（Judge 配对比较、硬门槛五条） / SkillEvolver 半自动闭环（L1/L2/L3 分级 + SQLite 状态机）</li>
+<li>交付：40 条基线评估集 + 50 条硬负例 + 10 次元 Agent 真实迭代日志，全 CLI 可复现</li>
+</ul>
+<h3 id="b5-v3">B.5 写简历的三条硬规则（v3 方案书的一致性延伸）</h3>
+<p><strong>规则 1：所有数字都要能兑现</strong>
+- 简历写 <code>Recall@1 ≥ 80%</code> 意味着你的 Phase 2 交付物必须真的跑到这个数
+- 简历写 <code>10 次元 Agent 真实迭代</code> 意味着 Phase 4 必须真的有 10 次留档
+- <strong>写之前先问自己："如果面试官说'把日志给我看一眼'，我拿得出来吗？"</strong> 拿不出来就删掉那个数字</p>
+<p><strong>规则 2：不写不能追问的空话</strong>
+- ❌ "使用先进的 LLM 技术构建 Agent 系统" → 什么都没说
+- ❌ "提高了 XX 性能" → 没数字等于没说
+- ✅ "配对比较代替绝对分" → 一个具体决策，能被追问原因
+- ✅ "L1 自动 / L2 REVIEW / L3 只出建议" → 明确策略，面试官能追问"L3 为什么不自动"</p>
+<p><strong>规则 3：与方案书 A.2 违禁清单一致</strong>
+- ❌ 简历里不写 "80% 走规则、15% embedding、5% LLM"（硬编码百分比 v3 已删）
+- ❌ 简历里不写 "基于 LangChain 但更好"（拉踩）
+- ❌ 简历里不写 "全自动 Skill 演化"（承诺不了）
+- ✅ 简历里写 "规则优先、embedding 补充、LLM 兜底" 这类描述性表达
+- ✅ 简历里写 "元 Agent 半自动闭环，成功率约 30%" 这类坦诚数字</p>
+<h3 id="b6-star-3-5">B.6 STAR 展开（如需要 3-5 句话叙述性版本，如求职信/自我介绍）</h3>
+<blockquote>
+<p><strong>Situation</strong>：Agent Skill 生态里大部分工作聚焦"用 Skill 干活"，缺少一套让 Skill 本身可评测、可版本管理、可自动改进的工程闭环。</p>
+<p><strong>Task</strong>：4 周业余时间独立设计并实现一个"生产 Skill 的元 Agent 系统"，作为技术面试的深度讨论素材，目标覆盖 20 分钟工程细节问答。</p>
+<p><strong>Action</strong>：以 hello-agents 为底座扩展 5 个核心组件——SKILL.md 规范、Agent 主导的渐进式披露引擎（use_skill 特殊工具）、三层级联路由（规则+bge-small+LLM）、八维评估器+棘轮机制（Judge 配对比较+客观指标）、SkillEvolver 元 Agent（L1/L2/L3 分级发布）。跨存储用 SQLite 状态机保证一致性，评估集 40 条基线（32 开发+8 隐藏）+ 50 条硬负例。</p>
+<p><strong>Result</strong>：约 900 行 Python，CLI 可完整复现；Phase 2 路由 Recall@1 ≥ 80%，Phase 3 产出 Judge/人工偏差报告，Phase 4 完成 10+ 次真实迭代（成功/失败 patch 全归档）。设计过程中做了多次评审 + 十轮结构化 grill-me 决策，修订出 v3 方案书含一致性口径清单。</p>
+</blockquote>
+<hr />
+<blockquote>
+<p><strong>最后提醒</strong>：简历上的每一行都是"面试话题订单"。<strong>你希望被追问什么，就往简历上放什么</strong>。如果你不希望被问 <code>bge-m3</code> 具体原理，就只写 <code>bge-small</code>；如果不希望被问 P0 用例挑选标准，就把 "P0 用例" 换成 "关键场景"。方案书 §7 是你所有钩子的完整答案库——<strong>简历埋的钩子必须与方案书答案一一对应</strong>，别在简历里埋一个方案书里没准备答案的钩子。</p>
+</blockquote>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  回到页面顶部
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 SuperGODOG
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.tracking", "navigation.expand", "navigation.top", "search.suggest", "search.highlight", "toc.follow", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "\u5df2\u590d\u5236", "clipboard.copy": "\u590d\u5236", "search.result.more.one": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.more.other": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 # \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.none": "\u6ca1\u6709\u627e\u5230\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.one": "\u627e\u5230 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.other": "# \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.placeholder": "\u952e\u5165\u4ee5\u5f00\u59cb\u641c\u7d22", "search.result.term.missing": "\u7f3a\u5c11", "select.version": "\u9009\u62e9\u5f53\u524d\u7248\u672c"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

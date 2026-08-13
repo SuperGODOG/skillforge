@@ -1,0 +1,1176 @@
+
+<!doctype html>
+<html lang="zh" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Agent Skill 自进化元 Agent 系统 · Agent 主导渐进式披露 + 三层路由（规则+bge+LLM R@1=98%）+ 八维评估器 + 元 Agent 半自动闭环 · 4907 行 Python · pytest 74/74">
+      
+      
+      
+        <link rel="canonical" href="https://supergodog.github.io/skillforge/INTERVIEW_PREP/">
+      
+      
+        <link rel="prev" href="../ARCHITECTURE/">
+      
+      
+        <link rel="next" href="../SkillForge-%E9%A1%B9%E7%9B%AE%E6%96%B9%E6%A1%88%E4%B9%A6-v3/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>SkillForge · 面试深挖手册（面试官视角） - Skillforge · SuperGODOG</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#skillforge" class="md-skip">
+          跳转至
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="页眉">
+    <a href=".." title="Skillforge · SuperGODOG" class="md-header__button md-logo" aria-label="Skillforge · SuperGODOG" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Skillforge · SuperGODOG
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              SkillForge · 面试深挖手册（面试官视角）
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-hidden="true"  type="radio" name="__palette" id="__palette_0">
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-hidden="true"  type="radio" name="__palette" id="__palette_1">
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="搜索" placeholder="搜索" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="查找">
+        
+        <button type="reset" class="md-search__icon md-icon" title="清空当前内容" aria-label="清空当前内容" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            正在初始化搜索引擎
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/SuperGODOG/skillforge" title="前往仓库" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    skillforge
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="导航栏" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Skillforge · SuperGODOG" class="md-nav__button md-logo" aria-label="Skillforge · SuperGODOG" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Skillforge · SuperGODOG
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/SuperGODOG/skillforge" title="前往仓库" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    skillforge
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ARCHITECTURE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SkillForge 架构文档
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SkillForge · 面试深挖手册（面试官视角）
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SkillForge · 面试深挖手册（面试官视角）
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="目录">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      目录
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1agent-use_skill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        追问链 1：Agent 主导渐进式披露（use_skill）
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2embedllm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        追问链 2：三层路由（规则+embed+LLM）
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-judge" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        追问链 3：八维评估器 + Judge 偏差
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-agent-30" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        追问链 4：元 Agent 分级 + 30% 坦诚
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        追问链 5：跨存储一致性
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        面试官可能挑刺的点（提前想好）
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="面试官可能挑刺的点（提前想好）">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#14907-900" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        挑刺 #1：4907 行远超方案书 900 行预算，是不是超工？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#23-skill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        挑刺 #2：3 个种子 skill 太少了，不能证明推广性
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3hello-agents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        挑刺 #3：hello-agents 只是教程配套代码，不是成熟框架
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-human-proxy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        挑刺 #4：保底盲评你自己做 human proxy，公信力何在？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5phase-4-1-10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        挑刺 #5：Phase 4 只跑 1 次真实迭代，方案书要求 10 次
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        简历数字 → 证据路径映射
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        我的 5 条"不知道"边界
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        面试前 5 分钟自查表
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../SkillForge-%E9%A1%B9%E7%9B%AE%E6%96%B9%E6%A1%88%E4%B9%A6-v3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SkillForge
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docs
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Docs
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../docs/INTERVIEW_DESIGN_MAP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interview Design Map — SuperGODOG__skillforge
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="目录">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      目录
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1agent-use_skill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        追问链 1：Agent 主导渐进式披露（use_skill）
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2embedllm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        追问链 2：三层路由（规则+embed+LLM）
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-judge" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        追问链 3：八维评估器 + Judge 偏差
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-agent-30" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        追问链 4：元 Agent 分级 + 30% 坦诚
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        追问链 5：跨存储一致性
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        面试官可能挑刺的点（提前想好）
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="面试官可能挑刺的点（提前想好）">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#14907-900" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        挑刺 #1：4907 行远超方案书 900 行预算，是不是超工？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#23-skill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        挑刺 #2：3 个种子 skill 太少了，不能证明推广性
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3hello-agents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        挑刺 #3：hello-agents 只是教程配套代码，不是成熟框架
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-human-proxy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        挑刺 #4：保底盲评你自己做 human proxy，公信力何在？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5phase-4-1-10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        挑刺 #5：Phase 4 只跑 1 次真实迭代，方案书要求 10 次
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        简历数字 → 证据路径映射
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        我的 5 条"不知道"边界
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        面试前 5 分钟自查表
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="skillforge">SkillForge · 面试深挖手册（面试官视角）</h1>
+<blockquote>
+<p>从面试官视角写：<strong>假设 20-30 分钟深度技术讨论，5 大追问链 + 挑刺预案 + 数字证据路径</strong>。</p>
+<p>核心原则：<strong>简历上每一行都是面试话题订单，每个数字都有可跑证据</strong>。</p>
+<p>底线：<strong>不知道就不知道</strong> —— 5 条我明确回答"不知道"的边界见文末。</p>
+</blockquote>
+<hr />
+<h2 id="1agent-use_skill">追问链 1：Agent 主导渐进式披露（use_skill）</h2>
+<p><strong>Q1（一级）</strong>：你为什么不让加载器自动拦截 prompt 展开 skill？大多数框架都是这么做的。</p>
+<blockquote>
+<p><strong>我答</strong>：让加载器拦截等于给系统埋了一个"隐形状态变化"——Agent 看到的 tools 列表突然变了但不知道为什么，评估器无法归因"这个错误是不是加载错了 skill"。改用 <code>use_skill(name, reason)</code> 特殊工具后，加载是 Agent 的显式 action，<code>reason</code> 参数强制记录归因，<code>runs/router.jsonl</code> 每条含 <code>{name, reason, source: git/disk_no_release/[ERROR], latency_ms, release_id}</code>。ReAct 可解释性无断点。</p>
+</blockquote>
+<p><strong>Q2（二级）</strong>：可归因具体到什么程度？演示一下。</p>
+<blockquote>
+<p><strong>我答</strong>：<code>skillforge demo --query "上海明天会下雨吗"</code> 会打印最后一条 <code>router.jsonl</code>。字段：<code>ts=2026-07-26T14:19:08+00:00, op=use_skill, name=weather_query, reason='用户查询上海明天会下雨吗，判断需要 weather_query 提供的能力', source=disk_no_release, release_id=null, latency_ms=11.44, body_chars=584</code>。<strong>这条记录能回答"哪个 skill 被加载了，为什么加载，从哪个版本读的，花了多少时间"</strong>——评估器出问题时可以按 <code>release_id</code> 反查 Git commit 精准定位到那一版 SKILL.md。</p>
+</blockquote>
+<p><strong>Q3（三级）</strong>：如果 skill 又多又杂，Agent 每次都要判断该用哪个，认知负担不重吗？</p>
+<blockquote>
+<p><strong>我答</strong>：所以有元数据索引层 —— 只暴露 <code>name + description + use_when + not_for</code>（每 skill ~80 token），10 个 skill 也就 800 token 追加到 system prompt。Agent 决策时只对着索引段思考，不需要看每个 skill 的完整 Body（那是 use_skill 后按需返回的）。<strong>代价</strong>是 Agent 需要一次 ReAct 循环去 use_skill，多一次 tool call；<strong>收益</strong>是 token 省 5-10 倍且加载可归因。</p>
+</blockquote>
+<p><strong>Q4（四级）</strong>：<code>trigger.keywords</code> 那你要它干嘛？</p>
+<blockquote>
+<p><strong>我答</strong>：只作为路由排序信号，<strong>不做自动展开</strong>。Phase 2 首版我违反了这条口径——规则层 keyword 独占命中直接决策——18 条硬负例 17 条被错分类（"帮我写一个正则匹配邮箱" 命中"正则" → 错选 explain_regex）。改回"规则只做排序不独占"后 R@1 从 62%→98%。<strong>这条规则明写在方案书 A.2 一致性口径清单</strong>，是我踩坑后总结的护栏。</p>
+</blockquote>
+<p><strong>证据路径</strong>：
+- 代码：<a href="src/skillforge/registry.py#L118-L165">src/skillforge/registry.py</a>（<code>use_skill</code> 三档降级）
+- 日志格式：<a href="src/skillforge/registry.py#L163-L188">src/skillforge/registry.py:_log</a>
+- 复盘：<a href="__log/2026-07-26-router-hardnegative-fix/README.md">__log/2026-07-26-router-hardnegative-fix/</a></p>
+<hr />
+<h2 id="2embedllm">追问链 2：三层路由（规则+embed+LLM）</h2>
+<p><strong>Q1（一级）</strong>：为什么不用纯 embedding？bge 已经很强了。</p>
+<blockquote>
+<p><strong>我答</strong>：三个原因。<strong>成本</strong>——纯 embedding 每次 query 都要跑 encode（50ms），规则命中的场景（用户明确说"我要写周报"）本来 3ms 能出结果，浪费 15x。<strong>准确</strong>——bge-small 在硬负例（"帮我写会议纪要" vs 周报 skill）上区分度不够，实测 embed top1 相似度 0.5-0.7 区间容易误判，必须 LLM 兜底。<strong>可解释</strong>——分层决策的 <code>hit_layer=rule/embed/llm</code> 字段让路由错误可以归因到具体哪一层出的问题。</p>
+</blockquote>
+<p><strong>Q2（二级）</strong>：50 条硬负例怎么造的？</p>
+<blockquote>
+<p><strong>我答</strong>：正负例领域相似但意图相反。比如 weather_query 的硬负例：<code>"北京最近三年的年均降水量"</code>（含"降水" keyword 但意图是气候学分析，not_for 明写）、<code>"昨天北京的天气怎么样"</code>（历史查询超能力边界）。每 skill 6 条硬负例 + 2 条完全无关 = 20 条负例；正例 30 条（每 skill 10 条覆盖简单/带条件/带时间窗/边界/负载）。评测集在 <a href="evaluation_sets/router_negatives.json">evaluation_sets/router_negatives.json</a>，Recall 判定：<strong>正例 top-1 匹配 = 通过；负例 chosen=None = 通过</strong>。</p>
+</blockquote>
+<p><strong>Q3（三级）</strong>：阈值 HIGH_CONF=0.75、MARGIN=0.10、LOW_CONF=0.35 怎么定的？拍脑袋？</p>
+<blockquote>
+<p><strong>我答</strong>：<strong>跑评测集调优</strong>。首版 HIGH_CONF=0.55 → 总 R@1=78%，硬负例 R@1=44%（top1 相似度 0.55-0.7 的硬负例被 embed 独占决策错杀）。提高到 0.75 让更多中间地带交 LLM 兜底 → R@1=86%，硬负例 R@1=67%。再加 Judge prompt 里 <code>use_when + not_for</code> 让 LLM 判语义 → <strong>R@1=98%</strong>。全部调优过程记在 <a href="__log/2026-07-26-router-hardnegative-fix/README.md">__log/2026-07-26-router-hardnegative-fix/README.md</a>。</p>
+</blockquote>
+<p><strong>Q4（四级）</strong>：LLM 兜底每 query 都调，成本怎么算？</p>
+<blockquote>
+<p><strong>我答</strong>：只有中间地带（embed top1 在 0.35-0.75 之间）才调 LLM，实测 50 条评测集里约 40% query 走到 LLM 层。每次 ~500ms、DeepSeek 0.001 元/次 —— 单次 query 期望成本约 0.0004 元。<strong>规则命中的场景（明确领域词命中）0.01ms 秒回</strong>，压根不进 embed。三层的价值就是<strong>按需付费</strong>：便宜的 case 走便宜层。</p>
+</blockquote>
+<p><strong>证据路径</strong>：
+- 代码：<a href="src/skillforge/router/cascade.py#L67-L120">src/skillforge/router/cascade.py</a>
+- 阈值：<a href="src/skillforge/router/cascade.py#L24-L27">cascade.py:24-27</a>
+- 评测复现：<code>python scripts/eval_router.py --use-llm</code> → R@1=98%</p>
+<hr />
+<h2 id="3-judge">追问链 3：八维评估器 + Judge 偏差</h2>
+<p><strong>Q1（一级）</strong>：你说八维，具体哪八维？为什么分 4+4？</p>
+<blockquote>
+<p><strong>我答</strong>：结构分 4 维（Schema 15 + Trigger 10 + Prompt 10 + Deps 5 = 40）<strong>只做完整性检查不阻断发布</strong>；效果分 4 维（任务完成 25 + 鲁棒性 15 + 效率 10 + 可读性 10 = 60）<strong>才是发布门槛</strong>。设计意图：<strong>结构分本质是"表单校验"</strong>，SKILL.md 缺个 not_for 字段不应该挡住发布，只出警告；<strong>效果分才反映 Skill 真实价值</strong>。</p>
+</blockquote>
+<p><strong>Q2（二级）</strong>：Judge 配对比较（A/tied/B）为什么不用绝对分？</p>
+<blockquote>
+<p><strong>我答</strong>：绝对分容易被措辞、长度、格式带偏。同一个 Judge 对同一个输出可能今天给 8 分明天给 7 分（分数漂移）。<strong>改成配对后 Judge 只需相对判断</strong>，可复现性大幅提升。代价是每 case 要跑两次输出（有 Skill vs 无 Skill）—— 值得。<strong>效率维度</strong>特意走客观指标（token 比），不给 LLM 打分权，因为效率这维 LLM 主观偏差最大。</p>
+</blockquote>
+<p><strong>Q3（三级 · 追刺）</strong>：你自己评估 Judge 分歧率 62%，那这个 Judge 还能用吗？</p>
+<blockquote>
+<p><strong>我答</strong>：<strong>分歧集中在天气 skill 的 task_completion 维度</strong>（6 条案例，Judge 全把"编造 API 输出"判 A_better，golden 判 B_better）。核心原因：<strong>Judge 和被评 LLM 都是 DeepSeek，幻觉是共同盲区</strong>——Judge 认为"格式完整=好"，没意识到具体数字是编的。<strong>方案书 §4.4 的保底盲评本来就是要暴露这类偏差</strong>，不是要证明 Judge 好。改进路径明确：Judge prompt 加一条"未验证具体数据 = 幻觉，无论多完整都判 B_better"的红线。这属于<strong>已知缺陷 + 明确改进方向</strong>，不是致命问题。</p>
+</blockquote>
+<p><strong>Q4（四级）</strong>：棘轮硬 5 条软 10%，如果每次改进都刚好卡在 9.9%，元 Agent 会不会永远不触发人工 REVIEW？</p>
+<blockquote>
+<p><strong>我答</strong>：不会。<strong>软门槛判定"任一维度变化 ≥10%（含上升）"</strong>——上升也触发。所以元 Agent 想通过软门槛必须让所有维度变化 &lt;10%，也就是"改动效果很小"。这种"小改动"本来风险就低（L1 补 examples 那种），自动化收益也大。真正的大改动必然触发 ≥10%，正好走人工 REVIEW，这是<strong>分级阻断的设计意图</strong>。</p>
+</blockquote>
+<p><strong>Q5（五级）</strong>：40 条基线评估集太少了吧，工业界不都是几千条？</p>
+<blockquote>
+<p><strong>我答</strong>：坦诚——40 条<strong>够 Phase 3 出偏差报告、但不够对外声明"评估器可信"</strong>。方案书 §4.4 明写"评估可信度声明四条"：本评估器只用于<strong>相对回归 + 候选筛选</strong>、不足以证明绝对质量、不足以支持高风险自动发布、不宣称与用户满意度相关。<strong>独立开发者 4 周做出 40 条手工评测集已经是能兑现的规模</strong>，工业级需要有标注团队投入 200-500 人时。这是能力边界的诚实划分。</p>
+</blockquote>
+<p><strong>证据路径</strong>：
+- 评估器 5 模块：<a href="src/skillforge/evaluator/">src/skillforge/evaluator/</a>
+- 保底盲评偏差：<a href="__log/2026-07-27-phase3-blind-eval/README.md">__log/2026-07-27-phase3-blind-eval/</a>
+- 复现：<code>python scripts/blind_eval_report.py</code></p>
+<hr />
+<h2 id="4-agent-30">追问链 4：元 Agent 分级 + 30% 坦诚</h2>
+<p><strong>Q1（一级）</strong>：L1/L2/L3 怎么划分？依据是什么？</p>
+<blockquote>
+<p><strong>我答</strong>：按<strong>改动影响面 + 语义边界风险</strong>。L1 = 补 <code>examples/not_for/description</code>（描述性字段，不改语义边界，最安全）→ 可自动；L2 = 改 <code>trigger.keywords/Instructions</code>（可能影响路由和 Agent 行为）→ 只出建议；L3 = 改 <code>dependencies/Constraints 安全约束</code>（改工具权限或安全边界，最高风险）→ 只出建议。<strong>Phase 4 允许收敛到 L1 auto</strong> 就是方案书早期就承认的现实：L2/L3 值得人类兜底。</p>
+</blockquote>
+<p><strong>Q2（二级）</strong>：为什么不搞全自动？技术上做不到吗？</p>
+<blockquote>
+<p><strong>我答</strong>：技术上可以做到（LLM 生成完整新 SKILL.md、跑评估、通过就 commit——L1 就是这个流程）。但<strong>高风险改动 + 评估器有 62% Judge 分歧 = 全自动 = 生产事故</strong>。设计选择"半自动"是<strong>对现实能力边界的坦诚</strong>：Judge 还不够可信，就不能让元 Agent 自主决策改工具权限。这个"不承诺全自动"是方案书 A.2 违禁清单里明写的口径。</p>
+</blockquote>
+<p><strong>Q3（三级 · 追刺）</strong>：你只跑了 1 次真实迭代，凭什么说"半自动闭环打通"？</p>
+<blockquote>
+<p><strong>我答</strong>：<strong>六步 pipeline + L1 auto 发布链路 + 分级归档路径</strong>这三件事必须"打通"才能声明"闭环"，我这三件都做完了：<code>runs/failures/</code> 里有 2 条 DECLINED L1 归档（含完整 patch + verdict reasons），<code>runs/suggestions/</code> 里有 1 条 L2 REVIEW（+4.90 分证实元 Agent 判断准确）。<strong>闭环打通 ≠ 大规模验证</strong>。10 次迭代是长期观测指标，需要新 skill 和真实评估集持续投入，本 commit 演示 pipeline 完整性；后续用户跑 <code>skillforge evolve --skill X</code> 会自然累积到 10+ 次。这个分工在 <a href="__log/2026-07-27-phase4-evolve/README.md">__log/2026-07-27-phase4-evolve/README.md</a> 明写。</p>
+</blockquote>
+<p><strong>Q4（四级）</strong>：如果元 Agent 成功率一直上不去，比如卡在 10%，这个系统还有价值吗？</p>
+<blockquote>
+<p><strong>我答</strong>：有。<strong>元 Agent 的价值不只是"替代人做发布"</strong>：
+1. <strong>自动淘汰明显错的改动</strong>——70% 被门槛挡在外面，人只需 review 通过棘轮的 30%
+2. <strong>负样本沉淀</strong>——<code>runs/failures/</code> 每个失败 patch 附完整根因分析，形成"模式库"给下一轮候选生成参考
+3. <strong>评估闭环压测</strong>——反复冲击评估集，暴露 Judge 偏见与评估集覆盖漏洞（Phase 3 的 62% 分歧就是这么发现的）</p>
+<p>30% 是坦诚数字，但<strong>即使 10% 也有价值</strong>——只要一个成功 patch 带来的效果分提升 &gt; 10 次尝试的 LLM 成本，就值。</p>
+</blockquote>
+<p><strong>证据路径</strong>：
+- 代码：<a href="src/skillforge/evolver.py">src/skillforge/evolver.py</a>（六步 400+ 行）
+- 真实归档：<a href="runs/failures/">runs/failures/</a> + <a href="runs/suggestions/">runs/suggestions/</a>
+- 复盘：<a href="__log/2026-07-27-phase4-evolve/README.md">__log/2026-07-27-phase4-evolve/README.md</a></p>
+<hr />
+<h2 id="5">追问链 5：跨存储一致性</h2>
+<p><strong>Q1（一级）</strong>：三处存储（Git / SQLite / JSONL）你怎么保证一致？</p>
+<blockquote>
+<p><strong>我答</strong>：<strong>SQLite 是唯一发布事实源</strong>（ADR-06）。Git 承载 skill 内容版本，JSONL 是审计留痕，两者都不用来判定"什么是 published"——只有 SQLite <code>skills.current_release_id</code> 指向 status='PUBLISHED' 的 releases 行才算发布。写入协议四步固定顺序：Git commit → SQLite PREPARING → JSONL append → SQLite PUBLISHED，任一步失败<strong>不推进下一步</strong>。</p>
+</blockquote>
+<p><strong>Q2（二级）</strong>：那第 3 步 JSONL append 失败会怎样？</p>
+<blockquote>
+<p><strong>我答</strong>：SQLite 停在 PREPARING，Watchdog 24 小时后扫到清理为 ABANDONED。<strong>Git 那条 commit 保留在历史里</strong>——不回滚，因为 commit 本身有审计价值（"我们尝试过发布这个 patch 但没成功"）。方案书 ADR-08 明说：不用事务回滚 Git commit，用 Watchdog 清理 SQLite 状态。<strong>取舍</strong>：Git 会积累"未发布 commit"垃圾，代价是简单可运维；如果生产化可以补一个 GC 脚本清 orphan commit。</p>
+</blockquote>
+<p><strong>Q3（三级）</strong>：release_id 用 UUID 幂等，具体幂等在哪里？</p>
+<blockquote>
+<p><strong>我答</strong>：<code>release_id</code> 是 UUID v4 全局唯一，四步操作都以它为主键：<code>begin_release</code> 生成 → <code>write_commit</code> update commit_hash → <code>append_evaluation</code> write JSONL 用 release_id 作 key → <code>commit_release</code> update status。<strong>重复调 <code>commit_release(release_id)</code> 会检查 status</strong>：非 PREPARING 抛 <code>ValueError</code>（不是幂等成功，是显式拒绝）。真正的幂等在 <strong>watchdog_sweep 上</strong>：多次调用只会把当前满足条件的 PREPARING 清一次，重跑清 0 条。测试 <code>test_state_machine.py</code> 里 <code>test_watchdog_idempotent</code> 明确覆盖。</p>
+</blockquote>
+<p><strong>Q4（四级）</strong>：Watchdog 阈值 24 小时会不会太长了？失败要等一天才清理？</p>
+<blockquote>
+<p><strong>我答</strong>：24 小时是<strong>默认值</strong>，<code>watchdog_sweep(threshold_hours=N)</code> 接受任意参数。24 小时的取舍是：<strong>PREPARING 阶段可能包含长评估</strong>（Phase 3 一次评估 3 分钟；元 Agent 迭代 25 分钟），太短会误清正在跑的 release。生产化可以按"用户实际最长评估时间 × 3"设。<strong>Phase 3 单元测试用 threshold_hours=0</strong> 立刻清所有 PREPARING 验证清理逻辑正确，业务运行时用默认 24。</p>
+</blockquote>
+<p><strong>证据路径</strong>：
+- Schema：<a href="src/skillforge/storage/db.py#L14-L38">src/skillforge/storage/db.py</a>
+- 四步 + Watchdog：<a href="src/skillforge/state_machine.py">src/skillforge/state_machine.py</a>
+- 测试：<a href="tests/test_state_machine.py">tests/test_state_machine.py</a> 9 条覆盖状态机 + 幂等 + Watchdog</p>
+<hr />
+<h2 id="_1">面试官可能挑刺的点（提前想好）</h2>
+<h3 id="14907-900">挑刺 #1：4907 行远超方案书 900 行预算，是不是超工？</h3>
+<blockquote>
+<p>答：方案书 900 行是<strong>核心业务代码估算</strong>（5 组件的主要逻辑）。实际 4907 行含：
+- <strong>tests/ 1000+ 行</strong>（74 条 pytest）—— 方案书没算测试
+- <strong>scripts/ 400+ 行</strong>（评测、盲评、报告脚本）—— 独立于核心代码
+- <strong>evolver.py 一个文件 400+ 行</strong>（Phase 4 六步内部函数 + 数据类 + patch 应用逻辑）
+核心组件（registry/router/evaluator/state_machine）合计约 1500 行，比方案书 900 行超 60%，主要因为<strong>评估器装配（evaluator/<strong>init</strong>.py 210 行）</strong> 和 <strong>evolver 的沙箱验证 + 分级发布</strong> 逻辑比预估复杂。<strong>没有过度工程化</strong>——每行都对应方案书里的机制。</p>
+</blockquote>
+<h3 id="23-skill">挑刺 #2：3 个种子 skill 太少了，不能证明推广性</h3>
+<blockquote>
+<p>答：<strong>同意</strong>——3 个 skill 只够跑通 pipeline 演示，不能证明 "跨领域 skill 的评估器都能用"。<strong>但方案书 §1 定位就是"面试演示 + 工程闭环验证"，不是"生产级 skill 库"</strong>。3 个 skill 特意选<strong>信息查询类 / 生成类 / 教学类</strong> 三大分类覆盖，评估器机制在这三类上都跑通了 → 至少证明<strong>机制不特化于某一类 skill</strong>。要证明"任意 skill 都能用"需要 15-30 个 skill 覆盖更多类型，是 Phase 5+ 工作。</p>
+</blockquote>
+<h3 id="3hello-agents">挑刺 #3：hello-agents 只是教程配套代码，不是成熟框架</h3>
+<blockquote>
+<p>答：<strong>是</strong>。选它的原因：方案书 §3 明写"最小依赖，避免绑定商业框架 API"。hello-agents 提供的抽象（Tool/ToolRegistry/SimpleAgent/HelloAgentsLLM）够薄够干净，能被继承和覆盖。<strong>代价</strong>是没有 LangChain/LangGraph 那种 tool_call 协议原生支持，我在 Phase 4 元 Agent 没用 ReAct 而是 SimpleAgent + 结构化 prompt——这是取舍不是缺陷。如果换 LangGraph，代码量会翻倍且被框架绑死。</p>
+</blockquote>
+<h3 id="4-human-proxy">挑刺 #4：保底盲评你自己做 human proxy，公信力何在？</h3>
+<blockquote>
+<p>答：<strong>没有公信力，这是明说的</strong>。<a href="__log/2026-07-27-phase3-blind-eval/README.md">__log/2026-07-27-phase3-blind-eval/README.md</a> 顶部"局限性声明"就 3 条：<strong>同源偏差 / 提示暴露 / 单人标注</strong>。报告数字只作为<strong>内部 iteration 参考</strong>，不作为对外可信度证据。方案书 §4.4 明写"分数不宣称与用户真实满意度相关"。要正式采用需替换真人独立盲评（≥2 位标注员 + Cohen's Kappa &gt; 0.6）。<strong>这个坦诚本身也是设计的一部分</strong>——不吹牛不给自己挖坑。</p>
+</blockquote>
+<h3 id="5phase-4-1-10">挑刺 #5：Phase 4 只跑 1 次真实迭代，方案书要求 10 次</h3>
+<blockquote>
+<p>答：坦诚——<strong>方案书要求 10 次是长期观测目标，本 commit 演示 1 次是"验证 pipeline 打通"</strong>。理由三点：
+1. 单次迭代 = ~50-100 次 LLM 调用（DeepSeek），10 次 ≈ 25-50 分钟纯 API 时间 + 网络重试
+2. Phase 4 交付<strong>价值在于机制</strong>——六步 pipeline + L1 auto + 归档路径完整；成功率是长期统计指标
+3. <code>runs/failures/</code> 和 <code>runs/suggestions/</code> 已就位，后续每次 <code>skillforge evolve</code> 自然累积，几周内可达 10+ 次</p>
+</blockquote>
+<p><strong>替代兑现方式</strong>：面试演示时<strong>现场跑一次 evolve</strong>（3 分钟），加上 <code>runs/</code> 已有归档，等效证据。</p>
+<hr />
+<h2 id="_2">简历数字 → 证据路径映射</h2>
+<table>
+<thead>
+<tr>
+<th>简历行</th>
+<th>数字</th>
+<th>证据路径</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Recall@1 ≥ 80%</code></td>
+<td><strong>98%</strong></td>
+<td><code>python scripts/eval_router.py --use-llm</code></td>
+</tr>
+<tr>
+<td><code>Recall@3 ≥ 90%</code></td>
+<td><strong>100%</strong></td>
+<td>同上</td>
+</tr>
+<tr>
+<td><code>40 条基线（32 dev + 8 hidden）</code></td>
+<td>40</td>
+<td><code>evaluation_sets/baseline_dev.json</code> + <code>baseline_hidden.json</code></td>
+</tr>
+<tr>
+<td><code>50 条硬负例</code></td>
+<td>50</td>
+<td><code>evaluation_sets/router_negatives.json</code></td>
+</tr>
+<tr>
+<td><code>10 条 P0</code></td>
+<td>10</td>
+<td><code>evaluation_sets/p0_cases.json</code></td>
+</tr>
+<tr>
+<td><code>pytest 全绿</code></td>
+<td><strong>74/74 · 4.4s</strong></td>
+<td><code>pytest tests/ -v</code></td>
+</tr>
+<tr>
+<td><code>~900 行 Python</code></td>
+<td>实际 4907（含 tests）</td>
+<td><code>wc -l src/skillforge/**/*.py tests/*.py</code></td>
+</tr>
+<tr>
+<td><code>SQLite 状态机 4 步 + Watchdog</code></td>
+<td>4 步 + 24h</td>
+<td><code>src/skillforge/state_machine.py</code></td>
+</tr>
+<tr>
+<td><code>元 Agent 成功率 ~30%</code></td>
+<td>1/3=33%（1 次迭代）</td>
+<td><code>runs/failures/</code> + <code>runs/suggestions/</code></td>
+</tr>
+<tr>
+<td><code>SkillEvolver 六步</code></td>
+<td>6 步</td>
+<td><code>src/skillforge/evolver.py</code> L1-L400</td>
+</tr>
+<tr>
+<td><code>Judge 配对比较</code></td>
+<td>A/tied/B</td>
+<td><code>src/skillforge/evaluator/judge.py</code></td>
+</tr>
+<tr>
+<td><code>bge-small-zh-v1.5 本地</code></td>
+<td>512 维</td>
+<td><code>models/models/AI-ModelScope--bge-small-zh-v1.5/</code></td>
+</tr>
+<tr>
+<td><code>10 次真实迭代日志</code></td>
+<td><strong>1 次已跑完</strong>（10 次基础设施就位）</td>
+<td><code>runs/failures/*.md</code> + <code>runs/suggestions/*.md</code></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="5_1">我的 5 条"不知道"边界</h2>
+<p><strong>面试官问到以下问题，我会明确说"这块我没研究"</strong>：</p>
+<ol>
+<li><strong>正则引擎 NFA vs DFA 实现细节</strong> —— explain_regex skill 里 er_d10 就是这类"超范围"，Constraints 里明写建议深入学正则引擎源码</li>
+<li><strong>bge-small vs bge-m3 vs BM25 的召回精度对比</strong> —— 我只在 bge-small 上跑了评测，没做过 A/B</li>
+<li><strong>hello-agents 内部 ReAct 循环具体怎么实现</strong> —— 我用了 SimpleAgent 单轮，没深入 ReActAgent 源码</li>
+<li><strong>DeepSeek 模型的 tool_call 协议与 OpenAI 是否 100% 兼容</strong> —— tripplanner 项目用过 HelloAgentsLLM 走 OpenAI 兼容接口没问题，但没做过协议 diff</li>
+<li><strong>生产级别的评估集 Cohen's Kappa / Fleiss's Kappa 计算</strong> —— 保底盲评只做了简单一致率，没做统计意义上的 inter-rater agreement</li>
+</ol>
+<p><strong>这 5 条"不知道"不是知识空洞而是能力边界诚实标注</strong>。方案书 A.2 违禁清单第 4 条就是"承诺不了的不吹牛"。</p>
+<hr />
+<h2 id="5_2">面试前 5 分钟自查表</h2>
+<ul>
+<li>[ ] <code>git log --oneline -5</code> 4 个 Phase commit 都在</li>
+<li>[ ] <code>pytest tests/ -q</code> 74 通过</li>
+<li>[ ] <code>skillforge demo</code> 能跑</li>
+<li>[ ] <code>.env</code> 里 LLM_API_KEY 可用</li>
+<li>[ ] <code>models/</code> bge 模型在</li>
+<li>[ ] 方案书 v3 + ARCHITECTURE.md + __log/ 都能打开</li>
+<li>[ ] <code>runs/failures/*.md</code> + <code>runs/suggestions/*.md</code> 都在（元 Agent 演示证据）</li>
+<li>[ ] 打开 <a href="../SkillForge-%E9%A1%B9%E7%9B%AE%E6%96%B9%E6%A1%88%E4%B9%A6-v3/">SkillForge-项目方案书-v3.md</a> §7 grill-me（备份深度答案）</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  回到页面顶部
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 SuperGODOG
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.tracking", "navigation.expand", "navigation.top", "search.suggest", "search.highlight", "toc.follow", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "\u5df2\u590d\u5236", "clipboard.copy": "\u590d\u5236", "search.result.more.one": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.more.other": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 # \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.none": "\u6ca1\u6709\u627e\u5230\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.one": "\u627e\u5230 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.other": "# \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.placeholder": "\u952e\u5165\u4ee5\u5f00\u59cb\u641c\u7d22", "search.result.term.missing": "\u7f3a\u5c11", "select.version": "\u9009\u62e9\u5f53\u524d\u7248\u672c"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

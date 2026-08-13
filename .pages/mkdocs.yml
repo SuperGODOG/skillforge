@@ -1,0 +1,36 @@
+site_name: Skillforge · SuperGODOG
+site_description: Agent Skill 自进化元 Agent 系统 · Agent 主导渐进式披露 + 三层路由（规则+bge+LLM R@1=98%）+ 八维评估器 + 元 Agent 半自动闭环 · 4907 行 Python · pytest 74/74
+site_url: https://supergodog.github.io/skillforge/
+repo_url: https://github.com/SuperGODOG/skillforge
+repo_name: skillforge
+edit_uri: blob/main/
+
+docs_dir: site_src
+
+theme:
+  name: material
+  language: zh
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - toc.follow
+    - content.code.copy
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+
+plugins:
+  - search:
+      lang:
+        - zh
+        - en
+
+copyright: Copyright &copy; 2026 SuperGODOG
