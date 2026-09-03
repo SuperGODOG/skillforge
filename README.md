@@ -111,7 +111,7 @@ git clone https://github.com/SuperGODOG/skillforge.git && cd skillforge
 python3 -m venv .venv
 ./.venv/bin/pip install --index-url https://mirrors.aliyun.com/pypi/simple/ -e .
 
-# bge-small 走 modelscope（国内 hf-mirror 不稳，见 __log/ 复盘）
+# bge-small 走 modelscope（国内 hf-mirror 不稳）
 ./.venv/bin/pip install modelscope
 ./.venv/bin/python -c "from modelscope import snapshot_download; snapshot_download('AI-ModelScope/bge-small-zh-v1.5', cache_dir='./models')"
 
@@ -270,13 +270,9 @@ skillforge/
 │   ├── failures/                元 Agent DECLINED patches
 │   └── suggestions/             元 Agent L2/L3 REVIEW patches
 ├── tests/                       pytest 74 条
-├── __log/                       3 个重大事件复盘
 ├── models/                      bge-small 本地缓存（gitignore）
 │
 ├── ARCHITECTURE.md              C4 两级架构 + 10 ADR + §10 实施差异
-├── SkillForge-项目方案书-v3.md  方案书（含一致性口径清单 + 面试 Q&A）
-├── ISSUES_LOG.md                9 个坑 + 学习收获 + 生产化优化路径
-├── INTERVIEW_PREP.md            面试深挖手册（面试官视角 5 大追问链）
 └── README.md                    本文件
 ```
 
@@ -286,7 +282,7 @@ skillforge/
 
 ## 五大核心设计决策
 
-> **设计不是拍脑袋** —— 每个决策都有备选方案 + 选择理由 + 关联影响。详见 [ARCHITECTURE.md §8](ARCHITECTURE.md) 10 条 ADR 和方案书 §4。
+> **设计不是拍脑袋** —— 每个决策都有备选方案 + 选择理由 + 关联影响。详见 [ARCHITECTURE.md §8](ARCHITECTURE.md) 10 条 ADR。
 
 1. **Agent 主导渐进式披露** — 拒绝加载器拦截 prompt。注册 `use_skill(name, reason)` 特殊工具由 Agent 显式调用；每次加载写 `router.jsonl` 含 reason 归因链 —— **归因 100% 可回放，ReAct 可解释性无断点**。
 
@@ -302,7 +298,7 @@ skillforge/
 
 ## 数字对账
 
-| 指标 | 方案书门槛 | 实测 | 达标 |
+| 指标 | 门槛 | 实测 | 达标 |
 |---|---|---|---|
 | 路由 Recall@1 | ≥ 80% | **98%** | ✅ 超 18 分 |
 | 路由 Recall@3 | ≥ 90% | **100%** | ✅ 超 10 分 |
@@ -317,20 +313,16 @@ skillforge/
 
 | 文档 | 用途 | 面试参考位置 |
 |---|---|---|
-| [方案书 v3](SkillForge-项目方案书-v3.md) | 5W1H + 面试 Q&A 深展开 + A.2 一致性口径 | §7 grill-me 完整答案库 |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | C4 两级架构 + 10 ADR + §10 实施差异 | §8 ADR 追决策依据 |
-| [ISSUES_LOG.md](ISSUES_LOG.md) | 9 个坑 + 8 大学习收获 + 生产化优化 8 维度 | 面试可讲的踩坑证据 |
-| [INTERVIEW_PREP.md](INTERVIEW_PREP.md) | 面试官视角 5 大追问链 + 挑刺 5 条预案 | 面试前 5 min 自查表 |
-| [__log/](__log/) | 3 个重大事件复盘（bge / 路由调优 / Phase 4 迭代） | 面试证据链 |
 
 ---
 
-## Roadmap（Phase 5 优先级 · 详见 [ISSUES_LOG](ISSUES_LOG.md#收尾一句话建议)）
+## Roadmap（Phase 5 优先级）
 
 1. **Judge prompt 补幻觉红线** — 立刻兑现 Phase 3 交付（task 分歧 62% → <30%）
 2. **GitHub Actions + Docker Compose** — 降面试演示门槛
 3. **接入 MCP 协议** — 生态化被 Claude Desktop / Cursor 消费
-4. **10 次真实迭代 + 统计报告** — 兑现方案书 §4.5 "~30%" 数字
+4. **10 次真实迭代 + 统计报告** — 兑现 ~30% 成功率承诺（现 1/3 单次样本）
 5. **真人独立盲评（Cohen's Kappa > 0.6）** — 保底盲评从 proxy 升到可采信
 
 ---
@@ -348,11 +340,10 @@ skillforge/
 
 ## 演化说明（本项目的"元数据"）
 
-- **方案书 v3** 是**设计冻结点**（写于 Phase 1 前，含 A.2 一致性口径 14+7 条）
 - **ARCHITECTURE.md** 是**架构基线**（Phase 4 完成后 §10 记 8 处实施差异）
-- **`__log/` + `runs/failures/` + `runs/suggestions/`** 是**真实执行证据**（非设计文档）
+- **`runs/failures/` + `runs/suggestions/`** 是**真实执行证据**（非设计文档）
 
-面试时的证据链：**简历数字 → README CLI → 命令输出 → `runs/` 真实文件 → `__log/` 事件复盘**。每一环都可打开验证。
+面试时的证据链：**简历数字 → README CLI → 命令输出 → `runs/` 真实文件**。每一环都可打开验证。
 
 ---
 

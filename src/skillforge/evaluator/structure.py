@@ -6,7 +6,7 @@
     Prompt 健壮性       10  —— Body 含 ## Constraints 段（或"约束"）
     依赖可用性           5  —— dependencies 显式声明（Phase 3 简化：只做静态存在检查）
 
-参见方案书 §4.4、ARCHITECTURE §4-E
+参见 ARCHITECTURE §4-E
 """
 from __future__ import annotations
 import re

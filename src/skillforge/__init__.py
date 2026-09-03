@@ -3,7 +3,7 @@
 顶层暴露 5 大组件 + 数据模型。
 
 参见：
-- SkillForge-项目方案书-v3.md（why + 面试怎么答）
+- README.md（设计取舍 + 面试口径）
 - ARCHITECTURE.md（组件划分 + 接口签名 + 数据流）
 """
 __version__ = "0.1.0"

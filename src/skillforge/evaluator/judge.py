@@ -7,7 +7,7 @@
 （efficiency 走客观指标，不用 LLM 打分）
 
 Phase 3 保底：每 20 次抽 1 条人工盲评校准；Judge/人工分歧 > 30% 调 prompt。
-参见方案书 §4.4、ARCHITECTURE §4-E
+参见 ARCHITECTURE §4-E
 """
 from __future__ import annotations
 import logging

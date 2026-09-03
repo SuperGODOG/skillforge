@@ -9,8 +9,7 @@
 Not For 段是关键：让 write_weekly_report 的 not_for=["会议纪要","月报"]
 在向量空间主动排斥"帮我写会议纪要"这类硬负例。
 
-模型来源：modelscope 下载到本地 models/ 目录（Phase 2 T0 结论，
-详见 __log/2026-07-26-bge-small-download-failed/）。
+模型来源：modelscope 下载到本地 models/ 目录（Phase 2 T0 结论，见 ARCHITECTURE §10.2 差异 7）。
 """
 from __future__ import annotations
 from pathlib import Path
@@ -39,7 +38,7 @@ class EmbedLayer:
                 raise FileNotFoundError(
                     f"bge 模型目录不存在：{self.model_dir}\n"
                     f"请先跑：bash scripts/setup_modelscope.sh 或"
-                    f" 参考 __log/2026-07-26-bge-small-download-failed/README.md"
+                    f" 参考 README「环境准备」的 modelscope 步骤"
                 )
             self._model = SentenceTransformer(str(self.model_dir))
         return self._model

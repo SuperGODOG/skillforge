@@ -7,7 +7,7 @@ flow（evaluate_skill）：
     3. 客观指标：turns / tokens / latency 平均
     4. P0：P0 case 中 task_completion 维度 B_better（对照更好）视为 P0 fail
 
-参见方案书 §4.4、ARCHITECTURE §4-E、§7
+参见 ARCHITECTURE §4-E、§7
 """
 from __future__ import annotations
 import time

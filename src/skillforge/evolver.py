@@ -1,6 +1,6 @@
 """SkillEvolver 元 Agent：候选生成器 + 初筛器（非最终决策者）
 
-六步流程（方案书 §4.5、ARCHITECTURE §4-D）:
+六步流程（ARCHITECTURE §4-D）:
     1. 收集失败样本（从 EvalResult.case_verdicts 取 B_better）
     2. LLM 根因分析（4 类标签：trigger/prompt/deps/boundary）
     3. LLM 生成候选 patch（3-5 个，标 L1/L2/L3）
@@ -8,7 +8,7 @@
     5. 分级发布：L1 + PASS → 自动；L2/L3 或 REVIEW → 只出建议
     6. 归档：成功 → SQLite PUBLISHED；失败 → runs/failures/
 
-分级标准（方案书 §4.5 表）:
+分级标准（ARCHITECTURE §4-D）:
     L1 = 补 examples / not_for / description（不改语义边界）→ 可自动
     L2 = 改 trigger / Instructions（可能影响路由与行为）→ REVIEW
     L3 = 改 dependencies / 安全 Constraints（改权限/安全边界）→ 只建议

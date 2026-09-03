@@ -12,7 +12,7 @@
 
 首次评估（old=None） → PASS（无对比基线）
 
-参见方案书 §4.4、ARCHITECTURE §4-E
+参见 ARCHITECTURE §4-E
 """
 from __future__ import annotations
 from typing import Optional

@@ -3,7 +3,7 @@
 - SkillMeta 系列：Pydantic BaseModel（需要 YAML frontmatter 解析 + 校验）
 - Route/Eval/Ratchet/Patch/Release：dataclass（组件间内部传递够用）
 
-参见 ARCHITECTURE §5、方案书 §4.1
+参见 ARCHITECTURE §5。
 """
 from __future__ import annotations
 from dataclasses import dataclass, field

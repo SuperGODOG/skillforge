@@ -1,10 +1,10 @@
 # SkillForge 架构文档
 
-> 与《SkillForge-项目方案书-v3》完全对齐的架构视图。方案书讲"为什么"和"面试怎么答"；本文档讲"组件怎么划分、数据怎么流、接口长什么样"。修改前请先看方案书附录 A.2 一致性口径清单。
+> 本文档是 SkillForge 的架构视图：讲"组件怎么划分、数据怎么流、接口长什么样"；设计取舍与面试口径见 README（五大核心设计决策 + 数字对账）。
 >
 > 初版：2026-07-26（Phase 1 前预估）· 修订：2026-07-27（Phase 4 全部完成，末尾 §10 记实施差异）
 >
-> **文档使用指南**：§1-§9 是**架构基线**（Phase 1 前设计），§10 是**实施差异修订**（哪些改了、为什么改）。两者共同构成完整架构视图，冲突处以 §10 为准。
+> **文档使用指南**：§1-§8 是**架构基线**（Phase 1 前设计），§10 是**实施差异修订**（哪些改了、为什么改）。两者共同构成完整架构视图，冲突处以 §10 为准。
 
 ---
 
@@ -435,7 +435,7 @@ CREATE INDEX idx_releases_skill ON releases(skill_name, status);
 
 ### 5.3 SKILL.md 规范（YAML frontmatter + Body）
 
-见方案书 §4.1。此处只列 Pydantic Schema：
+规范要点：frontmatter 承载结构化元数据（Trigger/Evaluation 等），Body 承载 Instructions 与 Examples。此处只列 Pydantic Schema：
 
 ```python
 class Trigger(BaseModel):
@@ -464,8 +464,6 @@ class SkillMeta(BaseModel):
 ```
 skillForge/
 ├── ARCHITECTURE.md                # 本文件
-├── SkillForge-项目方案书-v3.md    # 方案书（md 源）
-├── SkillForge-项目方案书-v3.docx  # 方案书（docx 发布版）
 ├── README.md                      # 快速上手 + CLI 用法
 ├── pyproject.toml
 │
@@ -594,41 +592,30 @@ class ReleaseStateMachine:
 
 ## 8. 架构决策记录（ADR 精简版）
 
-| # | 决策 | 备选方案 | 选择理由 | 关联方案书 |
-|---|---|---|---|---|
-| ADR-01 | Agent 主导渐进式披露（use_skill 显式加载） | 加载器自动拦截 prompt 展开 | 可归因、可评估；不破坏 ReAct 可解释性 | §4.2 |
-| ADR-02 | 三层路由级联（规则→embed→LLM）| 纯 embedding；纯规则；纯 LLM | 延迟-准确率-成本三角平衡；分层可归因 | §4.3 |
-| ADR-03 | Judge 用配对比较不评绝对分 | 绝对打分；多 Judge 投票 | 对抗 Judge 分数漂移；单 Judge 成本可控 | §4.4 |
-| ADR-04 | 结构分不阻断发布，只做完整性检查 | 结构分参与硬门槛 | 结构分本质是"表单校验"，不应决定质量 | §4.4 |
-| ADR-05 | 元 Agent 分级发布 L1/L2/L3 | 全自动；全人工 | 风险分层：低风险自动化收益大，高风险坚决人工 | §4.5 |
-| ADR-06 | SQLite 是唯一发布事实源 | Git 为源；文件锁 | 单事务原子性 + 幂等 UPDATE；单文件零运维 | §5 |
-| ADR-07 | bge-small-zh-v1.5 本地 embedding | bge-m3；API embedding；无 embedding | 小模型 CPU 可推、中文场景足够、零外部依赖 | §4.3 |
-| ADR-08 | Watchdog 清理 PREPARING 而非回滚 Git | 事务回滚 Git commit | Git commit 保留可审计价值；Watchdog 简单 | §5 |
-| ADR-09 | 硬负例评测集降到 50 条（非 100-200） | 100+ 条 | 独立开发者手工造数据 4 周内可行的规模 | §4.3 |
-| ADR-10 | 单进程模型（不引入队列/Worker） | Celery + Redis | 900 行预算 + CLI 演示定位不需要 | §1 |
+| # | 决策 | 备选方案 | 选择理由 |
+|---|---|---|---|
+| ADR-01 | Agent 主导渐进式披露（use_skill 显式加载） | 加载器自动拦截 prompt 展开 | 可归因、可评估；不破坏 ReAct 可解释性 |
+| ADR-02 | 三层路由级联（规则→embed→LLM）| 纯 embedding；纯规则；纯 LLM | 延迟-准确率-成本三角平衡；分层可归因 |
+| ADR-03 | Judge 用配对比较不评绝对分 | 绝对打分；多 Judge 投票 | 对抗 Judge 分数漂移；单 Judge 成本可控 |
+| ADR-04 | 结构分不阻断发布，只做完整性检查 | 结构分参与硬门槛 | 结构分本质是"表单校验"，不应决定质量 |
+| ADR-05 | 元 Agent 分级发布 L1/L2/L3 | 全自动；全人工 | 风险分层：低风险自动化收益大，高风险坚决人工 |
+| ADR-06 | SQLite 是唯一发布事实源 | Git 为源；文件锁 | 单事务原子性 + 幂等 UPDATE；单文件零运维 |
+| ADR-07 | bge-small-zh-v1.5 本地 embedding | bge-m3；API embedding；无 embedding | 小模型 CPU 可推、中文场景足够、零外部依赖 |
+| ADR-08 | Watchdog 清理 PREPARING 而非回滚 Git | 事务回滚 Git commit | Git commit 保留可审计价值；Watchdog 简单 |
+| ADR-09 | 硬负例评测集降到 50 条（非 100-200） | 100+ 条 | 独立开发者手工造数据 4 周内可行的规模 |
+| ADR-10 | 单进程模型（不引入队列/Worker） | Celery + Redis | 900 行预算 + CLI 演示定位不需要 |
 
 ---
 
-## 9. 与方案书 v3 的对应关系
+## 9. 与方案书的关系（方案书已归档）
 
-| 本文件章节 | 方案书章节 |
-|---|---|
-| §2 系统上下文 | §一（项目概述）+ §三（技术选型） |
-| §3.1 组件划分 | §四（架构设计 5 个核心组件） |
-| §3.2 继承关系 | 附录 A.1（框架扩展关系） |
-| §4 运行时视图 | §四各子节的机制描述 |
-| §5 数据模型 | §4.1 SKILL.md 规范 + §5 跨存储 |
-| §6 目录结构 | §六 实施计划暗含 |
-| §7 接口签名 | 首次显式列出（方案书未含代码） |
-| §8 ADR | 首次显式列出（提炼自方案书全文取舍） |
-
-**修改本文件时请同步检查**：方案书附录 A.2 一致性口径清单里的"必须坚守 / 必须避免"两栏。
+方案书 v3（含 A.2 一致性口径清单）已从仓库删除并归档，本文件自含完整架构视图：§1-§8 为设计基线，§10 记录实施差异。README 承载设计取舍与面试口径。
 
 ---
 
 ## 10. Phase 4 完成后的实际实现修订（2026-07-27）
 
-**核心结论**：架构基线 §1-§9 与实际实现**高度一致**，一致性口径 100% 遵守。以下是 8 处实施差异，按类型分组。
+**核心结论**：架构基线 §1-§8 与实际实现**高度一致**。以下是 8 处实施差异，按类型分组。
 
 ### 10.1 结构差异（4 处）
 
@@ -643,19 +630,19 @@ class ReleaseStateMachine:
 
 | # | 预估（§4-B） | 实际实现 | 原因 |
 |---|---|---|---|
-| 5 | 路由 embed `HIGH_CONF=?`，未定 | **`HIGH_CONF=0.75, MARGIN=0.10, LOW_CONF=0.35`** | 50 条硬负例评测集调优后的值；R@1 从 62% → 98%（详见 `__log/2026-07-26-router-hardnegative-fix/`）。 |
+| 5 | 路由 embed `HIGH_CONF=?`，未定 | **`HIGH_CONF=0.75, MARGIN=0.10, LOW_CONF=0.35`** | 50 条硬负例评测集调优后的值；R@1 从 62% → 98%。 |
 | 6 | Watchdog `threshold_hours=24` | 同（默认）但 **SQL 从 Python isoformat 改为 SQLite 内建 `datetime('now', '-Nh')`** | Python 带时区 isoformat 与 SQLite 无时区 CURRENT_TIMESTAMP 比较不匹配；改用 SQLite 内建时间函数。 |
-| 7 | bge-small-zh-v1.5 走 HuggingFace | **走 modelscope**（阿里模型库） | 国内 hf-mirror 不稳（curl 通但 python-requests 不通），modelscope 40s 下完（详见 `__log/2026-07-26-bge-small-download-failed/`）。`embed.py` `DEFAULT_MODEL_DIR` 硬编码本地路径。 |
+| 7 | bge-small-zh-v1.5 走 HuggingFace | **走 modelscope**（阿里模型库） | 国内 hf-mirror 不稳（curl 通但 python-requests 不通），modelscope 40s 下完。`embed.py` `DEFAULT_MODEL_DIR` 硬编码本地路径。 |
 
 ### 10.3 已知缺陷与改进方向（1 处）
 
 | # | 缺陷 | 影响 | 改进路径 |
 |---|---|---|---|
-| 8 | Judge 在 task_completion 维度**幻觉识别弱**（Phase 3 保底盲评 62% 分歧） | 天气 skill 编造 API 输出被 Judge 判 A_better；task_completion 分数被虚高 | Judge prompt 加"未验证具体数据 = 幻觉 → 无论多完整判 B_better"红线规则（详见 `__log/2026-07-27-phase3-blind-eval/README.md`）。属**已知缺陷 + 明确改进方向**，Phase 5+ 处理。 |
+| 8 | Judge 在 task_completion 维度**幻觉识别弱**（Phase 3 保底盲评 62% 分歧） | 天气 skill 编造 API 输出被 Judge 判 A_better；task_completion 分数被虚高 | Judge prompt 加"未验证具体数据 = 幻觉 → 无论多完整判 B_better"红线规则。属**已知缺陷 + 明确改进方向**，Phase 5+ 处理。 |
 
 ### 10.4 数字对账
 
-| 指标 | 方案书 / §1 预估 | 实际 |
+| 指标 | §1 设计预估 | 实际 |
 |---|---|---|
 | 代码量（Python） | ~900 行核心 | **1600 行核心 + 3300 行 tests/scripts** = 4907 行合计 |
 | 路由 Recall@1 | ≥ 80% | **98%** |
@@ -664,7 +651,7 @@ class ReleaseStateMachine:
 | 元 Agent 成功率 | ~30% | **1/3=33%**（1 次真实迭代，L1 DECLINED 2 / L2 REVIEW 1 +4.90 分） |
 | Judge/人工分歧 | < 30% 交付 | robustness 19% ✓, readability 24% ✓, **task_completion 62% ❌**（已知缺陷） |
 
-### 10.5 一致性口径清单校对（方案书 A.2）
+### 10.5 一致性口径清单校对
 
 **全部 14 条口径遵守**（100% 一致，Phase 4 完成后逐条校对）：
 - ✅ 渐进式披露只有两层（元数据 + 完整 Body）

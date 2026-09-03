@@ -6,7 +6,7 @@
 - get_current_release():  T6 ✓
 - use_skill():            T6 ✓（Agent 主导渐进式披露的核心入口）
 
-参见方案书 §4.2、ARCHITECTURE §4-A/§7
+参见 ARCHITECTURE §4-A/§7
 """
 from __future__ import annotations
 import re

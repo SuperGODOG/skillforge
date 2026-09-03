@@ -11,9 +11,9 @@ fallback 条件（不写死覆盖率百分比，靠置信度判定）：
 设计缘由：早期版本让"规则独占命中"直接决策，导致 18 条硬负例里 17 条被误 route
 （比如"帮我写一个正则匹配邮箱"命中'正则' keyword → explain_regex）。
 改为规则不独占后，硬负例交给 embed + LLM 用语义识别意图冲突。
-调优三步（62%→98% R@1）详见 __log/2026-07-26-router-hardnegative-fix/
+调优三步（62%→98% R@1，见 ARCHITECTURE §10.2 差异 5）
 
-参见方案书 §4.3、§4.1、ARCHITECTURE §4-B
+参见 ARCHITECTURE §4-B
 """
 from __future__ import annotations
 import time

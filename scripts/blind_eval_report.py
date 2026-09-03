@@ -5,7 +5,7 @@
   - 分歧样本明细
   - 交付判定：分歧 < 30% ✓ / ≥ 30% 需调 Judge prompt
 
-方案书 §4.4：Phase 3 保底跑一次 ≥ 20 条人工校准，出偏差报告
+Phase 3 保底：跑一次 ≥ 20 条人工校准，出偏差报告
 """
 from __future__ import annotations
 import argparse
