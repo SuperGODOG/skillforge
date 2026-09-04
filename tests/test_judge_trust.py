@@ -124,6 +124,49 @@ def test_truth_sentinel_requires_provenance_and_is_symmetric():
     ) == "A_better"
 
 
+def test_truth_sentinel_gating_contract_controls_both_hardcoded_paths(monkeypatch):
+    import skillforge.evaluator.judge as judge_mod
+
+    # The numeric-transform exception is a real gate, not just a digest entry.
+    transform_query = "现在将 20 摄氏度转换为华氏度"
+    transform_output = "现在北京温度 22°C。"
+    assert not judge_mod.has_unverified_realtime_numeric_claim(
+        transform_query, transform_output
+    )
+    monkeypatch.setattr(
+        judge_mod,
+        "TRUTH_SENTINEL_GATING_RULES",
+        {"enabled_dimensions": ["task_completion"], "numeric_transform_requires_digit": False},
+    )
+    assert judge_mod.has_unverified_realtime_numeric_claim(
+        transform_query, transform_output
+    )
+
+    # The dimension gate is also controlled by the same executable contract.
+    monkeypatch.setattr(
+        judge_mod,
+        "TRUTH_SENTINEL_GATING_RULES",
+        {"enabled_dimensions": [], "numeric_transform_requires_digit": True},
+    )
+    llm = ScriptedLLM([_judge_json("tied")])
+    assert PairwiseJudge(llm).compare(
+        "北京今天天气",
+        "今天北京最高 22°C。",
+        "没有实时数据。",
+        "task_completion",
+    ) == "tied"
+    assert len(llm.calls) == 1
+
+
+def test_provenance_signature_matches_declared_canonical_algorithm():
+    import skillforge.evaluator.judge as judge_mod
+
+    assert judge_mod.PROVENANCE_VALIDATION_RULES["signature_algorithm"] == (
+        "sha256_canonical"
+    )
+    assert judge_mod._provenance_signature(_provenance()) == _provenance().signature
+
+
 @pytest.mark.parametrize(
     ("query", "claim"),
     [

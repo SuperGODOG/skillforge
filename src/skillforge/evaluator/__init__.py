@@ -10,6 +10,7 @@ flow（evaluate_skill）：
 参见 ARCHITECTURE §4-E、§7
 """
 from __future__ import annotations
+import hashlib
 import time
 from pathlib import Path
 from statistics import mean
@@ -34,6 +35,60 @@ from .p0_gate import (
 )
 
 
+class EvaluatorOutputCache:
+    """Cache for bare and current outputs to eliminate baseline drift across evaluations."""
+
+    def __init__(self) -> None:
+        self._cache: dict[str, tuple[str, dict]] = {}
+        self.hits: int = 0
+        self.misses: int = 0
+
+    def get_bare(self, query: str, config_fingerprint: str) -> Optional[tuple[str, dict]]:
+        key = self._make_bare_key(query, config_fingerprint)
+        val = self._cache.get(key)
+        if val is not None:
+            self.hits += 1
+            return val
+        self.misses += 1
+        return None
+
+    def set_bare(self, query: str, config_fingerprint: str, output: str, metrics: dict) -> None:
+        key = self._make_bare_key(query, config_fingerprint)
+        self._cache[key] = (output, metrics)
+
+    def get_with_skill(self, query: str, body: str, config_fingerprint: str) -> Optional[tuple[str, dict]]:
+        key = self._make_skill_key(query, body, config_fingerprint)
+        val = self._cache.get(key)
+        if val is not None:
+            self.hits += 1
+            return val
+        self.misses += 1
+        return None
+
+    def set_with_skill(self, query: str, body: str, config_fingerprint: str, output: str, metrics: dict) -> None:
+        key = self._make_skill_key(query, body, config_fingerprint)
+        self._cache[key] = (output, metrics)
+
+    @staticmethod
+    def _make_bare_key(query: str, config_fingerprint: str) -> str:
+        q_hash = hashlib.sha256(query.encode("utf-8")).hexdigest()
+        return f"bare:{config_fingerprint}:{q_hash}"
+
+    @staticmethod
+    def _make_skill_key(query: str, body: str, config_fingerprint: str) -> str:
+        q_hash = hashlib.sha256(query.encode("utf-8")).hexdigest()
+        b_hash = hashlib.sha256(body.encode("utf-8")).hexdigest()
+        return f"skill:{config_fingerprint}:{b_hash}:{q_hash}"
+
+    def clear(self) -> None:
+        self._cache.clear()
+        self.hits = 0
+        self.misses = 0
+
+    def __len__(self) -> int:
+        return len(self._cache)
+
+
 DEFAULT_SYSTEM_PROMPT_HEADER = (
     "你是一个 Agent。以下是你要遵守的 Skill 说明书；请严格按 Instructions "
     "执行、按 Constraints 拒绝越界请求：\n\n"
@@ -41,24 +96,46 @@ DEFAULT_SYSTEM_PROMPT_HEADER = (
 
 
 class SkillEvaluator(Tool):
-    def __init__(self, registry, llm, judge_llm=None):
+    def __init__(
+        self,
+        registry,
+        llm,
+        judge_llm=None,
+        output_cache: Optional[EvaluatorOutputCache] = None,
+        ledger=None,
+    ):
         """
         Args:
             registry: SkillRegistry 实例（提供 get_meta / get body）
             llm:      运行 Agent 的 LLM（模拟"用户调用 Skill"）
             judge_llm: Judge 专用 LLM。必须是与执行端不同的 client 实例。
+            output_cache: 可选，缓存 bare/current 输出以消除随机漂移
+            ledger: 可选，挂载统一 LLM ledger
         """
         super().__init__(
             name="skill_evaluator",
             description="八维评估器：结构分 40 + 效果分 60 + 客观指标 + 棘轮门槛",
         )
         self.registry = registry
+        if ledger is not None:
+            from .llm_factory import wrap_with_ledger
+
+            llm = wrap_with_ledger(llm, ledger, role="agent")
+            judge_llm = wrap_with_ledger(judge_llm, ledger, role="judge")
         self.llm = llm
         if judge_llm is None:
             raise ValueError("judge_llm 必须显式配置，不能回退到执行 LLM")
         if judge_llm is llm:
             raise ValueError("执行 LLM 与 Judge 必须使用不同 client/session 实例")
         self.judge = PairwiseJudge(judge_llm)
+        self.output_cache = output_cache if output_cache is not None else EvaluatorOutputCache()
+
+    def get_config_fingerprint(self) -> str:
+        """Return configuration fingerprint including execution and Judge settings."""
+        from .llm_factory import compute_evaluator_fingerprint
+
+        judge_llm = getattr(getattr(self, "judge", None), "llm", None)
+        return compute_evaluator_fingerprint(self.llm, judge_llm)
 
     def get_parameters(self) -> list[ToolParameter]:
         return [
@@ -284,6 +361,12 @@ class SkillEvaluator(Tool):
 
     def _run_bare(self, query: str) -> tuple[str, dict]:
         """无 Skill 的 Agent 跑 baseline"""
+        fingerprint = self.get_config_fingerprint()
+        if self.output_cache is not None:
+            cached = self.output_cache.get_bare(query, fingerprint)
+            if cached is not None:
+                return cached
+
         started = time.perf_counter()
         messages = [{"role": "user", "content": query}]
         resp = self.llm.invoke(messages)
@@ -296,10 +379,19 @@ class SkillEvaluator(Tool):
             "usage": usage,
             "latency_ms": latency_ms,
         }
-        return content, collect_objective_metrics(run_log)
+        res = content, collect_objective_metrics(run_log)
+        if self.output_cache is not None:
+            self.output_cache.set_bare(query, fingerprint, res[0], res[1])
+        return res
 
     def _run_with_skill(self, query: str, body: str) -> tuple[str, dict]:
         """有 Skill 的 Agent 跑：Skill Body 作为 system prompt"""
+        fingerprint = self.get_config_fingerprint()
+        if self.output_cache is not None:
+            cached = self.output_cache.get_with_skill(query, body, fingerprint)
+            if cached is not None:
+                return cached
+
         started = time.perf_counter()
         messages = [
             {"role": "system", "content": DEFAULT_SYSTEM_PROMPT_HEADER + body},
@@ -315,7 +407,10 @@ class SkillEvaluator(Tool):
             "usage": usage,
             "latency_ms": latency_ms,
         }
-        return content, collect_objective_metrics(run_log)
+        res = content, collect_objective_metrics(run_log)
+        if self.output_cache is not None:
+            self.output_cache.set_with_skill(query, body, fingerprint, res[0], res[1])
+        return res
 
     @staticmethod
     def _extract_usage(resp) -> dict:
@@ -369,6 +464,7 @@ class SkillEvaluator(Tool):
 
 __all__ = [
     "SkillEvaluator",
+    "EvaluatorOutputCache",
     "P0GateError",
     "P0LoadError",
     "P0EmptyCasesError",

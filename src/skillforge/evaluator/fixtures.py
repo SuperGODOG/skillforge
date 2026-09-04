@@ -12,7 +12,7 @@ from hello_agents import SimpleAgent
 from hello_agents.core.config import Config
 from hello_agents.tools import Tool, ToolParameter, ToolRegistry, ToolResponse
 
-from ..models import ToolCallProvenance
+from ..models import BudgetExceededError, ToolCallProvenance
 
 
 class AmapWeatherFixture(Tool):
@@ -231,6 +231,14 @@ def execute_dependency_fixtures(
             )
             agent_output = agent.run(fixture_case.build_query(parameters))
             calls = list(fixture.call_history)
+            ledger = getattr(llm, "ledger", None)
+            if ledger is not None:
+                if hasattr(ledger, "check_post_run_budget"):
+                    ledger.check_post_run_budget()
+                elif getattr(ledger, "last_budget_error", None) is not None:
+                    raise ledger.last_budget_error
+        except BudgetExceededError:
+            raise
         except Exception as exc:
             summary = f"fixture 初始化或执行异常: {type(exc).__name__}: {exc}"
             provenances.append(

@@ -7,14 +7,16 @@ import json
 import logging
 import re
 from dataclasses import dataclass
-from typing import Literal, Optional
+from pathlib import Path
+from typing import Any, Literal, Optional
 
-from ..models import ToolCallProvenance
+from ..models import BudgetExceededError, ToolCallProvenance
 
 
 Verdict = Literal["A_better", "tied", "B_better", "INVALID"]
 _VALID_VERDICTS = frozenset({"A_better", "tied", "B_better", "INVALID"})
 JUDGE_PROMPT_VERSION = "p0c-v1"
+JUDGE_SYSTEM_PROMPT = "你是独立评审员。只依据给定证据评审，并严格输出指定 JSON。"
 
 
 DIMENSION_HINTS = {
@@ -64,10 +66,146 @@ _GENERIC_LIVE_FACT = re.compile(
     re.IGNORECASE,
 )
 _NUMERIC_TRANSFORM_REQUEST = re.compile(r"换算|转换|计算|折算|convert|calculate", re.IGNORECASE)
+_NUMERIC_QUERY_DIGIT_GATE = re.compile(r"\d")
+
+JUDGE_REASON_CODE_PATTERN = r"[A-Z][A-Z0-9_:-]*"
+
+JUDGE_PARSER_CONTRACT = {
+    "strip_fenced_json": True,
+    "require_json_object": True,
+    "required_keys": ["evidence_summary", "reason_codes", "verdict"],
+    "valid_verdicts": sorted(list(_VALID_VERDICTS)),
+    "reason_codes_rule": {
+        "type": "list[str]",
+        "non_empty": True,
+        "pattern": JUDGE_REASON_CODE_PATTERN,
+        "description": "reason_codes 必须是非空大写理由码数组",
+    },
+    "evidence_summary_rule": {
+        "type": "str",
+        "non_empty_stripped": True,
+        "description": "evidence_summary 必须是非空字符串",
+    },
+    "malformed_reason_code": "MALFORMED_JUDGE_RESPONSE",
+    "invalid_schema_reason_code": "INVALID_JUDGE_SCHEMA",
+}
+
+PROVENANCE_SIGNATURE_FIELDS = (
+    "authenticity_pass",
+    "call_count",
+    "call_index",
+    "fixture_case_id",
+    "input_params",
+    "is_fixture",
+    "latency_ms",
+    "output_status",
+    "output_summary",
+    "timestamp",
+    "tool_called",
+    "tool_name",
+    "tool_required",
+    "tool_success",
+)
+
+PROVENANCE_SIGNATURE_ALGORITHM = "sha256_canonical"
+
+PROVENANCE_VALIDATION_RULES = {
+    "required_signature_fields": list(PROVENANCE_SIGNATURE_FIELDS),
+    "is_fixture": True,
+    "tool_required": True,
+    "tool_called": True,
+    "tool_success": True,
+    "authenticity_pass": True,
+    "output_status": "SUCCESS",
+    "min_call_count": 1,
+    "call_index_range": "1..call_count",
+    "signature_algorithm": PROVENANCE_SIGNATURE_ALGORITHM,
+}
+
+TRUTH_SENTINEL_GATING_RULES = {
+    "enabled_dimensions": ["task_completion", "robustness"],
+    "numeric_transform_requires_digit": True,
+}
+
+TRUTH_SENTINEL_RULES = {
+    "both_unverified": {
+        "verdict": "INVALID",
+        "reason_codes": ["UNVERIFIED_EXTERNAL_FACT_A", "UNVERIFIED_EXTERNAL_FACT_B"],
+        "evidence_summary": "两侧都给出无工具证据的实时数值断言",
+        "source": "truth_sentinel",
+    },
+    "bad_a_only": {
+        "verdict": "B_better",
+        "reason_codes": ["UNVERIFIED_EXTERNAL_FACT_A"],
+        "evidence_summary": "A 给出实时数值但没有工具 provenance",
+        "source": "truth_sentinel",
+    },
+    "bad_b_only": {
+        "verdict": "A_better",
+        "reason_codes": ["UNVERIFIED_EXTERNAL_FACT_B"],
+        "evidence_summary": "B 给出实时数值但没有工具 provenance",
+        "source": "truth_sentinel",
+    },
+}
+
+
+def _pattern_of(val: Any) -> dict[str, Any]:
+    if hasattr(val, "pattern"):
+        return {"pattern": str(val.pattern), "flags": int(getattr(val, "flags", 0))}
+    return {"pattern": str(val), "flags": 0}
+
+
+def judge_semantic_digest() -> str:
+    """Compute SHA-256 digest of Judge semantic definitions: system prompt,
+    dimension hints, prompt template, full parser contract, truth sentinel
+    rules/patterns, and provenance validation contract."""
+    sentinel_patterns = {
+        "realtime_markers": _pattern_of(_REALTIME_MARKERS),
+        "numeric_fact": _pattern_of(_NUMERIC_FACT),
+        "named_numeric_fact": _pattern_of(_NAMED_NUMERIC_FACT),
+        "currency_fact": _pattern_of(_CURRENCY_FACT),
+        "generic_live_fact": _pattern_of(_GENERIC_LIVE_FACT),
+        "numeric_transform_request": _pattern_of(_NUMERIC_TRANSFORM_REQUEST),
+        "numeric_query_digit_gate": _pattern_of(_NUMERIC_QUERY_DIGIT_GATE),
+    }
+
+    payload = {
+        "version": JUDGE_PROMPT_VERSION,
+        "system_prompt": JUDGE_SYSTEM_PROMPT,
+        "prompt_template": _PROMPT_TEMPLATE,
+        "dimension_hints": DIMENSION_HINTS,
+        "valid_verdicts": sorted(list(_VALID_VERDICTS)),
+        "parser_contract": JUDGE_PARSER_CONTRACT,
+        "schema_contract": {
+            "required_keys": list(
+                JUDGE_PARSER_CONTRACT.get(
+                    "required_keys", ["verdict", "reason_codes", "evidence_summary"]
+                )
+            ),
+            "reason_code_pattern": JUDGE_PARSER_CONTRACT.get(
+                "reason_codes_rule", {}
+            ).get("pattern", r"[A-Z][A-Z0-9_:-]*"),
+        },
+        "truth_sentinel": {
+            "patterns": sentinel_patterns,
+            "rules": TRUTH_SENTINEL_RULES,
+            "gating_rules": TRUTH_SENTINEL_GATING_RULES,
+            "provenance_signature_fields": list(PROVENANCE_SIGNATURE_FIELDS),
+            "provenance_validation_rules": PROVENANCE_VALIDATION_RULES,
+        },
+        # A conservative source-level anchor prevents future executable Judge
+        # changes from silently reusing cached decisions even if a new rule is
+        # accidentally omitted from the structured contract above.
+        "implementation_sha256": hashlib.sha256(
+            Path(__file__).read_bytes()
+        ).hexdigest(),
+    }
+    raw = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 def judge_prompt_sha256() -> str:
-    return hashlib.sha256(_PROMPT_TEMPLATE.encode("utf-8")).hexdigest()
+    return judge_semantic_digest()
 
 
 @dataclass(frozen=True)
@@ -119,7 +257,12 @@ def has_unverified_realtime_numeric_claim(
     """
     if _has_authentic_tool_evidence(has_tool_evidence) or not output.strip():
         return False
-    if _NUMERIC_TRANSFORM_REQUEST.search(query) and re.search(r"\d", query):
+    gating = TRUTH_SENTINEL_GATING_RULES
+    if (
+        gating.get("numeric_transform_requires_digit", True)
+        and _NUMERIC_TRANSFORM_REQUEST.search(query)
+        and _NUMERIC_QUERY_DIGIT_GATE.search(query)
+    ):
         return False
     realtime_context = bool(
         _REALTIME_MARKERS.search(query) or _REALTIME_MARKERS.search(output)
@@ -154,26 +297,15 @@ def _has_authentic_tool_evidence(
 
 def _provenance_signature(item: ToolCallProvenance) -> str:
     canonical = json.dumps(
-        {
-            "tool_name": item.tool_name,
-            "fixture_case_id": item.fixture_case_id,
-            "call_index": item.call_index,
-            "call_count": item.call_count,
-            "is_fixture": item.is_fixture,
-            "tool_required": item.tool_required,
-            "tool_called": item.tool_called,
-            "tool_success": item.tool_success,
-            "authenticity_pass": item.authenticity_pass,
-            "input_params": item.input_params,
-            "output_status": item.output_status,
-            "output_summary": item.output_summary,
-            "timestamp": item.timestamp,
-            "latency_ms": item.latency_ms,
-        },
+        {field: getattr(item, field) for field in PROVENANCE_SIGNATURE_FIELDS},
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
     )
+    if PROVENANCE_SIGNATURE_ALGORITHM != "sha256_canonical":
+        raise ValueError(
+            f"unsupported provenance signature algorithm: {PROVENANCE_SIGNATURE_ALGORITHM}"
+        )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
@@ -229,7 +361,10 @@ class PairwiseJudge:
                 source="infrastructure",
             )
         sentinel = None
-        if dimension in {"task_completion", "robustness"}:
+        enabled_dimensions = TRUTH_SENTINEL_GATING_RULES.get(
+            "enabled_dimensions", ["task_completion", "robustness"]
+        )
+        if dimension in enabled_dimensions:
             sentinel = self._truth_sentinel(
                 query,
                 output_a,
@@ -253,12 +388,14 @@ class PairwiseJudge:
         messages = [
             {
                 "role": "system",
-                "content": "你是独立评审员。只依据给定证据评审，并严格输出指定 JSON。",
+                "content": JUDGE_SYSTEM_PROMPT,
             },
             {"role": "user", "content": prompt},
         ]
         try:
             resp = self.llm.invoke(messages)
+        except BudgetExceededError:
+            raise
         except Exception as exc:
             self._log.warning("Judge 调用失败，评估标记 INVALID：%s", exc)
             return JudgeResult(
@@ -287,26 +424,45 @@ class PairwiseJudge:
         bad_b = has_unverified_realtime_numeric_claim(
             query, output_b, reference=reference, has_tool_evidence=tool_evidence_b
         )
+        rules = TRUTH_SENTINEL_RULES
+        rule_both = rules.get("both_unverified", {})
+        rule_a = rules.get("bad_a_only", {})
+        rule_b = rules.get("bad_b_only", {})
         if bad_a and bad_b:
             return JudgeResult(
-                verdict="INVALID",
-                reason_codes=("UNVERIFIED_EXTERNAL_FACT_A", "UNVERIFIED_EXTERNAL_FACT_B"),
-                evidence_summary="两侧都给出无工具证据的实时数值断言",
-                source="truth_sentinel",
+                verdict=rule_both.get("verdict", "INVALID"),
+                reason_codes=tuple(
+                    rule_both.get(
+                        "reason_codes",
+                        ("UNVERIFIED_EXTERNAL_FACT_A", "UNVERIFIED_EXTERNAL_FACT_B"),
+                    )
+                ),
+                evidence_summary=rule_both.get(
+                    "evidence_summary", "两侧都给出无工具证据的实时数值断言"
+                ),
+                source=rule_both.get("source", "truth_sentinel"),
             )
         if bad_a:
             return JudgeResult(
-                verdict="B_better",
-                reason_codes=("UNVERIFIED_EXTERNAL_FACT_A",),
-                evidence_summary="A 给出实时数值但没有工具 provenance",
-                source="truth_sentinel",
+                verdict=rule_a.get("verdict", "B_better"),
+                reason_codes=tuple(
+                    rule_a.get("reason_codes", ("UNVERIFIED_EXTERNAL_FACT_A",))
+                ),
+                evidence_summary=rule_a.get(
+                    "evidence_summary", "A 给出实时数值但没有工具 provenance"
+                ),
+                source=rule_a.get("source", "truth_sentinel"),
             )
         if bad_b:
             return JudgeResult(
-                verdict="A_better",
-                reason_codes=("UNVERIFIED_EXTERNAL_FACT_B",),
-                evidence_summary="B 给出实时数值但没有工具 provenance",
-                source="truth_sentinel",
+                verdict=rule_b.get("verdict", "A_better"),
+                reason_codes=tuple(
+                    rule_b.get("reason_codes", ("UNVERIFIED_EXTERNAL_FACT_B",))
+                ),
+                evidence_summary=rule_b.get(
+                    "evidence_summary", "B 给出实时数值但没有工具 provenance"
+                ),
+                source=rule_b.get("source", "truth_sentinel"),
             )
         return None
 
@@ -317,50 +473,97 @@ class PairwiseJudge:
 
     @staticmethod
     def _parse_detailed(text: str) -> JudgeResult:
+        contract = JUDGE_PARSER_CONTRACT
         raw = text.strip()
-        if raw.startswith("```json") and raw.endswith("```"):
+        if (
+            contract.get("strip_fenced_json", True)
+            and raw.startswith("```json")
+            and raw.endswith("```")
+        ):
             raw = raw[7:-3].strip()
+        malformed_code = contract.get("malformed_reason_code", "MALFORMED_JUDGE_RESPONSE")
+        invalid_code = contract.get("invalid_schema_reason_code", "INVALID_JUDGE_SCHEMA")
         try:
             payload = json.loads(raw)
         except (json.JSONDecodeError, TypeError):
             return JudgeResult(
                 verdict="INVALID",
-                reason_codes=("MALFORMED_JUDGE_RESPONSE",),
+                reason_codes=(malformed_code,),
                 evidence_summary="Judge 响应不是合法的单一 verdict/JSON",
                 raw_response=text,
                 source="infrastructure",
             )
-        if not isinstance(payload, dict) or payload.get("verdict") not in _VALID_VERDICTS:
+        if not isinstance(payload, dict):
             return JudgeResult(
                 verdict="INVALID",
-                reason_codes=("INVALID_JUDGE_SCHEMA",),
+                reason_codes=(invalid_code,),
+                evidence_summary="Judge JSON 必须是对象",
+                raw_response=text,
+                source="infrastructure",
+            )
+        required_keys = contract.get(
+            "required_keys", ["verdict", "reason_codes", "evidence_summary"]
+        )
+        if not isinstance(required_keys, (list, tuple)) or not all(
+            isinstance(key, str) and key for key in required_keys
+        ):
+            return JudgeResult(
+                verdict="INVALID",
+                reason_codes=(invalid_code,),
+                evidence_summary="Judge parser required_keys 契约无效",
+                raw_response=text,
+                source="infrastructure",
+            )
+        missing_keys = [key for key in required_keys if key not in payload]
+        if missing_keys:
+            return JudgeResult(
+                verdict="INVALID",
+                reason_codes=(invalid_code,),
+                evidence_summary=f"Judge JSON 缺少必需字段: {', '.join(missing_keys)}",
+                raw_response=text,
+                source="infrastructure",
+            )
+        valid_verdicts = contract.get("valid_verdicts", _VALID_VERDICTS)
+        if payload.get("verdict") not in valid_verdicts:
+            return JudgeResult(
+                verdict="INVALID",
+                reason_codes=(invalid_code,),
                 evidence_summary="Judge JSON 缺少合法 verdict",
                 raw_response=text,
                 source="infrastructure",
             )
         codes = payload.get("reason_codes")
         summary = payload.get("evidence_summary")
+        rc_rule = contract.get("reason_codes_rule", {})
+        pattern = rc_rule.get("pattern", r"[A-Z][A-Z0-9_:-]*")
+        non_empty = rc_rule.get("non_empty", True)
         if (
             not isinstance(codes, list)
-            or not codes
+            or (non_empty and not codes)
             or not all(
                 isinstance(code, str)
-                and bool(re.fullmatch(r"[A-Z][A-Z0-9_:-]*", code))
+                and bool(re.fullmatch(pattern, code))
                 for code in codes
             )
         ):
             return JudgeResult(
                 verdict="INVALID",
-                reason_codes=("INVALID_JUDGE_SCHEMA",),
-                evidence_summary="reason_codes 必须是非空大写理由码数组",
+                reason_codes=(invalid_code,),
+                evidence_summary=rc_rule.get(
+                    "description", "reason_codes 必须是非空大写理由码数组"
+                ),
                 raw_response=text,
                 source="infrastructure",
             )
-        if not isinstance(summary, str) or not summary.strip():
+        es_rule = contract.get("evidence_summary_rule", {})
+        es_non_empty = es_rule.get("non_empty_stripped", True)
+        if not isinstance(summary, str) or (es_non_empty and not summary.strip()):
             return JudgeResult(
                 verdict="INVALID",
-                reason_codes=("INVALID_JUDGE_SCHEMA",),
-                evidence_summary="evidence_summary 必须是非空字符串",
+                reason_codes=(invalid_code,),
+                evidence_summary=es_rule.get(
+                    "description", "evidence_summary 必须是非空字符串"
+                ),
                 raw_response=text,
                 source="infrastructure",
             )

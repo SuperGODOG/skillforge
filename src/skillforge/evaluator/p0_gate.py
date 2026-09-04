@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
-from ..models import EvalResult, RatchetVerdict
+from ..models import BudgetExceededError, EvalResult, RatchetVerdict
 
 
 class P0GateError(Exception):
@@ -213,6 +213,8 @@ def evaluate_p0_gate(
             p0_ids=p0_ids_list,
             verbose=verbose,
         )
+    except BudgetExceededError:
+        raise
     except Exception as e:
         return P0GateResult(
             valid=False,

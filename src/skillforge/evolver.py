@@ -29,8 +29,9 @@ from typing import Literal, Optional
 from hello_agents import SimpleAgent, HelloAgentsLLM
 
 from .diff import compute_semantic_diff
-from .models import Patch, EvalResult, RatchetVerdict
+from .models import Patch, EvalResult, RatchetVerdict, BudgetExceededError, EvolveBudget
 from .evaluator.validators import validate_dependency_patch, validate_router_patch
+from .evaluator.llm_factory import LLMLedger, wrap_with_ledger
 
 
 # =============== 数据结构（evolver 内部） ===============
@@ -63,6 +64,7 @@ class EvolveOutcome:
     patches_review: list[str] = field(default_factory=list)     # suggestion file paths
     patches_declined: list[str] = field(default_factory=list)   # failure log paths
     error: Optional[str] = None
+    ledger: Optional[LLMLedger] = None
 
 
 # =============== SkillEvolver 主类 ===============
@@ -86,6 +88,8 @@ class SkillEvolver(SimpleAgent):
         llm: HelloAgentsLLM,
         state_machine=None,
         system_prompt: Optional[str] = None,
+        budget: Optional[EvolveBudget] = None,
+        ledger: Optional[LLMLedger] = None,
     ):
         """
         Args:
@@ -93,6 +97,8 @@ class SkillEvolver(SimpleAgent):
             evaluator:     SkillEvaluator，跑评估
             llm:           元 Agent 的 LLM（生成 patch + 根因分析）
             state_machine: ReleaseStateMachine，L1 自动发布用；None 时跳过发布只归档
+            budget:        EvolveBudget，预算与随机性护栏配置（P1-F）
+            ledger:        LLMLedger，统一记账单例（可选，未传入时从 budget 初始化）
         """
         super().__init__(
             name="skill_evolver",
@@ -103,6 +109,23 @@ class SkillEvolver(SimpleAgent):
         self.evaluator = evaluator
         self.state_machine = state_machine
         self.repo_root = registry.repo_root
+        self.budget = budget or EvolveBudget()
+        self.ledger = ledger or LLMLedger(budget=self.budget)
+        self._bind_ledger(self.ledger)
+
+    def _bind_ledger(self, ledger: LLMLedger) -> None:
+        self.ledger = ledger
+        self.llm = wrap_with_ledger(self.llm, ledger, role="evolver")
+        if self.evaluator is not None:
+            if hasattr(self.evaluator, "llm") and self.evaluator.llm is not None:
+                self.evaluator.llm = wrap_with_ledger(self.evaluator.llm, ledger, role="agent")
+            if (
+                hasattr(self.evaluator, "judge")
+                and self.evaluator.judge is not None
+                and hasattr(self.evaluator.judge, "llm")
+                and self.evaluator.judge.llm is not None
+            ):
+                self.evaluator.judge.llm = wrap_with_ledger(self.evaluator.judge.llm, ledger, role="judge")
 
     # -------- ARCHITECTURE §7 签名 --------
     def evolve(self, skill_name: str, max_candidates: int = 3) -> list[Patch]:
@@ -117,6 +140,7 @@ class SkillEvolver(SimpleAgent):
         max_candidates: int = 3,
         eval_set_for_iter: str = "repair_set",
         verbose: bool = True,
+        budget: Optional[EvolveBudget] = None,
     ) -> EvolveOutcome:
         """
         对指定 Skill 跑完整六步迭代。
@@ -126,11 +150,33 @@ class SkillEvolver(SimpleAgent):
             max_candidates:     一次生成候选数（3-5）
             eval_set_for_iter:  迭代评估用哪个集（默认 repair_set 22 条，含 P0 与 seen regression）
             verbose:            打印进度
+            budget:             可选单次运行覆盖的预算配置
 
         Returns:
             EvolveOutcome：本次迭代所有产出汇总
         """
-        outcome = EvolveOutcome(skill_name=skill_name, baseline_score=0.0, patches_generated=0)
+        active_budget = budget or self.budget
+        self.ledger.reset(budget=active_budget)
+        self._bind_ledger(self.ledger)
+
+        outcome = EvolveOutcome(
+            skill_name=skill_name,
+            baseline_score=0.0,
+            patches_generated=0,
+            ledger=self.ledger,
+        )
+
+        candidate_cap = active_budget.get_effective_candidate_limit(round_index=0, candidates_so_far=0)
+        if (
+            candidate_cap is not None
+            and max_candidates > candidate_cap
+            and active_budget.on_candidate_overflow == "reject"
+        ):
+            outcome.error = (
+                f"候选生成预算硬帽超限：CANDIDATE_LIMIT_EXCEEDED: "
+                f"requested {max_candidates} candidates > clamp {candidate_cap}"
+            )
+            return outcome
 
         # ---- 前置：跑一次 baseline 评估拿失败样本 ----
         if verbose:
@@ -139,6 +185,9 @@ class SkillEvolver(SimpleAgent):
             old_result = self.evaluator.evaluate_skill(
                 skill_name, eval_set=eval_set_for_iter, verbose=False,
             )
+        except BudgetExceededError as e:
+            outcome.error = f"baseline 评估预算硬帽超限：{e.reason}"
+            return outcome
         except Exception as e:
             outcome.error = f"baseline 评估失败：{e}"
             return outcome
@@ -163,15 +212,37 @@ class SkillEvolver(SimpleAgent):
         body = self.registry._bodies.get(skill_name, "")
         if verbose:
             print(f"\n▶ [Evolve/3-root_cause] LLM 根因分析")
-        root_causes = _analyze_root_cause(self.llm, meta, body, failures)
+        try:
+            root_causes = _analyze_root_cause(self.llm, meta, body, failures)
+        except BudgetExceededError as e:
+            outcome.error = f"根因分析预算硬帽超限：{e.reason}"
+            return outcome
         if verbose:
             for rc in root_causes:
                 print(f"  {rc.label}: prob={rc.prob:.2f}, why={rc.why[:60]}")
 
         # ---- Step 3：生成候选 ----
+        effective_max = (
+            min(max_candidates, candidate_cap)
+            if candidate_cap is not None
+            else max_candidates
+        )
         if verbose:
-            print(f"\n▶ [Evolve/4-generate] LLM 生成 {max_candidates} 个候选 patch")
-        patches = _generate_patches(self.llm, meta, body, failures, root_causes, max_candidates)
+            print(f"\n▶ [Evolve/4-generate] LLM 生成 {effective_max} 个候选 patch")
+        try:
+            patches = _generate_patches(
+                self.llm,
+                meta,
+                body,
+                failures,
+                root_causes,
+                max_candidates=effective_max,
+                clamp_limit=candidate_cap,
+                on_candidate_overflow=active_budget.on_candidate_overflow,
+            )
+        except BudgetExceededError as e:
+            outcome.error = f"候选生成预算硬帽超限：{e.reason}"
+            return outcome
         outcome.patches_generated = len(patches)
         if verbose:
             print(f"  实际生成 {len(patches)} 个 patch")
@@ -193,6 +264,14 @@ class SkillEvolver(SimpleAgent):
                     self.evaluator, self.registry, skill_name, patch,
                     old_result, eval_set_for_iter,
                 )
+            except BudgetExceededError as e:
+                if verbose:
+                    print(f"  ❌ 预算硬帽超限：{e.reason}")
+                verdict = RatchetVerdict(decision="DECLINED", reasons=[f"BUDGET_EXCEEDED: {e.reason}"])
+                path = _archive_failure(self.repo_root, skill_name, patch, verdict, None, str(e))
+                outcome.patches_declined.append(str(path))
+                outcome.error = f"沙箱验证预算硬帽超限：{e.reason}"
+                break
             except Exception as e:
                 if verbose:
                     print(f"  ❌ 验证异常：{e}")
@@ -359,11 +438,16 @@ _PATCH_GEN_PROMPT = """你是 SkillForge 的元 Agent。为 Skill 生成 {n} 个
 
 
 def _generate_patches(
-    llm, meta, body: str,
+    llm,
+    meta,
+    body: str,
     failures: list[Failure],
     root_causes: list[RootCause],
     max_candidates: int,
+    clamp_limit: Optional[int] = None,
+    on_candidate_overflow: Literal["truncate", "reject"] = "truncate",
 ) -> list[Patch]:
+    effective_limit = min(max_candidates, clamp_limit) if clamp_limit is not None else max_candidates
     # 拼当前 SKILL.md
     skill_md = _reconstruct_skill_md(meta, body)
     fb = "\n".join(
@@ -373,7 +457,7 @@ def _generate_patches(
     rc = "\n".join(f"- {c.label}: prob={c.prob:.2f} - {c.why[:100]}" for c in root_causes[:3])
 
     prompt = _PATCH_GEN_PROMPT.format(
-        n=max_candidates, skill_md=skill_md,
+        n=effective_limit, skill_md=skill_md,
         root_causes_block=rc, failures_block=fb,
     )
     resp = llm.invoke([{"role": "user", "content": prompt}])
@@ -384,6 +468,16 @@ def _generate_patches(
         return []
     if not isinstance(data, list):
         return []
+
+    if len(data) > effective_limit:
+        if on_candidate_overflow == "reject":
+            raise BudgetExceededError(
+                f"CANDIDATE_LIMIT_EXCEEDED: LLM returned {len(data)} candidates > clamp {effective_limit}",
+                cap_type="candidate",
+                limit=effective_limit,
+                current=len(data),
+            )
+        data = data[:effective_limit]
 
     patches = []
     for item in data:
@@ -415,6 +509,17 @@ def _generate_patches(
             changed_frontmatter=semantic_diff.changed_frontmatter,
             changed_body_sections=semantic_diff.changed_body_sections,
         ))
+
+    if len(patches) > effective_limit:
+        if on_candidate_overflow == "reject":
+            raise BudgetExceededError(
+                f"CANDIDATE_LIMIT_EXCEEDED: parsed {len(patches)} valid patches > clamp {effective_limit}",
+                cap_type="candidate",
+                limit=effective_limit,
+                current=len(patches),
+            )
+        patches = patches[:effective_limit]
+
     return patches
 
 
@@ -492,11 +597,22 @@ def _validate_patch(
                 from .evaluator import SkillEvaluator
 
                 judge_llm = getattr(getattr(evaluator, "judge", None), "llm", None)
-                temp_eval = SkillEvaluator(
-                    registry=temp_reg,
-                    llm=getattr(evaluator, "llm", None),
-                    judge_llm=judge_llm,
-                )
+                cache_obj = getattr(evaluator, "output_cache", None)
+                try:
+                    temp_eval = SkillEvaluator(
+                        registry=temp_reg,
+                        llm=getattr(evaluator, "llm", None),
+                        judge_llm=judge_llm,
+                        output_cache=cache_obj,
+                    )
+                except TypeError:
+                    temp_eval = SkillEvaluator(
+                        registry=temp_reg,
+                        llm=getattr(evaluator, "llm", None),
+                        judge_llm=judge_llm,
+                    )
+                    if hasattr(temp_eval, "output_cache"):
+                        temp_eval.output_cache = cache_obj
                 cases = temp_eval._load_cases(eval_set, skill_name)
                 new_result = temp_eval.evaluate_skill(
                     skill_name,
@@ -579,11 +695,22 @@ def _validate_patch(
                         merge_p0_into_eval_result,
                     )
                     judge_llm = getattr(getattr(evaluator, "judge", None), "llm", None)
-                    temp_eval = SkillEvaluator(
-                        registry=temp_reg,
-                        llm=getattr(evaluator, "llm", None),
-                        judge_llm=judge_llm,
-                    )
+                    cache_obj = getattr(evaluator, "output_cache", None)
+                    try:
+                        temp_eval = SkillEvaluator(
+                            registry=temp_reg,
+                            llm=getattr(evaluator, "llm", None),
+                            judge_llm=judge_llm,
+                            output_cache=cache_obj,
+                        )
+                    except TypeError:
+                        temp_eval = SkillEvaluator(
+                            registry=temp_reg,
+                            llm=getattr(evaluator, "llm", None),
+                            judge_llm=judge_llm,
+                        )
+                        if hasattr(temp_eval, "output_cache"):
+                            temp_eval.output_cache = cache_obj
                     p0_result = evaluate_p0_gate(temp_eval, skill_name, repo_root=repo_root, verbose=False)
                     result = merge_p0_into_eval_result(result, p0_result)
                     p0_verdict = check_p0_ratchet_verdict(p0_result)
