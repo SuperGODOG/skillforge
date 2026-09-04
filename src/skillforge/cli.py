@@ -287,15 +287,15 @@ def main() -> None:
     eval_p = sub.add_parser("evaluate", help="Phase 3：八维评估器 + 棘轮")
     eval_p.add_argument("--skill", required=True, help="要评估的 skill_name")
     eval_p.add_argument("--eval-set", default="baseline_dev",
-                        help="评估集（默认 baseline_dev；可选 baseline_hidden）")
+                        help="评估集（默认 baseline_dev；可选 repair_set, experiment_holdout, final_audit 等）")
     eval_p.add_argument("--verbose", action="store_true", help="逐 case 打印进度")
 
     evolve_p = sub.add_parser("evolve", help="Phase 4：元 Agent 六步迭代（半自动）")
     evolve_p.add_argument("--skill", required=True, help="要迭代的 skill_name")
     evolve_p.add_argument("--max-candidates", type=int, default=3,
                           help="一次生成候选数（默认 3）")
-    evolve_p.add_argument("--eval-set", default="baseline_hidden",
-                          help="迭代评估用哪个集（默认 baseline_hidden，8 条快）")
+    evolve_p.add_argument("--eval-set", default="repair_set",
+                          help="迭代评估用哪个集（默认 repair_set，22 条）")
 
     args = parser.parse_args()
 

@@ -123,7 +123,7 @@ def _patch(old_md: str, new_md: str, level: str) -> Patch:
     )
 
 
-def test_metadata_l1_triggers_router_only(
+def test_metadata_l1_triggers_router_and_p0_gate(
     monkeypatch, tmp_path: Path
 ) -> None:
     repo_root = Path(__file__).resolve().parents[1]
@@ -151,29 +151,50 @@ def test_metadata_l1_triggers_router_only(
 
     monkeypatch.setattr("skillforge.evolver.validate_router_patch", router_pass)
 
-    class EvaluatorMustNotRun:
+    class FakeEvaluatorWithP0:
         llm = ToolCallingLLM()
 
-        def evaluate_skill(self, *args, **kwargs):
-            raise AssertionError("metadata-only patch reached behavior evaluator")
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def evaluate_skill(self, skill_name, eval_set=None, cases=None, p0_ids=None, verbose=False):
+            if eval_set != "p0_cases":
+                raise AssertionError(f"metadata-only patch unexpectedly evaluated non-p0 eval_set: {eval_set}")
+            calls.append("p0_gate")
+            case_verdicts = [
+                {"case_id": c["id"], "task_completion": "tied", "robustness": "tied", "readability": "tied"}
+                for c in (cases or [])
+            ]
+            return EvalResult(
+                release_id="candidate",
+                structure_score={"schema": 15.0},
+                effect_score={"task": 25.0, "robust": 15.0, "readability": 10.0, "efficiency": 10.0},
+                objective_metrics={},
+                p0_pass=True,
+                case_verdicts=case_verdicts,
+                valid=True,
+            )
+
+    monkeypatch.setattr("skillforge.evaluator.SkillEvaluator", FakeEvaluatorWithP0)
 
     try:
         result, verdict = _validate_patch(
-            EvaluatorMustNotRun(),
+            FakeEvaluatorWithP0(),
             registry,
             "write_weekly_report",
             patch,
             _old_result(),
-            "baseline_hidden",
+            "repair_set",
         )
     finally:
         registry.close()
 
     assert patch.changed_frontmatter == ["not_for"]
     assert patch.changed_body_sections == []
-    assert calls == ["router"]
+    assert calls == ["router", "p0_gate"]
     assert verdict.decision == "PASS"
     assert result.validation_channels == ["router"]
+    assert result.p0_pass is True
 
 
 def test_metadata_broadening_caught_by_hard_negatives(monkeypatch) -> None:
@@ -252,8 +273,15 @@ def test_body_l2_triggers_behavior_evaluator_only(
             return [{"id": "case", "skill": skill_name, "query": "q"}]
 
         def evaluate_skill(self, *args, **kwargs):
-            calls.append("behavior")
-            return _old_result()
+            if "behavior" not in calls:
+                calls.append("behavior")
+            res = _old_result()
+            res.case_verdicts = [
+                {"case_id": "er_d01", "task_completion": "A_better", "robustness": "tied", "readability": "tied"},
+                {"case_id": "er_d02", "task_completion": "tied", "robustness": "tied", "readability": "tied"},
+                {"case_id": "er_d04", "task_completion": "tied", "robustness": "tied", "readability": "tied"},
+            ]
+            return res
 
     monkeypatch.setattr("skillforge.evolver.validate_router_patch", router_must_not_run)
     monkeypatch.setattr("skillforge.evaluator.SkillEvaluator", FakeSkillEvaluator)
@@ -265,7 +293,7 @@ def test_body_l2_triggers_behavior_evaluator_only(
             "explain_regex",
             patch,
             _old_result(),
-            "baseline_hidden",
+            "repair_set",
         )
     finally:
         registry.close()
@@ -322,7 +350,7 @@ trigger:
             "weather_query",
             patch,
             _old_result(),
-            "baseline_hidden",
+            "repair_set",
         )
     finally:
         registry.close()

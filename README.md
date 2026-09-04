@@ -210,7 +210,7 @@ EOF
 
 预期输出：
 ```
-▶ [Evolve/1-baseline] 跑 baseline 评估 explain_regex on baseline_hidden
+▶ [Evolve/1-baseline] 跑 baseline 评估 explain_regex on repair_set
   baseline 总分 = 82.50
 
 ▶ [Evolve/2-collect] 收集失败样本 1 条
@@ -266,7 +266,10 @@ skillforge/
 │
 ├── evaluation_sets/             手工评估集
 │   ├── baseline_dev.json        32 条开发集（元 Agent 可见）
-│   ├── baseline_hidden.json     8 条隐藏集（防过拟合）
+│   ├── baseline_hidden.json     8 条已降级回归集（已降级为 seen regression；评测请用 repair_set / holdout / audit）
+│   ├── repair_set.json          22 条迭代修复集（10 P0 + 8 seen regression + 4 boundary）
+│   ├── experiment_holdout.json  9 条实验留出集（严格隔离黑盒比对）
+│   ├── final_audit.json         9 条终审评测集（严格隔离发布终审）
 │   ├── p0_cases.json            10 条 P0（core 链路）
 │   └── router_negatives.json    50 条硬负例
 │

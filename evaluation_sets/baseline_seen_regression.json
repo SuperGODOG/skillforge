@@ -1,16 +1,11 @@
 {
   "meta": {
-    "created": "2026-07-26",
-    "purpose": "Phase 3 八维评估器·隐藏集（元 Agent 不可见，防过拟合）",
-    "total": 8,
-    "breakdown": {
-      "weather_query": 3,
-      "write_weekly_report": 2,
-      "explain_regex": 3
-    },
-    "note": "【已降级】此集在 evolve 迭代中已被多次使用，不再具有盲测效力。新规范请使用 repair_set / experiment_holdout / final_audit",
+    "created": "2026-09-04",
+    "purpose": "Phase 3 八维评估器·已见回归集（由 baseline_hidden 降级）",
     "status": "downgraded_to_seen_regression",
-    "migrated_to": "baseline_seen_regression.json"
+    "note": "原 baseline_hidden 因在 evolve_full 中被作为迭代评测使用已遭污染 (codex2 F-4)；降级为回归修复验证集",
+    "total": 8,
+    "visibility": "visible_to_meta_agent"
   },
   "cases": [
     {

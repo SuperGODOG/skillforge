@@ -115,7 +115,7 @@ class SkillEvolver(SimpleAgent):
         self,
         skill_name: str,
         max_candidates: int = 3,
-        eval_set_for_iter: str = "baseline_hidden",
+        eval_set_for_iter: str = "repair_set",
         verbose: bool = True,
     ) -> EvolveOutcome:
         """
@@ -124,7 +124,7 @@ class SkillEvolver(SimpleAgent):
         Args:
             skill_name:         目标 skill
             max_candidates:     一次生成候选数（3-5）
-            eval_set_for_iter:  迭代评估用哪个集（默认 baseline_hidden 8 条，快）
+            eval_set_for_iter:  迭代评估用哪个集（默认 repair_set 22 条，含 P0 与 seen regression）
             verbose:            打印进度
 
         Returns:
@@ -491,10 +491,11 @@ def _validate_patch(
                 channels.append("behavior")
                 from .evaluator import SkillEvaluator
 
+                judge_llm = getattr(getattr(evaluator, "judge", None), "llm", None)
                 temp_eval = SkillEvaluator(
                     registry=temp_reg,
-                    llm=evaluator.llm,
-                    judge_llm=evaluator.judge.llm,
+                    llm=getattr(evaluator, "llm", None),
+                    judge_llm=judge_llm,
                 )
                 cases = temp_eval._load_cases(eval_set, skill_name)
                 new_result = temp_eval.evaluate_skill(
@@ -505,6 +506,18 @@ def _validate_patch(
                 )
                 new_result.validation_channels = channels
                 new_result.provenances = list(provenances)
+
+                from .evaluator.p0_gate import (
+                    evaluate_p0_gate,
+                    check_p0_ratchet_verdict,
+                    merge_p0_into_eval_result,
+                )
+                p0_result = evaluate_p0_gate(temp_eval, skill_name, repo_root=repo_root, verbose=False)
+                new_result = merge_p0_into_eval_result(new_result, p0_result)
+                p0_verdict = check_p0_ratchet_verdict(p0_result)
+                if p0_verdict.decision != "PASS":
+                    return new_result, p0_verdict
+
                 return new_result, check_ratchet(old_result, new_result)
 
             result = replace(
@@ -518,7 +531,67 @@ def _validate_patch(
                     decision="DECLINED",
                     reasons=["未识别到可验证的改动面，按 fail-closed 拒绝"],
                 )
+            if not getattr(old_result, "valid", True) or not getattr(old_result, "p0_pass", True):
+                return result, RatchetVerdict(
+                    decision="DECLINED",
+                    reasons=["基线未通过 P0 门或评估无效，按 fail-closed 拒绝放行 L1 补丁"],
+                )
+
+            # L1 metadata-only 路径接入独立 P0 门：不再仅复用 old_result.p0_pass
+            if metadata_changed:
+                p0_gate_result = getattr(old_result, "p0_gate_result", None)
+                is_valid_p0_proof = False
+                if (
+                    p0_gate_result is not None
+                    and getattr(p0_gate_result, "valid", False)
+                    and getattr(p0_gate_result, "p0_pass", False)
+                    and getattr(p0_gate_result, "expected_count", 0) > 0
+                ):
+                    try:
+                        from .evaluator.p0_gate import load_p0_cases
+                        expected_cases = load_p0_cases(repo_root, skill_name=skill_name)
+                        expected_ids = {c["id"] for c in expected_cases}
+                        executed_ids = {
+                            v.get("case_id")
+                            for v in getattr(p0_gate_result, "case_verdicts", [])
+                            if v.get("case_id")
+                        }
+                        if (
+                            expected_ids
+                            and expected_ids.issubset(executed_ids)
+                            and getattr(p0_gate_result, "executed_count", 0) >= len(expected_ids)
+                        ):
+                            is_valid_p0_proof = True
+                    except Exception:
+                        is_valid_p0_proof = False
+
+                if is_valid_p0_proof:
+                    from .evaluator.p0_gate import check_p0_ratchet_verdict, merge_p0_into_eval_result
+                    result = merge_p0_into_eval_result(result, p0_gate_result)
+                    p0_verdict = check_p0_ratchet_verdict(p0_gate_result)
+                    if p0_verdict.decision != "PASS":
+                        return result, p0_verdict
+                else:
+                    from .evaluator import SkillEvaluator
+                    from .evaluator.p0_gate import (
+                        evaluate_p0_gate,
+                        check_p0_ratchet_verdict,
+                        merge_p0_into_eval_result,
+                    )
+                    judge_llm = getattr(getattr(evaluator, "judge", None), "llm", None)
+                    temp_eval = SkillEvaluator(
+                        registry=temp_reg,
+                        llm=getattr(evaluator, "llm", None),
+                        judge_llm=judge_llm,
+                    )
+                    p0_result = evaluate_p0_gate(temp_eval, skill_name, repo_root=repo_root, verbose=False)
+                    result = merge_p0_into_eval_result(result, p0_result)
+                    p0_verdict = check_p0_ratchet_verdict(p0_result)
+                    if p0_verdict.decision != "PASS":
+                        return result, p0_verdict
+
             return result, RatchetVerdict(decision="PASS", reasons=[])
+
         finally:
             temp_reg.close()
 

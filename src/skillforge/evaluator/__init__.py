@@ -22,6 +22,16 @@ from .structure import score_structure, structure_total
 from .judge import PairwiseJudge, invert_verdict, skill_is_presented_as_a
 from .metrics import collect_objective_metrics
 from .ratchet import check_ratchet as _check_ratchet
+from .p0_gate import (
+    P0GateError,
+    P0LoadError,
+    P0EmptyCasesError,
+    P0GateResult,
+    load_p0_cases,
+    evaluate_p0_gate,
+    check_p0_ratchet_verdict,
+    merge_p0_into_eval_result,
+)
 
 
 DEFAULT_SYSTEM_PROMPT_HEADER = (
@@ -82,6 +92,25 @@ class SkillEvaluator(Tool):
     def check_ratchet(self, old: Optional[EvalResult], new: EvalResult) -> RatchetVerdict:
         return _check_ratchet(old, new)
 
+    def evaluate_p0_gate(
+        self,
+        skill_name: str,
+        p0_cases: Optional[list[dict]] = None,
+        repo_root: Optional[Path] = None,
+        verbose: bool = False,
+    ) -> P0GateResult:
+        """运行独立 P0 门控评估"""
+        return evaluate_p0_gate(
+            self,
+            skill_name=skill_name,
+            p0_cases=p0_cases,
+            repo_root=repo_root,
+            verbose=verbose,
+        )
+
+    def check_p0_ratchet_verdict(self, p0_result: Optional[P0GateResult]) -> RatchetVerdict:
+        return check_p0_ratchet_verdict(p0_result)
+
     # ----------------- 核心 -----------------
 
     def evaluate_skill(
@@ -110,11 +139,26 @@ class SkillEvaluator(Tool):
 
         if cases is None:
             cases = self._load_cases(eval_set, skill_name)
-        if p0_ids is None:
-            p0_ids = self._load_p0_ids()
 
         # 1. 结构分
         struct = score_structure(meta, body)
+
+        # 空用例集 fail-closed 拦截：不允许伪造空评估全通
+        if not cases:
+            return EvalResult(
+                release_id=release_id,
+                structure_score=struct,
+                effect_score={"task": 0.0, "robust": 0.0, "readability": 0.0, "efficiency": 0.0},
+                objective_metrics={},
+                p0_pass=False,
+                case_verdicts=[],
+                case_outputs=[],
+                valid=False,
+                invalid_reasons=[f"用例集为空 (eval_set={eval_set}, skill={skill_name})，按 fail-closed 判为 INVALID"],
+            )
+
+        if p0_ids is None:
+            p0_ids = self._load_p0_ids()
 
         # 2. 效果分（3 维 Judge 配对 + 1 维客观效率）
         verdicts = {"task_completion": [], "robustness": [], "readability": []}
@@ -323,4 +367,14 @@ class SkillEvaluator(Tool):
         return round(max(0.0, min(10.0, score)), 2)
 
 
-__all__ = ["SkillEvaluator"]
+__all__ = [
+    "SkillEvaluator",
+    "P0GateError",
+    "P0LoadError",
+    "P0EmptyCasesError",
+    "P0GateResult",
+    "load_p0_cases",
+    "evaluate_p0_gate",
+    "check_p0_ratchet_verdict",
+    "merge_p0_into_eval_result",
+]

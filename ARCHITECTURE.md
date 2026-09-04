@@ -498,8 +498,12 @@ skillForge/
 │
 ├── evaluation_sets/               # 评估集（手工构造）
 │   ├── baseline_dev.json          # 32 条开发集
-│   ├── baseline_hidden.json       # 8 条隐藏集
-│   ├── p0_cases.json              # 10 条 P0
+│   ├── baseline_hidden.json       # 8 条已降级回归集（原 hidden 已降级为 seen regression；防过拟合由 holdout/audit 承接）
+│   ├── baseline_seen_regression.json # 8 条已降级回归集（元 Agent 可见）
+│   ├── repair_set.json            # 22 条迭代修复集（10 P0 + 8 seen regression + 4 boundary）
+│   ├── experiment_holdout.json    # 9 条实验留出集（严格隔离黑盒比对）
+│   ├── final_audit.json           # 9 条终审评测集（严格隔离发布终审）
+│   ├── p0_cases.json              # 10 条 P0（core 链路棘轮硬门槛）
 │   └── router_negatives.json      # 50 条硬负例
 │
 ├── runs/                          # 运行时数据（Git ignore）

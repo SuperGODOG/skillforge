@@ -79,6 +79,7 @@ class EvalResult:
     # P0-C: Judge/infrastructure invalidity must never masquerade as a score.
     valid: bool = True
     invalid_reasons: list[str] = field(default_factory=list)
+    p0_gate_result: Optional[Any] = None
 
 
 @dataclass
