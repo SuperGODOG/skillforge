@@ -66,6 +66,11 @@ class Patch:
     level: Literal["L1", "L2", "L3"]
     diff: str
     rationale: str
+    # ``diff`` is the complete candidate SKILL.md for backward compatibility.
+    # These fields carry the independently computed audit decision.
+    computed_level: Literal["L1", "L2", "L3", "INVALID"] = "INVALID"
+    unified_diff: str = ""
+    downgrade_attempt: bool = False
 
 
 @dataclass

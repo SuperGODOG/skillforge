@@ -130,13 +130,18 @@ def test_generate_patches_parses_valid_json():
     assert len(patches) == 2
     assert patches[0].level == "L1"
     assert patches[1].level == "L2"
+    assert patches[0].computed_level == "L2"
+    assert patches[0].downgrade_attempt is True
+    assert patches[0].unified_diff.startswith("--- old/SKILL.md")
     assert "add examples" in patches[0].rationale
 
 
 def test_generate_patches_filters_invalid_level():
     import json as _json
     meta = _mk_meta()
-    valid_md = "---\nname: s1\n---\n\nbody"
+    valid_md = _reconstruct_skill_md(meta, "body").replace(
+        "version: 1.0.0", "version: 1.0.1", 1
+    )
     llm = FakeLLM([_json.dumps([
         {"level": "L4", "rationale": "x", "new_skill_md": valid_md},
         {"level": "L1", "rationale": "ok", "new_skill_md": valid_md},
@@ -149,6 +154,14 @@ def test_generate_patches_filters_invalid_level():
 def test_generate_patches_bad_json_returns_empty():
     meta = _mk_meta()
     llm = FakeLLM(["nonsense output"])
+    assert _generate_patches(llm, meta, "body", [], [], max_candidates=3) == []
+
+
+def test_generate_patches_skips_non_mapping_and_non_string_payloads():
+    import json as _json
+    meta = _mk_meta()
+    llm = FakeLLM([_json.dumps([None, {"level": 1}, {"level": "L1", "new_skill_md": 3}])])
+
     assert _generate_patches(llm, meta, "body", [], [], max_candidates=3) == []
 
 
@@ -183,7 +196,15 @@ def test_reconstruct_skill_md_contains_all_fields():
 # ============ 归档 ============
 
 def test_archive_failure_writes_md(tmp_path: Path):
-    patch = Patch(skill_name="s1", level="L1", diff="---\nname: s1\n---\n\nbody", rationale="test")
+    patch = Patch(
+        skill_name="s1",
+        level="L1",
+        diff="---\nname: s1\n---\n\nbody",
+        rationale="test",
+        computed_level="L2",
+        unified_diff="--- old/SKILL.md\n+++ new/SKILL.md",
+        downgrade_attempt=True,
+    )
     verdict = RatchetVerdict(decision="DECLINED", reasons=["总分退步"])
     path = _archive_failure(tmp_path, "s1", patch, verdict, None, None)
     assert path.exists()
@@ -192,6 +213,11 @@ def test_archive_failure_writes_md(tmp_path: Path):
     assert "L1" in text
     assert "总分退步" in text
     assert "```markdown" in text
+    assert "declared_level: L1" in text
+    assert "computed_level: L2" in text
+    assert "downgrade_attempt: true" in text
+    assert "## 差异对比 (Unified Diff)" in text
+    assert "已阻断自动发布" in text
 
 
 def test_archive_suggestion_writes_md(tmp_path: Path):

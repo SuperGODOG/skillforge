@@ -27,6 +27,7 @@ from typing import Literal, Optional
 
 from hello_agents import SimpleAgent, HelloAgentsLLM
 
+from .diff import compute_semantic_diff
 from .models import Patch, EvalResult, RatchetVerdict
 
 
@@ -169,7 +170,10 @@ class SkillEvolver(SimpleAgent):
         if verbose:
             print(f"  实际生成 {len(patches)} 个 patch")
             for p in patches:
-                print(f"    [{p.level}] {p.rationale[:60]}")
+                level_label = p.level
+                if p.computed_level != p.level:
+                    level_label = f"{p.level}→{p.computed_level}"
+                print(f"    [{level_label}] {p.rationale[:60]}")
         if not patches:
             outcome.error = "LLM 未生成有效 patch（可能 JSON 解析失败）"
             return outcome
@@ -377,17 +381,31 @@ def _generate_patches(
 
     patches = []
     for item in data:
-        level = item.get("level", "").upper()
+        if not isinstance(item, dict):
+            continue
+        raw_level = item.get("level", "")
+        if not isinstance(raw_level, str):
+            continue
+        level = raw_level.upper()
         if level not in ("L1", "L2", "L3"):
             continue
-        new_md = item.get("new_skill_md", "").strip()
+        raw_new_md = item.get("new_skill_md", "")
+        if not isinstance(raw_new_md, str):
+            continue
+        new_md = raw_new_md.strip()
         if not new_md or not new_md.startswith("---"):
+            continue
+        semantic_diff = compute_semantic_diff(skill_md, new_md, level)
+        if not semantic_diff.is_valid:
             continue
         patches.append(Patch(
             skill_name=meta.name,
             level=level,  # type: ignore
             diff=new_md,  # 存完整新 SKILL.md 作为 patch payload
             rationale=str(item.get("rationale", ""))[:200],
+            computed_level=semantic_diff.computed_level,
+            unified_diff=semantic_diff.unified_diff,
+            downgrade_attempt=semantic_diff.downgrade_attempt,
         ))
     return patches
 
@@ -458,7 +476,7 @@ def _publish_patch(
 ) -> dict:
     """
     分级发布：
-      L1 + PASS → state_machine 4 步自动发布
+      declared L1 + computed L1 + no downgrade + PASS → 自动发布
       L1 + REVIEW → 挂 REVIEW（保留建议不覆盖 skill）
       L2/L3      → 无论 PASS/REVIEW 都只出建议（Phase 4 收敛到 L1 auto）
       任何 DECLINED → 归档到 runs/failures/
@@ -469,8 +487,14 @@ def _publish_patch(
         path = _archive_failure(repo_root, skill_name, patch, verdict, new_result, None)
         return {"status": "DECLINED", "path": str(path)}
 
-    # PASS 或 REVIEW，看 level 分级
-    if patch.level == "L1" and verdict.decision == "PASS" and state_machine is not None:
+    # PASS 或 REVIEW，看声明等级与确定性计算等级的联合门禁。
+    if (
+        patch.level == "L1"
+        and patch.computed_level == "L1"
+        and not patch.downgrade_attempt
+        and verdict.decision == "PASS"
+        and state_machine is not None
+    ):
         # 自动发布
         try:
             release_id = _apply_and_publish_L1(
@@ -483,7 +507,12 @@ def _publish_patch(
 
     # 其他情况：只出建议
     path = _archive_suggestion(repo_root, skill_name, patch, verdict, new_result)
-    return {"status": "REVIEW" if verdict.decision == "REVIEW" else "SUGGESTION", "path": str(path)}
+    status = (
+        "REVIEW"
+        if verdict.decision == "REVIEW" or patch.downgrade_attempt
+        else "SUGGESTION"
+    )
+    return {"status": status, "path": str(path)}
 
 
 def _apply_and_publish_L1(
@@ -522,8 +551,14 @@ def _archive_suggestion(
     fname = f"{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{skill_name}-{patch.level}.md"
     path = sug_dir / fname
     total = sum(new_result.structure_score.values()) + sum(new_result.effect_score.values())
+    title = f"[{patch.level} 建议] {skill_name}"
+    if patch.downgrade_attempt:
+        title = (
+            f"[REVIEW / 降级拦截 / {patch.level}→{patch.computed_level}] "
+            f"{skill_name}"
+        )
     path.write_text(_render_archive_md(
-        title=f"[{patch.level} 建议] {skill_name}",
+        title=title,
         patch=patch, verdict=verdict, new_score=total, error=None,
     ), encoding="utf-8")
     return path
@@ -555,6 +590,10 @@ def _render_archive_md(
     lines = [f"# {title}", ""]
     lines.append(f"- ts: {datetime.now(timezone.utc).isoformat()}")
     lines.append(f"- level: {patch.level}")
+    lines.append(f"- declared_level: {patch.level}")
+    lines.append(f"- computed_level: {patch.computed_level}")
+    lines.append(f"- downgrade_attempt: {str(patch.downgrade_attempt).lower()}")
+    lines.append(f"- level_decision: {_level_decision_reason(patch)}")
     lines.append(f"- rationale: {patch.rationale}")
     if new_score is not None:
         lines.append(f"- new_score: {new_score:.2f} / 100")
@@ -567,11 +606,42 @@ def _render_archive_md(
     if error:
         lines.append(f"- error: {error}")
     lines.append("")
+    unified_fence = _markdown_fence(patch.unified_diff)
+    lines.append("## 差异对比 (Unified Diff)")
+    lines.append(f"{unified_fence}diff")
+    lines.append(patch.unified_diff or "（无可用 unified diff）")
+    lines.append(unified_fence)
+    lines.append("")
+    markdown_fence = _markdown_fence(patch.diff)
     lines.append("## 完整新 SKILL.md")
-    lines.append("```markdown")
+    lines.append(f"{markdown_fence}markdown")
     lines.append(patch.diff)
-    lines.append("```")
+    lines.append(markdown_fence)
     return "\n".join(lines) + "\n"
+
+
+def _level_decision_reason(patch: Patch) -> str:
+    if patch.downgrade_attempt:
+        return (
+            f"实际改动为 {patch.computed_level}，高于模型声明 {patch.level}；"
+            "已阻断自动发布并转人工复核"
+        )
+    if patch.computed_level == patch.level:
+        return f"模型声明与确定性计算一致（{patch.computed_level}）"
+    if patch.computed_level == "INVALID":
+        return "缺少可信语义分级；按 fail-closed 禁止自动发布"
+    return (
+        f"模型声明 {patch.level} 高于实际计算 {patch.computed_level}；"
+        "保留较审慎的声明等级"
+    )
+
+
+def _markdown_fence(content: str) -> str:
+    longest_run = max(
+        (len(match.group(0)) for match in re.finditer(r"`+", content)),
+        default=0,
+    )
+    return "`" * max(4, longest_run + 1)
 
 
 # =============== 工具函数 ===============
