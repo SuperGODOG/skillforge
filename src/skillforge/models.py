@@ -7,7 +7,7 @@
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field
 
 
@@ -41,6 +41,27 @@ class RouteResult:
     latency_ms: float
 
 
+@dataclass(frozen=True)
+class ToolCallProvenance:
+    """Canonical SHA-256 integrity record of a dependency fixture invocation."""
+
+    tool_name: str
+    fixture_case_id: str
+    call_index: int
+    call_count: int
+    is_fixture: bool
+    tool_required: bool
+    tool_called: bool
+    tool_success: bool
+    authenticity_pass: bool
+    input_params: dict[str, Any]
+    output_status: Literal["SUCCESS", "ERROR", "CIRCUIT_OPEN"]
+    output_summary: str
+    latency_ms: float
+    timestamp: str
+    signature: str
+
+
 @dataclass
 class EvalResult:
     release_id: str
@@ -52,6 +73,9 @@ class EvalResult:
     case_verdicts: list[dict] = field(default_factory=list)
     # 保留 skill/baseline 输出对，供元 Agent 归因（可选，大数据量）
     case_outputs: list[dict] = field(default_factory=list)
+    # P0-B: 实际执行过的验证通道及工具调用凭证。
+    validation_channels: list[str] = field(default_factory=list)
+    provenances: list[ToolCallProvenance] = field(default_factory=list)
 
 
 @dataclass
@@ -71,6 +95,9 @@ class Patch:
     computed_level: Literal["L1", "L2", "L3", "INVALID"] = "INVALID"
     unified_diff: str = ""
     downgrade_attempt: bool = False
+    changed_frontmatter: list[str] = field(default_factory=list)
+    changed_body_sections: list[str] = field(default_factory=list)
+    provenances: list[ToolCallProvenance] = field(default_factory=list)
 
 
 @dataclass

@@ -133,6 +133,8 @@ def test_generate_patches_parses_valid_json():
     assert patches[0].computed_level == "L2"
     assert patches[0].downgrade_attempt is True
     assert patches[0].unified_diff.startswith("--- old/SKILL.md")
+    assert patches[0].changed_frontmatter
+    assert patches[0].changed_body_sections == ["__full_body__", "Overview"]
     assert "add examples" in patches[0].rationale
 
 

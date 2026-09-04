@@ -19,8 +19,9 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import tempfile
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal, Optional
@@ -29,6 +30,7 @@ from hello_agents import SimpleAgent, HelloAgentsLLM
 
 from .diff import compute_semantic_diff
 from .models import Patch, EvalResult, RatchetVerdict
+from .evaluator.validators import validate_dependency_patch, validate_router_patch
 
 
 # =============== 数据结构（evolver 内部） ===============
@@ -406,6 +408,8 @@ def _generate_patches(
             computed_level=semantic_diff.computed_level,
             unified_diff=semantic_diff.unified_diff,
             downgrade_attempt=semantic_diff.downgrade_attempt,
+            changed_frontmatter=semantic_diff.changed_frontmatter,
+            changed_body_sections=semantic_diff.changed_body_sections,
         ))
     return patches
 
@@ -417,49 +421,98 @@ def _validate_patch(
     evaluator, registry, skill_name: str, patch: Patch,
     old_result: EvalResult, eval_set: str,
 ) -> tuple[EvalResult, RatchetVerdict]:
-    """把 patch 落到临时 skill_name_candidate 目录，独立 registry 跑评估，之后清理"""
+    """Validate a candidate through channels selected by its change surface."""
     from .registry import SkillRegistry
     from .evaluator.ratchet import check_ratchet
 
     repo_root = registry.repo_root
-    candidate_name = f"{skill_name}__candidate"
-    candidate_dir = repo_root / "skills" / candidate_name
-    candidate_dir.mkdir(parents=True, exist_ok=True)
+    metadata_changed = bool(
+        set(patch.changed_frontmatter) - {"dependencies"}
+    )
+    body_changed = bool(patch.changed_body_sections)
+    dependencies_changed = "dependencies" in patch.changed_frontmatter
+    channels: list[str] = []
+    provenances = []
 
-    try:
-        # 将 new_skill_md 内的 name 改为 candidate_name 以避免注册冲突
-        new_md = re.sub(
-            r"^name:\s*.+$", f"name: {candidate_name}",
-            patch.diff, count=1, flags=re.MULTILINE,
+    with tempfile.TemporaryDirectory(prefix="skillforge-validator-") as temp_dir:
+        sandbox_root = Path(temp_dir)
+        sandbox_skills = sandbox_root / "skills"
+        shutil.copytree(registry.skills_dir, sandbox_skills)
+        (sandbox_skills / skill_name / "SKILL.md").write_text(
+            patch.diff, encoding="utf-8"
         )
-        (candidate_dir / "SKILL.md").write_text(new_md, encoding="utf-8")
 
-        # 独立 registry 加载（含 candidate + 原 skill）
         temp_reg = SkillRegistry(
-            db_path=registry.db_path,
-            skills_dir=repo_root / "skills",
+            db_path=sandbox_root / "sandbox.db",
+            skills_dir=sandbox_skills,
+            # Evaluation sets remain read-only assets from the real repository.
             repo_root=repo_root,
+            router_log=sandbox_root / "router.jsonl",
         )
         temp_reg.load_skills_from_dir()
+        try:
+            if metadata_changed:
+                channels.append("router")
+                router_verdict = validate_router_patch(
+                    registry,
+                    temp_reg,
+                    skill_name,
+                    changed_frontmatter=patch.changed_frontmatter,
+                    computed_level=patch.computed_level,
+                )
+                if router_verdict.decision != "PASS":
+                    result = replace(
+                        old_result,
+                        release_id="candidate",
+                        validation_channels=channels,
+                    )
+                    return result, router_verdict
 
-        # 用临时 evaluator 跑（复用同一 llm）
-        # 关键：cases 按**原 skill_name** 过滤（evaluation_sets 里的 case.skill 是原名）
-        # skill_name 传 candidate 名让 evaluator 用 candidate 的 body 跑
-        from .evaluator import SkillEvaluator
-        temp_eval = SkillEvaluator(registry=temp_reg, llm=evaluator.llm)
-        cases = temp_eval._load_cases(eval_set, skill_name)
-        new_result = temp_eval.evaluate_skill(
-            candidate_name, eval_set=eval_set,
-            cases=cases, verbose=False,
-        )
-        temp_reg.close()
+            if dependencies_changed:
+                channels.append("dependency_fixture")
+                dependency_verdict, provenances = validate_dependency_patch(
+                    registry, temp_reg, skill_name, llm=evaluator.llm
+                )
+                patch.provenances = list(provenances)
+                if dependency_verdict.decision != "PASS":
+                    result = replace(
+                        old_result,
+                        release_id="candidate",
+                        validation_channels=channels,
+                        provenances=list(provenances),
+                    )
+                    return result, dependency_verdict
 
-        verdict = check_ratchet(old_result, new_result)
-        return new_result, verdict
-    finally:
-        # 清理临时目录（不管成败）
-        if candidate_dir.exists():
-            shutil.rmtree(candidate_dir, ignore_errors=True)
+            if body_changed:
+                channels.append("behavior")
+                from .evaluator import SkillEvaluator
+
+                temp_eval = SkillEvaluator(registry=temp_reg, llm=evaluator.llm)
+                cases = temp_eval._load_cases(eval_set, skill_name)
+                new_result = temp_eval.evaluate_skill(
+                    skill_name,
+                    eval_set=eval_set,
+                    cases=cases,
+                    verbose=False,
+                )
+                new_result.validation_channels = channels
+                new_result.provenances = list(provenances)
+                return new_result, check_ratchet(old_result, new_result)
+
+            result = replace(
+                old_result,
+                release_id="candidate",
+                validation_channels=channels,
+                provenances=list(provenances),
+            )
+            if not channels:
+                return result, RatchetVerdict(
+                    decision="DECLINED",
+                    reasons=["未识别到可验证的改动面，按 fail-closed 拒绝"],
+                )
+            return result, RatchetVerdict(decision="PASS", reasons=[])
+        finally:
+            temp_reg.close()
 
 
 # =============== Step 5: 分级发布 + Step 6: 归档 ===============
@@ -509,7 +562,11 @@ def _publish_patch(
     path = _archive_suggestion(repo_root, skill_name, patch, verdict, new_result)
     status = (
         "REVIEW"
-        if verdict.decision == "REVIEW" or patch.downgrade_attempt
+        if (
+            verdict.decision == "REVIEW"
+            or patch.downgrade_attempt
+            or patch.computed_level == "L3"
+        )
         else "SUGGESTION"
     )
     return {"status": status, "path": str(path)}
@@ -606,6 +663,37 @@ def _render_archive_md(
     if error:
         lines.append(f"- error: {error}")
     lines.append("")
+    if patch.provenances:
+        lines.append("## 工具调用存据 (Tool Call Provenance)")
+        lines.append("")
+        for provenance in patch.provenances:
+            params = json.dumps(
+                provenance.input_params, ensure_ascii=False, sort_keys=True
+            )
+            lines.append(
+                f"- 工具: `{provenance.tool_name}` "
+                f"(Fixture: {str(provenance.is_fixture).lower()})"
+            )
+            lines.append(f"  - Fixture case: `{provenance.fixture_case_id}`")
+            lines.append(
+                f"  - 调用序号: {provenance.call_index}/{provenance.call_count}"
+            )
+            lines.append(
+                "  - 执行事实: "
+                f"required={str(provenance.tool_required).lower()}, "
+                f"called={str(provenance.tool_called).lower()}, "
+                f"success={str(provenance.tool_success).lower()}, "
+                f"authenticity={str(provenance.authenticity_pass).lower()}"
+            )
+            lines.append(f"  - 参数: `{params}`")
+            lines.append(
+                f"  - 状态: {provenance.output_status} "
+                f"({provenance.latency_ms:.2f} ms)"
+            )
+            lines.append(f"  - 时间: {provenance.timestamp}")
+            lines.append(f"  - 输出摘要: {provenance.output_summary}")
+            lines.append(f"  - 签名: `sha256:{provenance.signature}`")
+        lines.append("")
     unified_fence = _markdown_fence(patch.unified_diff)
     lines.append("## 差异对比 (Unified Diff)")
     lines.append(f"{unified_fence}diff")

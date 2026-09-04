@@ -19,6 +19,7 @@ import json
 import sqlite3
 import subprocess
 import uuid
+from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
@@ -97,6 +98,8 @@ class ReleaseStateMachine:
             "effect_score": result.effect_score,
             "objective_metrics": result.objective_metrics,
             "p0_pass": result.p0_pass,
+            "validation_channels": result.validation_channels,
+            "provenances": [asdict(item) for item in result.provenances],
         }
         append(self.repo_root / "runs" / "evaluations.jsonl", summary)
         conn = self._get_conn()
