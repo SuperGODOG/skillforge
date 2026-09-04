@@ -53,14 +53,10 @@ def main():
     reg.load_skills_from_dir()
 
     from dotenv import load_dotenv
-    from hello_agents import HelloAgentsLLM
+    from skillforge.evaluator.llm_factory import build_llm_pair
     load_dotenv(repo_root / ".env")
-    llm = HelloAgentsLLM(
-        api_key=os.environ["LLM_API_KEY"],
-        model=os.environ["LLM_MODEL_ID"],
-        base_url=os.environ["LLM_BASE_URL"],
-    )
-    evaluator = SkillEvaluator(registry=reg, llm=llm)
+    llm, judge_llm = build_llm_pair()
+    evaluator = SkillEvaluator(registry=reg, llm=llm, judge_llm=judge_llm)
 
     eval_file = repo_root / "evaluation_sets" / f"{args.eval_set}.json"
     all_cases = json.loads(eval_file.read_text(encoding="utf-8"))["cases"]
@@ -87,11 +83,36 @@ def main():
         base_out, _ = evaluator._run_bare(case["query"])
 
         judges = {}
-        for dim in args.dims:
-            judges[dim] = evaluator.judge.compare(
-                case["query"], skill_out, base_out, dim,
-                reference=case.get("reference"),
-            )
+        judge_audit = {}
+        for dim_index, dim in enumerate(args.dims):
+            from skillforge.evaluator.judge import invert_verdict, skill_is_presented_as_a
+            ordering_run_id = f"{args.eval_set}:{args.limit_per_skill}"
+            skill_as_a = skill_is_presented_as_a(i, dim_index, ordering_run_id)
+            if skill_as_a:
+                result = evaluator.judge.compare_detailed(
+                    case["query"], skill_out, base_out, dim,
+                    reference=case.get("reference"),
+                )
+                canonical = result.verdict
+                order = {"A": "skill", "B": "baseline"}
+            else:
+                result = evaluator.judge.compare_detailed(
+                    case["query"], base_out, skill_out, dim,
+                    reference=case.get("reference"),
+                )
+                canonical = invert_verdict(result.verdict)
+                order = {"A": "baseline", "B": "skill"}
+            judges[dim] = canonical
+            judge_audit[dim] = {
+                "presented_order": order,
+                "raw_verdict": result.verdict,
+                "canonical_verdict": canonical,
+                "reason_codes": list(result.reason_codes),
+                "evidence_summary": result.evidence_summary,
+                "source": result.source,
+                "raw_response": result.raw_response,
+                "ordering_run_id": ordering_run_id,
+            }
 
         samples.append({
             "case_id": case["id"],
@@ -101,6 +122,7 @@ def main():
             "output_A_skill": skill_out,
             "output_B_baseline": base_out,
             "judge_verdicts": judges,
+            "judge_audit": judge_audit,
             "golden_verdicts": {dim: None for dim in args.dims},
         })
 

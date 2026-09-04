@@ -100,6 +100,8 @@ class ReleaseStateMachine:
             "p0_pass": result.p0_pass,
             "validation_channels": result.validation_channels,
             "provenances": [asdict(item) for item in result.provenances],
+            "valid": result.valid,
+            "invalid_reasons": result.invalid_reasons,
         }
         append(self.repo_root / "runs" / "evaluations.jsonl", summary)
         conn = self._get_conn()

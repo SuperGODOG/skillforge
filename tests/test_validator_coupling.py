@@ -245,7 +245,7 @@ def test_body_l2_triggers_behavior_evaluator_only(
         raise AssertionError("body-only patch reached Router validator")
 
     class FakeSkillEvaluator:
-        def __init__(self, registry, llm):
+        def __init__(self, registry, llm, judge_llm):
             pass
 
         def _load_cases(self, eval_set, skill_name):
@@ -260,7 +260,7 @@ def test_body_l2_triggers_behavior_evaluator_only(
 
     try:
         result, verdict = _validate_patch(
-            SimpleNamespace(llm=object()),
+            SimpleNamespace(llm=object(), judge=SimpleNamespace(llm=object())),
             registry,
             "explain_regex",
             patch,

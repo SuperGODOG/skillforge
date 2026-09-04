@@ -142,6 +142,10 @@ class SkillEvolver(SimpleAgent):
         except Exception as e:
             outcome.error = f"baseline 评估失败：{e}"
             return outcome
+        if not old_result.valid:
+            details = "; ".join(old_result.invalid_reasons) or "未知 INVALID 原因"
+            outcome.error = f"baseline 评估无效，停止迭代：{details}"
+            return outcome
         outcome.baseline_score = sum(old_result.structure_score.values()) + sum(old_result.effect_score.values())
         if verbose:
             print(f"  baseline 总分 = {outcome.baseline_score:.2f}")
@@ -487,7 +491,11 @@ def _validate_patch(
                 channels.append("behavior")
                 from .evaluator import SkillEvaluator
 
-                temp_eval = SkillEvaluator(registry=temp_reg, llm=evaluator.llm)
+                temp_eval = SkillEvaluator(
+                    registry=temp_reg,
+                    llm=evaluator.llm,
+                    judge_llm=evaluator.judge.llm,
+                )
                 cases = temp_eval._load_cases(eval_set, skill_name)
                 new_result = temp_eval.evaluate_skill(
                     skill_name,

@@ -43,6 +43,14 @@ def _rel_change(old_v: float, new_v: float) -> float:
 
 def check_ratchet(old: Optional[EvalResult], new: EvalResult) -> RatchetVerdict:
     """棘轮判定，返回 DECLINED / REVIEW / PASS"""
+    if old is not None and not old.valid:
+        reasons = ["历史基线评估无效，不能用于棘轮比较"]
+        reasons.extend(old.invalid_reasons)
+        return RatchetVerdict(decision="DECLINED", reasons=reasons)
+    if not new.valid:
+        reasons = ["评估无效，按 fail-closed 拒绝"]
+        reasons.extend(new.invalid_reasons)
+        return RatchetVerdict(decision="DECLINED", reasons=reasons)
     # 首次评估：无基线，默认放行
     if old is None:
         return RatchetVerdict(decision="PASS", reasons=["首次评估，无历史基线"])

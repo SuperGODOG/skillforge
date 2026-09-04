@@ -19,7 +19,7 @@ from hello_agents.tools import Tool, ToolParameter
 
 from ..models import EvalResult, RatchetVerdict
 from .structure import score_structure, structure_total
-from .judge import PairwiseJudge
+from .judge import PairwiseJudge, invert_verdict, skill_is_presented_as_a
 from .metrics import collect_objective_metrics
 from .ratchet import check_ratchet as _check_ratchet
 
@@ -36,7 +36,7 @@ class SkillEvaluator(Tool):
         Args:
             registry: SkillRegistry 实例（提供 get_meta / get body）
             llm:      运行 Agent 的 LLM（模拟"用户调用 Skill"）
-            judge_llm: Judge 用的 LLM（默认与 llm 相同；生产可换独立更强模型降自评偏见）
+            judge_llm: Judge 专用 LLM。必须是与执行端不同的 client 实例。
         """
         super().__init__(
             name="skill_evaluator",
@@ -44,7 +44,11 @@ class SkillEvaluator(Tool):
         )
         self.registry = registry
         self.llm = llm
-        self.judge = PairwiseJudge(judge_llm or llm)
+        if judge_llm is None:
+            raise ValueError("judge_llm 必须显式配置，不能回退到执行 LLM")
+        if judge_llm is llm:
+            raise ValueError("执行 LLM 与 Judge 必须使用不同 client/session 实例")
+        self.judge = PairwiseJudge(judge_llm)
 
     def get_parameters(self) -> list[ToolParameter]:
         return [
@@ -60,7 +64,9 @@ class SkillEvaluator(Tool):
             parameters["skill_name"],
             parameters.get("eval_set", "baseline_dev"),
         )
-        return f"total={structure_total(result.structure_score) + sum(result.effect_score.values()):.2f}, p0={result.p0_pass}"
+        if not result.valid:
+            return "valid=false, reasons=" + "; ".join(result.invalid_reasons)
+        return f"valid=true, total={structure_total(result.structure_score) + sum(result.effect_score.values()):.2f}, p0={result.p0_pass}"
 
     # ARCHITECTURE §7 签名
     def evaluate(self, release_id: str, eval_set: str = "baseline_dev") -> EvalResult:
@@ -115,6 +121,8 @@ class SkillEvaluator(Tool):
         base_metrics_list = []
         skill_metrics_list = []
         p0_pass = True
+        invalid_reasons: list[str] = []
+        ordering_run_id = release_id or f"{eval_set}:{skill_name}"
 
         case_verdicts: list[dict] = []  # Phase 4 元 Agent 输入
         case_outputs: list[dict] = []
@@ -133,12 +141,43 @@ class SkillEvaluator(Tool):
             skill_metrics_list.append(skill_m)
 
             per_case = {"case_id": case_id, "query": query}
-            for dim in verdicts:
-                v = self.judge.compare(query, skill_out, base_out, dim, reference=ref)
+            for dim_index, dim in enumerate(verdicts):
+                skill_as_a = skill_is_presented_as_a(i, dim_index, ordering_run_id)
+                if skill_as_a:
+                    judged = self.judge.compare_detailed(
+                        query, skill_out, base_out, dim, reference=ref
+                    )
+                    v = judged.verdict
+                    presented_order = {"A": "skill", "B": "baseline"}
+                else:
+                    judged = self.judge.compare_detailed(
+                        query, base_out, skill_out, dim, reference=ref
+                    )
+                    v = invert_verdict(judged.verdict)
+                    presented_order = {"A": "baseline", "B": "skill"}
                 verdicts[dim].append((case_id, v))
                 per_case[dim] = v
+                per_case.setdefault("judge_audit", {})[dim] = {
+                    "presented_order": presented_order,
+                    "raw_verdict": judged.verdict,
+                    "canonical_verdict": v,
+                    "reason_codes": list(judged.reason_codes),
+                    "evidence_summary": judged.evidence_summary,
+                    "source": judged.source,
+                    "raw_response": judged.raw_response,
+                    "ordering_run_id": ordering_run_id,
+                }
+                if v == "INVALID":
+                    invalid_reasons.append(
+                        f"{case_id}/{dim}: "
+                        + (",".join(judged.reason_codes) or "INVALID_JUDGE_RESULT")
+                    )
                 # P0 语义：task 维度上 skill 版被判 B_better（不如 baseline） → P0 fail
-                if case_id in p0_ids and dim == "task_completion" and v == "B_better":
+                if (
+                    case_id in p0_ids
+                    and dim == "task_completion"
+                    and v in {"B_better", "INVALID"}
+                ):
                     p0_pass = False
             case_verdicts.append(per_case)
             case_outputs.append({
@@ -151,9 +190,9 @@ class SkillEvaluator(Tool):
 
         # 效果分：胜=1 平=0.5 负=0 加权
         effect = {
-            "task": self._dim_score(verdicts["task_completion"], max_score=25.0),
-            "robust": self._dim_score(verdicts["robustness"], max_score=15.0),
-            "readability": self._dim_score(verdicts["readability"], max_score=10.0),
+            "task": self._dim_score_or_zero(verdicts["task_completion"], max_score=25.0),
+            "robust": self._dim_score_or_zero(verdicts["robustness"], max_score=15.0),
+            "readability": self._dim_score_or_zero(verdicts["readability"], max_score=10.0),
             "efficiency": self._efficiency_score(base_metrics_list, skill_metrics_list),
         }
 
@@ -173,6 +212,8 @@ class SkillEvaluator(Tool):
             p0_pass=p0_pass,
             case_verdicts=case_verdicts,
             case_outputs=case_outputs,
+            valid=not invalid_reasons,
+            invalid_reasons=invalid_reasons,
         )
 
     # ----------------- 辅助 -----------------
@@ -251,12 +292,21 @@ class SkillEvaluator(Tool):
         """配对判定 → 维度分：胜 1 / 平 0.5 / 负 0，加权到 max_score"""
         if not case_verdicts:
             return 0.0
+        if any(v == "INVALID" for _, v in case_verdicts):
+            raise ValueError("INVALID Judge verdict 不能折算为效果分")
         n = len(case_verdicts)
         weighted = sum(
             1.0 if v == "A_better" else 0.5 if v == "tied" else 0.0
             for _, v in case_verdicts
         )
         return round(weighted / n * max_score, 2)
+
+    @staticmethod
+    def _dim_score_or_zero(case_verdicts: list[tuple[str, str]], max_score: float) -> float:
+        """Conservative placeholder for an explicitly invalid evaluation."""
+        if any(v == "INVALID" for _, v in case_verdicts):
+            return 0.0
+        return SkillEvaluator._dim_score(case_verdicts, max_score)
 
     @staticmethod
     def _efficiency_score(base_metrics: list[dict], skill_metrics: list[dict]) -> float:

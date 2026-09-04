@@ -76,6 +76,9 @@ class EvalResult:
     # P0-B: 实际执行过的验证通道及工具调用凭证。
     validation_channels: list[str] = field(default_factory=list)
     provenances: list[ToolCallProvenance] = field(default_factory=list)
+    # P0-C: Judge/infrastructure invalidity must never masquerade as a score.
+    valid: bool = True
+    invalid_reasons: list[str] = field(default_factory=list)
 
 
 @dataclass

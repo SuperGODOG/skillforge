@@ -3,12 +3,13 @@
 覆盖：
     - structure.py:  合规打分 / 缺字段扣分 / Constraints 段识别
     - metrics.py:    turns 兜底 / tokens 汇总 / latency 透传
-    - judge.py:      _parse 三种判定 / LLM 失败降级 tied
+    - judge.py:      _parse 三种判定 / LLM 失败 fail-closed INVALID
     - ratchet.py:    首次 PASS / 硬门槛 5 条 / 软门槛 REVIEW / P0 变失败
     - SkillEvaluator: _dim_score 加权 / _efficiency_score ratio→分 / evaluate_skill 端到端（FakeLLM）
 """
 from __future__ import annotations
 import subprocess
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -18,11 +19,18 @@ from skillforge import SkillRegistry, SkillEvaluator
 from skillforge.models import SkillMeta, Trigger, EvalResult
 from skillforge.evaluator.structure import score_structure, structure_total
 from skillforge.evaluator.metrics import collect_objective_metrics
-from skillforge.evaluator.judge import PairwiseJudge
+from skillforge.evaluator.judge import PairwiseJudge, skill_is_presented_as_a
 from skillforge.evaluator.ratchet import check_ratchet
 
 
 # ============ FakeLLM ============
+
+def _judge_json(verdict: str) -> str:
+    return json.dumps({
+        "verdict": verdict,
+        "reason_codes": ["TEST_REASON"],
+        "evidence_summary": "test evidence",
+    })
 
 class FakeLLM:
     """按预定序列返回 content 的假 LLM"""
@@ -102,32 +110,32 @@ def test_metrics_empty_messages_fallback_1_turn():
 # ============ judge.py ============
 
 def test_judge_parse_a_better():
-    assert PairwiseJudge._parse("A_better") == "A_better"
+    assert PairwiseJudge._parse(_judge_json("A_better")) == "A_better"
 
 
 def test_judge_parse_b_better():
-    assert PairwiseJudge._parse("B_better") == "B_better"
+    assert PairwiseJudge._parse(_judge_json("B_better")) == "B_better"
 
 
 def test_judge_parse_tied():
-    assert PairwiseJudge._parse("tied") == "tied"
+    assert PairwiseJudge._parse(_judge_json("tied")) == "tied"
 
 
-def test_judge_parse_chinese_wording():
-    assert PairwiseJudge._parse("A 更好") == "A_better"
+def test_judge_parse_chinese_wording_is_invalid():
+    assert PairwiseJudge._parse("A 更好") == "INVALID"
 
 
-def test_judge_parse_unknown_falls_to_tied():
-    assert PairwiseJudge._parse("我觉得都还行") == "tied"
+def test_judge_parse_unknown_is_invalid():
+    assert PairwiseJudge._parse("我觉得都还行") == "INVALID"
 
 
-def test_judge_llm_exception_returns_tied():
+def test_judge_llm_exception_returns_invalid():
     class BadLLM:
         def invoke(self, *a, **kw):
             raise RuntimeError("boom")
 
     j = PairwiseJudge(BadLLM())
-    assert j.compare("q", "a", "b", "task_completion") == "tied"
+    assert j.compare("q", "a", "b", "task_completion") == "INVALID"
 
 
 # ============ ratchet.py ============
@@ -271,8 +279,16 @@ def test_evaluate_skill_end_to_end(tmp_repo_with_skill: Path):
 
     # 2 次 Agent（bare + skill）+ 3 次 Judge（task/robust/read）
     # Judge 全部 A_better = skill 版更好
-    fake = FakeLLM(["bare_out", "skill_out", "A_better", "A_better", "A_better"])
-    evaluator = SkillEvaluator(registry=reg, llm=fake)
+    execution = FakeLLM(["bare_out", "skill_out"])
+    judge_outputs = [
+        _judge_json(
+            "A_better" if skill_is_presented_as_a(0, dim, "baseline_dev:test_skill")
+            else "B_better"
+        )
+        for dim in range(3)
+    ]
+    judge = FakeLLM(judge_outputs)
+    evaluator = SkillEvaluator(registry=reg, llm=execution, judge_llm=judge)
 
     result = evaluator.evaluate_skill("test_skill", eval_set="baseline_dev")
 

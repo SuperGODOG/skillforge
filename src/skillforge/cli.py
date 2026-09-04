@@ -127,7 +127,7 @@ def cmd_route(args: argparse.Namespace) -> None:
     reg.close()
 
 
-def cmd_evaluate(args: argparse.Namespace) -> None:
+def cmd_evaluate(args: argparse.Namespace) -> int:
     """Phase 3 演示：八维评估器（结构分 + Judge 配对 + 客观指标 + 棘轮）"""
     repo_root: Path = args.root
     db_path = repo_root / "runs" / "skillforge.db"
@@ -138,21 +138,17 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
     reg = SkillRegistry(db_path=db_path, skills_dir=skills_dir, repo_root=repo_root)
     reg.load_skills_from_dir()
 
-    # 加载 LLM（Judge 与 Agent 共用；生产建议分开）
+    # 执行端与 Judge 使用独立配置点和 client/session。
     try:
         from dotenv import load_dotenv
-        from hello_agents import HelloAgentsLLM
+        from .evaluator.llm_factory import build_llm_pair
         load_dotenv(repo_root / ".env")
-        llm = HelloAgentsLLM(
-            api_key=os.environ["LLM_API_KEY"],
-            model=os.environ["LLM_MODEL_ID"],
-            base_url=os.environ["LLM_BASE_URL"],
-        )
+        llm, judge_llm = build_llm_pair()
     except KeyError as e:
         print(f"  ❌ .env 缺失 {e}，评估无法进行（Phase 3 强依赖 LLM）")
-        return
+        return 2
 
-    evaluator = SkillEvaluator(registry=reg, llm=llm)
+    evaluator = SkillEvaluator(registry=reg, llm=llm, judge_llm=judge_llm)
 
     print(f"  ▶ 开始评估...（每个 case 3 次 LLM 调用 + Judge 3 维 × 每维 1 次 = 6 次调用）")
     result = evaluator.evaluate_skill(
@@ -160,6 +156,13 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
         eval_set=args.eval_set,
         verbose=args.verbose,
     )
+
+    if not result.valid:
+        print("\n❌ 评估 INVALID，已按 fail-closed 停止评分：")
+        for reason in result.invalid_reasons:
+            print(f"  - {reason}")
+        reg.close()
+        return 2
 
     print()
     _print_hr("评估报告")
@@ -184,6 +187,7 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
 
     reg.close()
     _print_hr("完成")
+    return 0
 
 
 def cmd_evolve(args: argparse.Namespace) -> None:
@@ -199,18 +203,14 @@ def cmd_evolve(args: argparse.Namespace) -> None:
 
     try:
         from dotenv import load_dotenv
-        from hello_agents import HelloAgentsLLM
+        from .evaluator.llm_factory import build_llm_pair
         load_dotenv(repo_root / ".env")
-        llm = HelloAgentsLLM(
-            api_key=os.environ["LLM_API_KEY"],
-            model=os.environ["LLM_MODEL_ID"],
-            base_url=os.environ["LLM_BASE_URL"],
-        )
+        llm, judge_llm = build_llm_pair()
     except KeyError as e:
         print(f"  ❌ .env 缺失 {e}，元 Agent 无法启动")
         return
 
-    evaluator = SkillEvaluator(registry=reg, llm=llm)
+    evaluator = SkillEvaluator(registry=reg, llm=llm, judge_llm=judge_llm)
     sm = ReleaseStateMachine(db_path=db_path, repo_root=repo_root)
 
     evolver = SkillEvolver(
@@ -304,7 +304,7 @@ def main() -> None:
     elif args.cmd == "route":
         cmd_route(args)
     elif args.cmd == "evaluate":
-        cmd_evaluate(args)
+        return cmd_evaluate(args)
     elif args.cmd == "evolve":
         cmd_evolve(args)
     else:
@@ -312,4 +312,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

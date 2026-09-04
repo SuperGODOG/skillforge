@@ -120,10 +120,14 @@ cat > .env <<'EOF'
 LLM_API_KEY=sk-填你的-key
 LLM_MODEL_ID=deepseek-chat
 LLM_BASE_URL=https://api.deepseek.com/v1
+# Judge 必须走独立 client/session；可以使用同一服务，也可以换独立模型。
+JUDGE_LLM_API_KEY=sk-填你的-judge-key
+JUDGE_LLM_MODEL_ID=deepseek-chat
+JUDGE_LLM_BASE_URL=https://api.deepseek.com/v1
 EOF
 ```
 
-**验证成功**：`./.venv/bin/pytest tests/ -q` 应显示 `74 passed in ~4s`。
+**验证成功**：`./.venv/bin/pytest tests/ -q` 应全量通过。
 
 ---
 
@@ -231,7 +235,8 @@ EOF
 ```bash
 python scripts/eval_router.py --use-llm      # 路由 R@1=98% / R@3=100%
 python scripts/blind_eval_report.py          # Judge/人工偏差报告
-pytest tests/ -v                              # 74/74 全绿 · 4.4s
+python scripts/rejudge_frozen.py             # 只重判冻结输出，不重新生成 A/B
+pytest tests/ -v                              # 全量测试应为绿色
 ```
 
 ---
@@ -288,7 +293,7 @@ skillforge/
 
 2. **三层路由不写死百分比** — 规则（`trigger.keywords` 只是排序信号，**不独占决策**）→ bge-small 结构化检索卡片（`[Capability][Use When][Examples][Not For]`，`Not For` 段在向量空间**主动推远硬负例**）→ LLM 兜底二选一。阈值 `HIGH_CONF=0.75 / MARGIN=0.10` 由 50 条硬负例评测集校准（62% → 98% 三步调优）。
 
-3. **Judge 配对比较（A/tied/B）** — 对抗 Judge 分数漂移；效率维度走客观 token 比不用 LLM 打分；棘轮硬 5 条自动 DECLINED + 软门槛任一维度变化 ≥ 10% 触发 REVIEW（**含上升，防"表面漂亮"**）。
+3. **Judge 配对比较（A/tied/B/INVALID）** — 执行/Judge 使用独立 client 与配置，A/B 确定性均衡；异常、不可解析和证据不足均 INVALID 并 fail-closed。无 provenance 的实时数值断言先过 truth sentinel；效率维度走客观 token 比不用 LLM 打分。
 
 4. **元 Agent 分级 L1/L2/L3** — L1 = 只改 `examples/not_for/description`，可自动发布；L2 = 改 `trigger/Instructions`，只出建议；L3 = 改 `dependencies/Constraints`，只出建议。**成功率坦诚约 30%**；失败 patch 归档 `runs/failures/` 沉淀负样本。
 

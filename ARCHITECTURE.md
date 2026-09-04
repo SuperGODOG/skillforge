@@ -31,7 +31,7 @@
 graph LR
     User([面试演示者<br/>/ 用户])
     Skill[(Skills 源码仓库<br/>本地 Git)]
-    DS[[DeepSeek API<br/>LLM + Judge]]
+    DS[[LLM API<br/>执行 client + 独立 Judge client]]
     Bge[[bge-small-zh-v1.5<br/>本地 embedding]]
 
     User -->|CLI 命令 / 交互输入| SF
@@ -52,7 +52,7 @@ graph LR
 |---|---|---|---|
 | Git（CLI） | Skill 版本管理 + diff | 本地二进制 | 无（硬依赖） |
 | SQLite | 元数据 + 发布状态 | 本地单文件 | 无（硬依赖） |
-| DeepSeek API | LLM 推理 + Judge 打分 | 云端 | Judge 失败挂 REVIEW；LLM 推理失败重试 3 次 |
+| LLM API | 执行推理 + 独立 Judge client | 云端 | Judge 失败产生 INVALID 并阻断；执行失败不伪装成评估结果 |
 | bge-small-zh-v1.5 | Skill 检索卡片编码 | 本地 CPU | 加载失败退化到规则+LLM 两层路由 |
 
 ---
@@ -634,11 +634,11 @@ class ReleaseStateMachine:
 | 6 | Watchdog `threshold_hours=24` | 同（默认）但 **SQL 从 Python isoformat 改为 SQLite 内建 `datetime('now', '-Nh')`** | Python 带时区 isoformat 与 SQLite 无时区 CURRENT_TIMESTAMP 比较不匹配；改用 SQLite 内建时间函数。 |
 | 7 | bge-small-zh-v1.5 走 HuggingFace | **走 modelscope**（阿里模型库） | 国内 hf-mirror 不稳（curl 通但 python-requests 不通），modelscope 40s 下完。`embed.py` `DEFAULT_MODEL_DIR` 硬编码本地路径。 |
 
-### 10.3 已知缺陷与改进方向（1 处）
+### 10.3 已知缺陷与改进方向
 
 | # | 缺陷 | 影响 | 改进路径 |
 |---|---|---|---|
-| 8 | Judge 在 task_completion 维度**幻觉识别弱**（Phase 3 保底盲评 62% 分歧） | 天气 skill 编造 API 输出被 Judge 判 A_better；task_completion 分数被虚高 | Judge prompt 加"未验证具体数据 = 幻觉 → 无论多完整判 B_better"红线规则。属**已知缺陷 + 明确改进方向**，Phase 5+ 处理。 |
+| 8 | Phase 3 冻结基线中 task_completion 分歧为 62% | 旧 Judge 将无 provenance 的天气数值判 A_better | P0-C 已加入 truth sentinel、INVALID/fail-closed、A/B 均衡和独立 Judge；使用 `rejudge_frozen.py` 只重判冻结输出后再验收。 |
 
 ### 10.4 数字对账
 
@@ -662,7 +662,7 @@ class ReleaseStateMachine:
 - ✅ 硬负例评测集 50 条、Recall@1 ≥ 80% / Recall@3 ≥ 90%
 - ✅ 结构分 40% 不阻断，效果分 60% 才是门槛
 - ✅ 效率维度用客观 token 比不用 LLM 打分
-- ✅ Judge 配对比较 A/tied/B
+- ✅ Judge 配对比较 A/tied/B/INVALID；异常与证据不足 fail-closed
 - ✅ 棘轮硬 5 条 + 软 10%
 - ✅ 元 Agent 是候选生成器不是最终决策者，成功率 ~30%
 - ✅ L1 自动 / L2 REVIEW / L3 只出建议
