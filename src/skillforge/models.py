@@ -88,6 +88,32 @@ class RatchetVerdict:
     reasons: list[str] = field(default_factory=list)
 
 
+PatchStatus = Literal["PUBLISHED", "REVIEW", "SUGGESTION", "DECLINED", "PASS"]
+
+
+@dataclass
+class BodySectionStats:
+    """Four-part body section character counts and total length."""
+
+    overview: int = 0
+    instructions: int = 0
+    examples: int = 0
+    constraints: int = 0
+    total: int = 0
+    by_section: dict[str, int] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, int]:
+        d = {
+            "Overview": self.overview,
+            "Instructions": self.instructions,
+            "Examples": self.examples,
+            "Constraints": self.constraints,
+            "total": self.total,
+        }
+        d.update(self.by_section)
+        return d
+
+
 @dataclass
 class Patch:
     skill_name: str
@@ -102,6 +128,40 @@ class Patch:
     changed_frontmatter: list[str] = field(default_factory=list)
     changed_body_sections: list[str] = field(default_factory=list)
     provenances: list[ToolCallProvenance] = field(default_factory=list)
+    # P1-E Prompt Bloat 护栏字段
+    baseline_body_stats: dict[str, int] = field(default_factory=dict)
+    candidate_body_stats: dict[str, int] = field(default_factory=dict)
+    bloat_verdict: Optional[str] = None
+    bloat_reasons: list[str] = field(default_factory=list)
+    distillation_prompt: Optional[str] = None
+    status: Optional[str] = None
+
+
+@dataclass
+class EvolveContext:
+    """Runtime context for an evolution run, tracking baseline body and stats (P1-E / P1-H)."""
+
+    skill_name: str
+    baseline_meta: Optional[SkillMeta] = None
+    baseline_body: str = ""
+    baseline_body_stats: dict[str, int] = field(default_factory=dict)
+    active_budget: Optional[EvolveBudget] = None
+
+
+@dataclass
+class EvolveRecord:
+    """Record of a patch evolution attempt with prompt bloat and validation tracking."""
+
+    skill_name: str
+    patch: Optional[Patch] = None
+    baseline_body: str = ""
+    candidate_body: str = ""
+    baseline_body_stats: dict[str, int] = field(default_factory=dict)
+    candidate_body_stats: dict[str, int] = field(default_factory=dict)
+    bloat_verdict: Optional[str] = None
+    bloat_reasons: list[str] = field(default_factory=list)
+    distillation_prompt: Optional[str] = None
+    status: Optional[str] = None
 
 
 @dataclass
@@ -116,7 +176,7 @@ class Release:
 
 @dataclass
 class EvolveBudget:
-    """Configurable budget and randomness guardrails (P1-F)."""
+    """Configurable budget and randomness guardrails (P1-F), plus prompt bloat guardrails (P1-E)."""
 
     max_candidates: Optional[int] = 3
     max_calls: Optional[int] = None
@@ -128,6 +188,13 @@ class EvolveBudget:
     max_candidates_first_round: Optional[int] = None
     max_candidates_retry: Optional[int] = None
     max_candidates_total: Optional[int] = None
+
+    # Prompt Bloat Guardrails (P1-E)
+    section_growth_ratio: float = 0.25      # 单段相对 baseline 字符增长门槛 (>25%)
+    section_growth_chars: int = 100        # 单段绝对字符增长门槛 (>100 chars)
+    max_body_multiplier: float = 1.20      # 整 Body 字符数倍数门限 (>1.20x)
+    max_body_chars: Optional[int] = None   # 整 Body 绝对字符数上限（可选）
+    on_body_bloat: Literal["REVIEW", "DECLINED"] = "REVIEW"  # 全 body 门控动作
 
     def __post_init__(self) -> None:
         if self.max_calls is None and self.max_llm_calls is not None:

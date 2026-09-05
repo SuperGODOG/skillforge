@@ -16,13 +16,23 @@ from .models import (
     EvalResult,
     RatchetVerdict,
     Patch,
+    PatchStatus,
     Release,
     EvolveBudget,
     BudgetExceededError,
+    BodySectionStats,
+    EvolveContext,
+    EvolveRecord,
 )
 from .registry import SkillRegistry
 from .router import IntentRouter
-from .evaluator import SkillEvaluator, EvaluatorOutputCache
+from .evaluator import (
+    SkillEvaluator,
+    EvaluatorOutputCache,
+    PromptBloatResult,
+    check_prompt_bloat,
+    compute_body_section_stats,
+)
 from .evaluator.llm_factory import LLMLedger
 from .evolver import SkillEvolver
 from .state_machine import ReleaseStateMachine
@@ -30,9 +40,10 @@ from .state_machine import ReleaseStateMachine
 __all__ = [
     "__version__",
     "SkillMeta", "Trigger", "Evaluation",
-    "RouteResult", "EvalResult", "RatchetVerdict", "Patch", "Release",
-    "EvolveBudget", "BudgetExceededError",
+    "RouteResult", "EvalResult", "RatchetVerdict", "Patch", "PatchStatus", "Release",
+    "EvolveBudget", "BudgetExceededError", "BodySectionStats", "EvolveContext", "EvolveRecord",
     "LLMLedger", "EvaluatorOutputCache",
+    "PromptBloatResult", "check_prompt_bloat", "compute_body_section_stats",
     "SkillRegistry",
     "IntentRouter",
     "SkillEvaluator",

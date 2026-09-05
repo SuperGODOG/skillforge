@@ -28,10 +28,20 @@ from typing import Literal, Optional
 
 from hello_agents import SimpleAgent, HelloAgentsLLM
 
-from .diff import compute_semantic_diff
-from .models import Patch, EvalResult, RatchetVerdict, BudgetExceededError, EvolveBudget
+from .diff import compute_semantic_diff, _parse_skill_document
+from .models import (
+    Patch,
+    EvalResult,
+    RatchetVerdict,
+    BudgetExceededError,
+    EvolveBudget,
+    EvolveContext,
+    EvolveRecord,
+    BodySectionStats,
+)
 from .evaluator.validators import validate_dependency_patch, validate_router_patch
 from .evaluator.llm_factory import LLMLedger, wrap_with_ledger
+from .evaluator.prompt_bloat import check_prompt_bloat, compute_body_section_stats, PromptBloatResult
 
 
 # =============== 数据结构（evolver 内部） ===============
@@ -65,6 +75,8 @@ class EvolveOutcome:
     patches_declined: list[str] = field(default_factory=list)   # failure log paths
     error: Optional[str] = None
     ledger: Optional[LLMLedger] = None
+    context: Optional[EvolveContext] = None
+    records: list[EvolveRecord] = field(default_factory=list)
 
 
 # =============== SkillEvolver 主类 ===============
@@ -210,6 +222,15 @@ class SkillEvolver(SimpleAgent):
         # ---- Step 2：根因分析 ----
         meta = self.registry.get_meta(skill_name)
         body = self.registry._bodies.get(skill_name, "")
+        baseline_stats = compute_body_section_stats(body)
+        context = EvolveContext(
+            skill_name=skill_name,
+            baseline_meta=meta,
+            baseline_body=body,
+            baseline_body_stats=baseline_stats,
+            active_budget=active_budget,
+        )
+        outcome.context = context
         if verbose:
             print(f"\n▶ [Evolve/3-root_cause] LLM 根因分析")
         try:
@@ -239,6 +260,7 @@ class SkillEvolver(SimpleAgent):
                 max_candidates=effective_max,
                 clamp_limit=candidate_cap,
                 on_candidate_overflow=active_budget.on_candidate_overflow,
+                budget=active_budget,
             )
         except BudgetExceededError as e:
             outcome.error = f"候选生成预算硬帽超限：{e.reason}"
@@ -263,6 +285,7 @@ class SkillEvolver(SimpleAgent):
                 new_result, verdict = _validate_patch(
                     self.evaluator, self.registry, skill_name, patch,
                     old_result, eval_set_for_iter,
+                    budget=active_budget,
                 )
             except BudgetExceededError as e:
                 if verbose:
@@ -294,9 +317,28 @@ class SkillEvolver(SimpleAgent):
                 patch=patch,
                 verdict=verdict,
                 new_result=new_result,
+                budget=active_budget,
             )
             if verbose:
                 print(f"  → {outc['status']}: {outc['path']}")
+
+            try:
+                cand_body = _parse_skill_document(patch.diff).body
+            except Exception:
+                cand_body = ""
+            record = EvolveRecord(
+                skill_name=skill_name,
+                patch=patch,
+                baseline_body=body,
+                candidate_body=cand_body,
+                baseline_body_stats=patch.baseline_body_stats or baseline_stats,
+                candidate_body_stats=patch.candidate_body_stats,
+                bloat_verdict=patch.bloat_verdict,
+                bloat_reasons=patch.bloat_reasons,
+                distillation_prompt=patch.distillation_prompt,
+                status=outc["status"],
+            )
+            outcome.records.append(record)
 
             if outc["status"] == "PUBLISHED":
                 outcome.patches_published.append(outc["release_id"])
@@ -446,6 +488,7 @@ def _generate_patches(
     max_candidates: int,
     clamp_limit: Optional[int] = None,
     on_candidate_overflow: Literal["truncate", "reject"] = "truncate",
+    budget: Optional[EvolveBudget] = None,
 ) -> list[Patch]:
     effective_limit = min(max_candidates, clamp_limit) if clamp_limit is not None else max_candidates
     # 拼当前 SKILL.md
@@ -498,6 +541,14 @@ def _generate_patches(
         semantic_diff = compute_semantic_diff(skill_md, new_md, level)
         if not semantic_diff.is_valid:
             continue
+
+        cand_parsed = _parse_skill_document(new_md)
+        bloat_result = check_prompt_bloat(
+            body,
+            cand_parsed.body,
+            budget=budget,
+            changed_sections=semantic_diff.changed_body_sections,
+        )
         patches.append(Patch(
             skill_name=meta.name,
             level=level,  # type: ignore
@@ -508,6 +559,11 @@ def _generate_patches(
             downgrade_attempt=semantic_diff.downgrade_attempt,
             changed_frontmatter=semantic_diff.changed_frontmatter,
             changed_body_sections=semantic_diff.changed_body_sections,
+            baseline_body_stats=bloat_result.baseline_stats,
+            candidate_body_stats=bloat_result.candidate_stats,
+            bloat_verdict=bloat_result.decision,
+            bloat_reasons=bloat_result.reasons,
+            distillation_prompt=bloat_result.distillation_prompt,
         ))
 
     if len(patches) > effective_limit:
@@ -529,6 +585,7 @@ def _generate_patches(
 def _validate_patch(
     evaluator, registry, skill_name: str, patch: Patch,
     old_result: EvalResult, eval_set: str,
+    budget: Optional[EvolveBudget] = None,
 ) -> tuple[EvalResult, RatchetVerdict]:
     """Validate a candidate through channels selected by its change surface."""
     from .registry import SkillRegistry
@@ -542,6 +599,42 @@ def _validate_patch(
     dependencies_changed = "dependencies" in patch.changed_frontmatter
     channels: list[str] = []
     provenances = []
+
+    # 提取基线与候选 Body 并计算分段统计与 Prompt Bloat 护栏
+    old_body = getattr(registry, "_bodies", {}).get(skill_name, "")
+    if not old_body and hasattr(registry, "skills_dir"):
+        skill_file = registry.skills_dir / skill_name / "SKILL.md"
+        if skill_file.exists():
+            try:
+                old_body = _parse_skill_document(skill_file.read_text(encoding="utf-8")).body
+            except Exception:
+                pass
+
+    try:
+        cand_body = _parse_skill_document(patch.diff).body
+    except Exception:
+        cand_body = ""
+
+    bloat_res = check_prompt_bloat(
+        old_body,
+        cand_body,
+        budget=budget,
+        changed_sections=patch.changed_body_sections,
+    )
+    patch.baseline_body_stats = bloat_res.baseline_stats
+    patch.candidate_body_stats = bloat_res.candidate_stats
+    patch.bloat_verdict = bloat_res.decision
+    patch.bloat_reasons = bloat_res.reasons
+    patch.distillation_prompt = bloat_res.distillation_prompt
+
+    if bloat_res.decision == "DECLINED":
+        result = replace(
+            old_result,
+            release_id="candidate",
+            validation_channels=channels,
+            provenances=list(provenances),
+        )
+        return result, RatchetVerdict(decision="DECLINED", reasons=bloat_res.reasons)
 
     with tempfile.TemporaryDirectory(prefix="skillforge-validator-") as temp_dir:
         sandbox_root = Path(temp_dir)
@@ -634,7 +727,15 @@ def _validate_patch(
                 if p0_verdict.decision != "PASS":
                     return new_result, p0_verdict
 
-                return new_result, check_ratchet(old_result, new_result)
+                ratchet_verdict = check_ratchet(old_result, new_result)
+                if bloat_res.decision == "REVIEW":
+                    if ratchet_verdict.decision == "DECLINED":
+                        combined_reasons = list(ratchet_verdict.reasons) + bloat_res.reasons
+                        return new_result, RatchetVerdict(decision="DECLINED", reasons=combined_reasons)
+                    combined_reasons = list(ratchet_verdict.reasons) + bloat_res.reasons
+                    return new_result, RatchetVerdict(decision="REVIEW", reasons=combined_reasons)
+
+                return new_result, ratchet_verdict
 
             result = replace(
                 old_result,
@@ -717,6 +818,8 @@ def _validate_patch(
                     if p0_verdict.decision != "PASS":
                         return result, p0_verdict
 
+            if bloat_res.decision == "REVIEW":
+                return result, RatchetVerdict(decision="REVIEW", reasons=bloat_res.reasons)
             return result, RatchetVerdict(decision="PASS", reasons=[])
 
         finally:
@@ -734,6 +837,7 @@ def _publish_patch(
     patch: Patch,
     verdict: RatchetVerdict,
     new_result: EvalResult,
+    budget: Optional[EvolveBudget] = None,
 ) -> dict:
     """
     分级发布：
@@ -746,7 +850,13 @@ def _publish_patch(
     """
     if verdict.decision == "DECLINED":
         path = _archive_failure(repo_root, skill_name, patch, verdict, new_result, None)
+        patch.status = "DECLINED"
         return {"status": "DECLINED", "path": str(path)}
+
+    bloat_active = (
+        getattr(patch, "bloat_verdict", None) == "REVIEW"
+        or any("PROMPT_BLOAT" in (r or "") for r in verdict.reasons)
+    )
 
     # PASS 或 REVIEW，看声明等级与确定性计算等级的联合门禁。
     if (
@@ -754,6 +864,7 @@ def _publish_patch(
         and patch.computed_level == "L1"
         and not patch.downgrade_attempt
         and verdict.decision == "PASS"
+        and not bloat_active
         and state_machine is not None
     ):
         # 自动发布
@@ -761,9 +872,11 @@ def _publish_patch(
             release_id = _apply_and_publish_L1(
                 repo_root, registry, state_machine, skill_name, patch, new_result,
             )
+            patch.status = "PUBLISHED"
             return {"status": "PUBLISHED", "release_id": release_id, "path": ""}
         except Exception as e:
             path = _archive_failure(repo_root, skill_name, patch, verdict, new_result, f"发布失败: {e}")
+            patch.status = "DECLINED"
             return {"status": "DECLINED", "path": str(path)}
 
     # 其他情况：只出建议
@@ -772,11 +885,13 @@ def _publish_patch(
         "REVIEW"
         if (
             verdict.decision == "REVIEW"
+            or bloat_active
             or patch.downgrade_attempt
             or patch.computed_level == "L3"
         )
         else "SUGGESTION"
     )
+    patch.status = status
     return {"status": status, "path": str(path)}
 
 
@@ -822,6 +937,8 @@ def _archive_suggestion(
             f"[REVIEW / 降级拦截 / {patch.level}→{patch.computed_level}] "
             f"{skill_name}"
         )
+    elif getattr(patch, "bloat_verdict", None) == "REVIEW" or any("PROMPT_BLOAT" in (r or "") for r in verdict.reasons):
+        title = f"[REVIEW / PROMPT_BLOAT / {patch.level}] {skill_name}"
     path.write_text(_render_archive_md(
         title=title,
         patch=patch, verdict=verdict, new_score=total, error=None,
@@ -841,8 +958,13 @@ def _archive_failure(
     total = None
     if new_result is not None:
         total = sum(new_result.structure_score.values()) + sum(new_result.effect_score.values())
+    title = f"[DECLINED / {patch.level}] {skill_name}"
+    if any("BUDGET_EXCEEDED" in (r or "") for r in (verdict.reasons if verdict else [])):
+        title = f"[DECLINED / BUDGET_EXCEEDED / {patch.level}] {skill_name}"
+    elif any("PROMPT_BLOAT" in (r or "") for r in (verdict.reasons if verdict else [])):
+        title = f"[DECLINED / PROMPT_BLOAT / {patch.level}] {skill_name}"
     path.write_text(_render_archive_md(
-        title=f"[DECLINED / {patch.level}] {skill_name}",
+        title=title,
         patch=patch, verdict=verdict, new_score=total, error=error,
     ), encoding="utf-8")
     return path
@@ -868,6 +990,11 @@ def _render_archive_md(
             lines.append("- reasons:")
             for r in verdict.reasons:
                 lines.append(f"  - {r}")
+    if getattr(patch, "distillation_prompt", None):
+        lines.append(f"- distillation_prompt: {patch.distillation_prompt}")
+    if getattr(patch, "baseline_body_stats", None) or getattr(patch, "candidate_body_stats", None):
+        lines.append(f"- baseline_body_stats: {json.dumps(patch.baseline_body_stats, ensure_ascii=False)}")
+        lines.append(f"- candidate_body_stats: {json.dumps(patch.candidate_body_stats, ensure_ascii=False)}")
     if error:
         lines.append(f"- error: {error}")
     lines.append("")

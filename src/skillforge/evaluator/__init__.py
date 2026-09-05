@@ -33,6 +33,12 @@ from .p0_gate import (
     check_p0_ratchet_verdict,
     merge_p0_into_eval_result,
 )
+from .prompt_bloat import (
+    PromptBloatResult,
+    check_prompt_bloat,
+    compute_body_section_stats,
+    canonical_section_name,
+)
 
 
 class EvaluatorOutputCache:
