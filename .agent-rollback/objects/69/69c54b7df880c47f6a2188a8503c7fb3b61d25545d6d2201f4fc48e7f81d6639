@@ -1,0 +1,214 @@
+#!/usr/bin/env python3
+"""
+数据划分与迁移脚本 (Data Partition & Migration Script - P0-D)
+
+用法:
+    python scripts/partition_dataset.py --verify
+    python scripts/partition_dataset.py --migrate
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+# 保证可直接导入 skillforge 模块
+repo_root = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(repo_root / "src"))
+
+from skillforge.data_partition import (
+    DatasetLayer,
+    LAYER_POLICIES,
+    load_json_dataset,
+    partition_cases_three_tier,
+    validate_partition_invariants,
+)
+
+
+def run_migration(eval_dir: Path) -> int:
+    print(f"▶ 开始数据划分与迁移：读取目录 {eval_dir}")
+    dev_path = eval_dir / "baseline_dev.json"
+    hidden_path = eval_dir / "baseline_hidden.json"
+    p0_path = eval_dir / "p0_cases.json"
+
+    dev_data = load_json_dataset(dev_path)
+    hidden_data = load_json_dataset(hidden_path)
+    p0_data = load_json_dataset(p0_path)
+
+    p0_ids = set(p0_data.get("p0_ids", []))
+    dev_cases = dev_data.get("cases", [])
+    hidden_cases = hidden_data.get("cases", [])
+
+    print(f"  源数据：dev={len(dev_cases)}, hidden={len(hidden_cases)}, p0_ids={len(p0_ids)}")
+
+    partition = partition_cases_three_tier(dev_cases, hidden_cases, p0_ids)
+    errors = validate_partition_invariants(partition, p0_ids)
+    if errors:
+        print("❌ 数据划分不变量校验失败:")
+        for err in errors:
+            print(f"  - {err}")
+        return 1
+
+    # 1. 写入 baseline_seen_regression.json
+    seen_regression_file = eval_dir / "baseline_seen_regression.json"
+    seen_regression_payload = {
+        "meta": {
+            "created": "2026-09-04",
+            "purpose": "Phase 3 八维评估器·已见回归集（由 baseline_hidden 降级）",
+            "status": "downgraded_to_seen_regression",
+            "note": "原 baseline_hidden 因在 evolve_full 中被作为迭代评测使用已遭污染 (codex2 F-4)；降级为回归修复验证集",
+            "total": len(partition.seen_regression_cases),
+            "visibility": "visible_to_meta_agent",
+        },
+        "cases": partition.seen_regression_cases,
+    }
+    seen_regression_file.write_text(json.dumps(seen_regression_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(f"  ✓ 已生成: {seen_regression_file.name} ({len(partition.seen_regression_cases)} 条)")
+
+    # 2. 写入 repair_set.json
+    repair_file = eval_dir / "repair_set.json"
+    repair_payload = {
+        "meta": {
+            "created": "2026-09-04",
+            "layer": DatasetLayer.REPAIR.value,
+            "purpose": LAYER_POLICIES[DatasetLayer.REPAIR].description,
+            "visibility": LAYER_POLICIES[DatasetLayer.REPAIR].visibility,
+            "allow_in_reflection": LAYER_POLICIES[DatasetLayer.REPAIR].allow_in_reflection,
+            "total": len(partition.repair_cases),
+            "p0_included_count": len(partition.p0_cases),
+            "seen_regression_count": len(partition.seen_regression_cases),
+        },
+        "cases": partition.repair_cases,
+    }
+    repair_file.write_text(json.dumps(repair_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(f"  ✓ 已生成: {repair_file.name} ({len(partition.repair_cases)} 条)")
+
+    # 3. 写入 experiment_holdout.json
+    holdout_file = eval_dir / "experiment_holdout.json"
+    holdout_payload = {
+        "meta": {
+            "created": "2026-09-04",
+            "layer": DatasetLayer.EXPERIMENT_HOLDOUT.value,
+            "purpose": LAYER_POLICIES[DatasetLayer.EXPERIMENT_HOLDOUT].description,
+            "visibility": LAYER_POLICIES[DatasetLayer.EXPERIMENT_HOLDOUT].visibility,
+            "allow_in_reflection": LAYER_POLICIES[DatasetLayer.EXPERIMENT_HOLDOUT].allow_in_reflection,
+            "total": len(partition.holdout_cases),
+            "rule": "禁止将用例详情/失败样本反馈到 Prompt 反思或生成上下文",
+        },
+        "cases": partition.holdout_cases,
+    }
+    holdout_file.write_text(json.dumps(holdout_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(f"  ✓ 已生成: {holdout_file.name} ({len(partition.holdout_cases)} 条)")
+
+    # 4. 写入 final_audit.json
+    audit_file = eval_dir / "final_audit.json"
+    audit_payload = {
+        "meta": {
+            "created": "2026-09-04",
+            "layer": DatasetLayer.FINAL_AUDIT.value,
+            "purpose": LAYER_POLICIES[DatasetLayer.FINAL_AUDIT].description,
+            "visibility": LAYER_POLICIES[DatasetLayer.FINAL_AUDIT].visibility,
+            "allow_in_reflection": LAYER_POLICIES[DatasetLayer.FINAL_AUDIT].allow_in_reflection,
+            "total": len(partition.audit_cases),
+            "rule": "全流程冻结；仅在候选者发布前对基线与最终胜出补丁运行一次终审",
+        },
+        "cases": partition.audit_cases,
+    }
+    audit_file.write_text(json.dumps(audit_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(f"  ✓ 已生成: {audit_file.name} ({len(partition.audit_cases)} 条)")
+
+    # 5. 更新 p0_cases.json（注入嵌入式的完整 cases 定义，同时保留 p0_ids 与原有 meta）
+    p0_payload = dict(p0_data)
+    p0_payload["meta"]["standalone_loader_ready"] = True
+    p0_payload["meta"]["note"] = "P0 case ID 引用自 baseline_dev.json / repair_set.json；并内嵌完整用例定义支持独立加载与评测"
+    p0_payload["cases"] = partition.p0_cases
+    p0_path.write_text(json.dumps(p0_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(f"  ✓ 已更新: {p0_path.name} (注入 {len(partition.p0_cases)} 条完整定义，保留兼容 p0_ids)")
+
+    # 6. 更新 baseline_hidden.json 元数据（保留原 cases 结构以确保旧逻辑 100% 兼容，明确标记已降级）
+    hidden_payload = dict(hidden_data)
+    hidden_payload["meta"]["status"] = "downgraded_to_seen_regression"
+    hidden_payload["meta"]["migrated_to"] = "baseline_seen_regression.json"
+    hidden_payload["meta"]["note"] = "【已降级】此集在 evolve 迭代中已被多次使用，不再具有盲测效力。新规范请使用 repair_set / experiment_holdout / final_audit"
+    hidden_path.write_text(json.dumps(hidden_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(f"  ✓ 已标记降级: {hidden_path.name}")
+
+    print("\n✅ 数据划分与迁移成功完成！")
+    return 0
+
+
+def run_verification(eval_dir: Path) -> int:
+    print(f"▶ 校验数据划分与不变量：目录 {eval_dir}")
+    required_files = [
+        "baseline_dev.json",
+        "baseline_hidden.json",
+        "baseline_seen_regression.json",
+        "repair_set.json",
+        "experiment_holdout.json",
+        "final_audit.json",
+        "p0_cases.json",
+    ]
+
+    for rf in required_files:
+        p = eval_dir / rf
+        if not p.exists():
+            print(f"❌ 缺失必要文件: {rf}")
+            return 1
+
+    repair = load_json_dataset(eval_dir / "repair_set.json")
+    holdout = load_json_dataset(eval_dir / "experiment_holdout.json")
+    audit = load_json_dataset(eval_dir / "final_audit.json")
+    p0 = load_json_dataset(eval_dir / "p0_cases.json")
+    p0_ids = set(p0.get("p0_ids", []))
+
+    repair_cases = repair.get("cases", [])
+    holdout_cases = holdout.get("cases", [])
+    audit_cases = audit.get("cases", [])
+
+    partition = partition_cases_three_tier(
+        dev_cases=load_json_dataset(eval_dir / "baseline_dev.json")["cases"],
+        hidden_cases=load_json_dataset(eval_dir / "baseline_seen_regression.json")["cases"],
+        p0_ids=p0_ids,
+    )
+
+    errors = validate_partition_invariants(partition, p0_ids)
+    if errors:
+        print("❌ 划分不变量存在违规:")
+        for err in errors:
+            print(f"  - {err}")
+        return 1
+
+    print("  ✓ 不变量校验通过:")
+    print(f"    - Repair: {len(repair_cases)} cases (包含 10 条 P0 与 8 条降级已见用例)")
+    print(f"    - Holdout: {len(holdout_cases)} cases (严格隔离，黑盒比对)")
+    print(f"    - Audit: {len(audit_cases)} cases (严格隔离，发布终审)")
+    print(f"    - Disjointness: Holdout 与 Audit 交集为 0，与 Repair 交集为 0")
+    print("✅ 校验全部通过！")
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(description="SkillForge 数据集三层划分与迁移工具")
+    parser.add_argument("--eval-dir", default=str(repo_root / "evaluation_sets"), help="evaluation_sets 目录路径")
+    parser.add_argument("--migrate", action="store_true", help="执行数据划分与文件迁移落盘")
+    parser.add_argument("--verify", action="store_true", help="校验现有数据集划分不变量")
+
+    args = parser.parse_args()
+    eval_dir = Path(args.eval_dir)
+
+    if args.migrate:
+        sys.exit(run_migration(eval_dir))
+    elif args.verify:
+        sys.exit(run_verification(eval_dir))
+    else:
+        # 默认两步都跑
+        res = run_migration(eval_dir)
+        if res != 0:
+            sys.exit(res)
+        sys.exit(run_verification(eval_dir))
+
+
+if __name__ == "__main__":
+    main()

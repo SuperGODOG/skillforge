@@ -1,0 +1,257 @@
+"""Rejudge frozen A/B outputs without regenerating either answer."""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import sys
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from skillforge.evaluator.judge import (
+    JUDGE_PROMPT_VERSION,
+    PairwiseJudge,
+    has_unverified_realtime_numeric_claim,
+    invert_verdict,
+    judge_prompt_sha256,
+    skill_is_presented_as_a,
+)
+
+
+SCHEMA_VERSION = "skillforge.rejudge_frozen.v1"
+BALANCE_POLICY = "case_index_plus_dimension_index_parity_v1"
+
+
+def _canonical_json(value: Any) -> bytes:
+    return json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+
+
+def _sha(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def _frozen_payload(data: dict[str, Any]) -> list[dict[str, str]]:
+    dims = data.get("meta", {}).get("dims")
+    samples = data.get("samples")
+    if not isinstance(dims, list) or not dims or not all(isinstance(x, str) for x in dims):
+        raise ValueError("meta.dims 必须是非空字符串数组")
+    if not isinstance(samples, list) or not samples:
+        raise ValueError("samples 必须是非空数组")
+    if data.get("meta", {}).get("total") != len(samples):
+        raise ValueError("meta.total 与 samples 数量不一致")
+    frozen: list[dict[str, str]] = []
+    ids: set[str] = set()
+    required = (
+        "case_id", "skill", "query", "reference",
+        "output_A_skill", "output_B_baseline",
+    )
+    for sample in samples:
+        if not isinstance(sample, dict):
+            raise ValueError("sample 必须是对象")
+        row: dict[str, str] = {}
+        for key in required:
+            value = sample.get(key)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"sample.{key} 必须是非空字符串")
+            row[key] = value
+        if row["case_id"] in ids:
+            raise ValueError(f"case_id 重复：{row['case_id']}")
+        ids.add(row["case_id"])
+        for verdict_key in ("judge_verdicts", "golden_verdicts"):
+            verdicts = sample.get(verdict_key)
+            if not isinstance(verdicts, dict) or any(dim not in verdicts for dim in dims):
+                raise ValueError(f"{row['case_id']}.{verdict_key} 未覆盖全部维度")
+        frozen.append(row)
+    return frozen
+
+
+def _output_hashes(sample: dict[str, Any]) -> dict[str, str]:
+    return {
+        "skill": _sha(sample["output_A_skill"].encode("utf-8")),
+        "baseline": _sha(sample["output_B_baseline"].encode("utf-8")),
+    }
+
+
+def rejudge_data(
+    data: dict[str, Any],
+    judge: PairwiseJudge,
+    *,
+    source_bytes: bytes,
+    judge_config: dict[str, Any],
+    requested_run_id: str | None = None,
+) -> dict[str, Any]:
+    """Pure orchestration seam used by the CLI and offline tests."""
+    frozen = _frozen_payload(data)
+    dims = list(data["meta"]["dims"])
+    frozen_hash = _sha(_canonical_json(frozen))
+    golden = [s["golden_verdicts"] for s in data["samples"]]
+    golden_hash = _sha(_canonical_json(golden))
+    manifest = {
+        "frozen_payload_sha256": frozen_hash,
+        "golden_sha256": golden_hash,
+        "judge_config": judge_config,
+        "prompt_version": JUDGE_PROMPT_VERSION,
+        "prompt_sha256": judge_prompt_sha256(),
+        "balance_policy": BALANCE_POLICY,
+    }
+    run_key = _sha(_canonical_json(manifest))
+    run_id = requested_run_id or run_key[:16]
+
+    output_samples: list[dict[str, Any]] = []
+    presented_counts = {dim: {"skill_as_A": 0, "skill_as_B": 0} for dim in dims}
+    invalid_count = 0
+    sentinel_candidate_a_better = 0
+    for case_index, source_sample in enumerate(data["samples"]):
+        sample = dict(source_sample)
+        sample["previous_judge_verdicts"] = dict(source_sample["judge_verdicts"])
+        sample["judge_verdicts"] = {}
+        sample["judge_audit"] = {}
+        sample["output_sha256"] = _output_hashes(source_sample)
+        candidate_unverified = has_unverified_realtime_numeric_claim(
+            source_sample["query"],
+            source_sample["output_A_skill"],
+            reference=source_sample.get("reference"),
+            has_tool_evidence=False,
+        )
+        for dimension_index, dim in enumerate(dims):
+            skill_as_a = skill_is_presented_as_a(case_index, dimension_index)
+            if skill_as_a:
+                result = judge.compare_detailed(
+                    source_sample["query"],
+                    source_sample["output_A_skill"],
+                    source_sample["output_B_baseline"],
+                    dim,
+                    reference=source_sample.get("reference"),
+                )
+                canonical = result.verdict
+                order = {"A": "skill", "B": "baseline"}
+                presented_counts[dim]["skill_as_A"] += 1
+            else:
+                result = judge.compare_detailed(
+                    source_sample["query"],
+                    source_sample["output_B_baseline"],
+                    source_sample["output_A_skill"],
+                    dim,
+                    reference=source_sample.get("reference"),
+                )
+                canonical = invert_verdict(result.verdict)
+                order = {"A": "baseline", "B": "skill"}
+                presented_counts[dim]["skill_as_B"] += 1
+            sample["judge_verdicts"][dim] = canonical
+            sample["judge_audit"][dim] = {
+                "comparison_id": f"{run_id}:{case_index:03d}:{dimension_index}",
+                "presented_order": order,
+                "raw_verdict": result.verdict,
+                "canonical_verdict": canonical,
+                "reason_codes": list(result.reason_codes),
+                "evidence_summary": result.evidence_summary,
+                "source": result.source,
+            }
+            invalid_count += canonical == "INVALID"
+            if dim == "task_completion" and candidate_unverified and canonical == "A_better":
+                sentinel_candidate_a_better += 1
+        output_samples.append(sample)
+
+    now = datetime.now(timezone.utc).isoformat()
+    return {
+        "meta": {
+            **data["meta"],
+            "schema_version": SCHEMA_VERSION,
+            "source_file_sha256": _sha(source_bytes),
+            **manifest,
+            "run_key": run_key,
+            "run_id": run_id,
+            "created_at": now,
+            "presented_counts": presented_counts,
+            "invalid_count": invalid_count,
+            "truth_sentinel_candidate_A_better": sentinel_candidate_a_better,
+            "note": "canonical A=skill/B=baseline; frozen outputs were not regenerated",
+        },
+        "samples": output_samples,
+    }
+
+
+def _validate_cached(cached: dict[str, Any], run_key: str, source_hash: str) -> None:
+    meta = cached.get("meta", {})
+    if meta.get("run_key") != run_key or meta.get("source_file_sha256") != source_hash:
+        raise FileExistsError("输出已存在但 manifest 不同；拒绝覆盖")
+    dims = meta.get("dims", [])
+    samples = cached.get("samples", [])
+    if any(
+        not isinstance(s.get("judge_audit"), dict)
+        or any(dim not in s["judge_audit"] for dim in dims)
+        for s in samples
+    ):
+        raise ValueError("既有输出不完整；拒绝将其当作幂等缓存")
+
+
+def _atomic_write(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    serialized = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(serialized)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_name, path)
+    except Exception:
+        try:
+            os.unlink(temp_name)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--samples", type=Path, default=Path("runs/blind_eval_samples.json"))
+    parser.add_argument("--out", type=Path, default=Path("runs/rejudge_frozen.json"))
+    parser.add_argument("--run-id")
+    args = parser.parse_args()
+
+    source_bytes = args.samples.read_bytes()
+    data = json.loads(source_bytes)
+    from dotenv import load_dotenv
+    from skillforge.evaluator.llm_factory import build_judge_llm
+
+    load_dotenv(Path.cwd() / ".env")
+    judge_llm = build_judge_llm()
+    config = {
+        "model": os.environ["JUDGE_LLM_MODEL_ID"],
+        "base_url": os.environ["JUDGE_LLM_BASE_URL"],
+        "temperature": float(os.environ.get("JUDGE_LLM_TEMPERATURE", "0")),
+    }
+    frozen = _frozen_payload(data)
+    manifest = {
+        "frozen_payload_sha256": _sha(_canonical_json(frozen)),
+        "golden_sha256": _sha(_canonical_json([s["golden_verdicts"] for s in data["samples"]])),
+        "judge_config": config,
+        "prompt_version": JUDGE_PROMPT_VERSION,
+        "prompt_sha256": judge_prompt_sha256(),
+        "balance_policy": BALANCE_POLICY,
+    }
+    run_key = _sha(_canonical_json(manifest))
+    source_hash = _sha(source_bytes)
+    if args.out.exists():
+        _validate_cached(json.loads(args.out.read_text(encoding="utf-8")), run_key, source_hash)
+        return 0
+
+    result = rejudge_data(
+        data,
+        PairwiseJudge(judge_llm),
+        source_bytes=source_bytes,
+        judge_config=config,
+        requested_run_id=args.run_id,
+    )
+    _atomic_write(args.out, result)
+    return 2 if result["meta"]["invalid_count"] else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

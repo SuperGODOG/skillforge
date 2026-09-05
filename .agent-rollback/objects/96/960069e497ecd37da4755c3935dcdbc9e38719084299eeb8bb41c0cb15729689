@@ -1,0 +1,414 @@
+"""Deterministic semantic diff and risk classification for ``SKILL.md``.
+
+The model-declared patch level is untrusted input.  This module parses both
+documents, validates invariants, classifies every changed surface, and reports
+whether the declaration attempted to understate the computed risk.
+"""
+from __future__ import annotations
+
+import difflib
+import re
+from dataclasses import dataclass, field
+from typing import Any, Literal, Optional
+
+import yaml
+from pydantic import ValidationError
+
+from .models import SkillMeta, Trigger
+
+
+Level = Literal["L1", "L2", "L3"]
+ComputedLevel = Literal["L1", "L2", "L3", "INVALID"]
+
+LEVEL_RANK: dict[str, int] = {"L1": 1, "L2": 2, "L3": 3}
+FRONTMATTER_LEVELS: dict[str, Level] = {
+    "description": "L1",
+    "not_for": "L1",
+    "examples": "L1",
+    "trigger": "L2",
+    "use_when": "L2",
+    "evaluation": "L2",
+    "dependencies": "L3",
+}
+L1_FIELDS = frozenset({"description", "not_for", "examples"})
+IGNORED_FIELDS = frozenset({"version"})
+_KNOWN_META_FIELDS = frozenset(SkillMeta.model_fields)
+_TRIGGER_FIELDS = frozenset(Trigger.model_fields)
+_FRONTMATTER_RE = re.compile(
+    r"\A---[ \t]*\n(.*?)\n---[ \t]*(?:\n(.*))?\Z", re.DOTALL
+)
+_HEADING_RE = re.compile(r"^[ \t]{0,3}##\s+(.+?)\s*$")
+_FENCE_OPEN_RE = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})")
+_FENCE_CLOSE_RE = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})[ \t]*$")
+_SEMVER_RE = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
+
+
+@dataclass(frozen=True)
+class SectionDiff:
+    name: str
+    kind: Literal["frontmatter", "body"]
+    old_val: Any
+    new_val: Any
+    diff_text: str
+
+
+@dataclass(frozen=True)
+class SemanticDiffResult:
+    skill_name: str
+    is_valid: bool
+    invalid_reason: Optional[str]
+    declared_level: str
+    computed_level: ComputedLevel
+    downgrade_attempt: bool
+    changed_frontmatter: list[str] = field(default_factory=list)
+    changed_body_sections: list[str] = field(default_factory=list)
+    unified_diff: str = ""
+    section_diffs: list[SectionDiff] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class _ParsedSkill:
+    raw_meta: dict[str, Any]
+    semantic_meta: dict[str, Any]
+    meta: SkillMeta
+    body: str
+
+
+class _UniqueKeyLoader(yaml.SafeLoader):
+    """Safe YAML loader which rejects ambiguous duplicate mapping keys."""
+
+
+def _construct_unique_mapping(
+    loader: _UniqueKeyLoader, node: yaml.MappingNode, deep: bool = False
+) -> dict[Any, Any]:
+    mapping: dict[Any, Any] = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if key in mapping:
+            raise ValueError(f"YAML 字段重复: {key!r}")
+        mapping[key] = loader.construct_object(value_node, deep=deep)
+    return mapping
+
+
+_UniqueKeyLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_unique_mapping
+)
+
+
+def _normalize_newlines(text: str) -> str:
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def split_markdown_sections(body: str) -> dict[str, str]:
+    """Split Markdown at H2 headings while ignoring headings inside fences.
+
+    Duplicate headings receive stable ``#2``, ``#3`` suffixes so that no
+    section is silently overwritten.  Text before the first H2 is retained as
+    ``__preamble__``; a document without H2 headings is ``__full_body__``.
+    """
+    body = _normalize_newlines(body)
+    lines = body.splitlines()
+    headings: list[tuple[int, str]] = []
+    fence_char: Optional[str] = None
+    fence_length = 0
+
+    for index, line in enumerate(lines):
+        if fence_char is None:
+            fence_match = _FENCE_OPEN_RE.match(line)
+            if fence_match:
+                marker = fence_match.group(1)
+                fence_char = marker[0]
+                fence_length = len(marker)
+                continue
+        else:
+            fence_match = _FENCE_CLOSE_RE.match(line)
+            if fence_match:
+                marker = fence_match.group(1)
+            else:
+                marker = ""
+            if marker and marker[0] == fence_char and len(marker) >= fence_length:
+                fence_char = None
+                fence_length = 0
+            continue
+        if fence_char is not None:
+            continue
+        heading_match = _HEADING_RE.match(line)
+        if heading_match:
+            headings.append((index, heading_match.group(1).strip()))
+
+    if not headings:
+        return {"__full_body__": body.strip()}
+
+    sections: dict[str, str] = {}
+    preamble = "\n".join(lines[: headings[0][0]]).strip()
+    if preamble:
+        sections["__preamble__"] = preamble
+
+    counts: dict[str, int] = {}
+    for heading_index, (line_index, title) in enumerate(headings):
+        next_line = (
+            headings[heading_index + 1][0]
+            if heading_index + 1 < len(headings)
+            else len(lines)
+        )
+        counts[title] = counts.get(title, 0) + 1
+        occurrence = counts[title]
+        key = title if occurrence == 1 else f"{title}#{occurrence}"
+        sections[key] = "\n".join(lines[line_index + 1 : next_line]).strip()
+    return sections
+
+
+def resolve_effective_level(
+    declared_level: str, computed_level: ComputedLevel
+) -> tuple[ComputedLevel, bool]:
+    """Resolve a conservative effective level and flag under-declaration."""
+    if computed_level == "INVALID":
+        return "INVALID", False
+    declared_rank = LEVEL_RANK.get(declared_level, 0)
+    computed_rank = LEVEL_RANK[computed_level]
+    if computed_rank > declared_rank:
+        return computed_level, True
+    if declared_rank >= computed_rank:
+        return declared_level, False  # type: ignore[return-value]
+    return computed_level, False
+
+
+def compute_semantic_diff(
+    old_md: str, new_md: str, declared_level: str
+) -> SemanticDiffResult:
+    """Parse, validate and classify a candidate ``SKILL.md`` modification."""
+    old_text = _normalize_newlines(old_md)
+    new_text = _normalize_newlines(new_md)
+    unified_diff = _make_unified_diff(old_text, new_text)
+
+    try:
+        old = _parse_skill_document(old_text)
+    except (TypeError, ValueError, yaml.YAMLError, ValidationError) as exc:
+        return _invalid_result(
+            declared_level, unified_diff, f"原 SKILL.md 解析或 schema 校验失败: {exc}"
+        )
+    try:
+        new = _parse_skill_document(new_text)
+    except (TypeError, ValueError, yaml.YAMLError, ValidationError) as exc:
+        return _invalid_result(
+            declared_level,
+            unified_diff,
+            f"候选 SKILL.md 解析或 schema 校验失败: {exc}",
+            skill_name=old.meta.name,
+        )
+
+    if new.meta.name != old.meta.name:
+        return _invalid_result(
+            declared_level,
+            unified_diff,
+            f"name 不变量被破坏: {old.meta.name!r} -> {new.meta.name!r}",
+            skill_name=old.meta.name,
+        )
+
+    version_error = _validate_patch_bump(old.meta.version, new.meta.version)
+    if version_error:
+        return _invalid_result(
+            declared_level,
+            unified_diff,
+            version_error,
+            skill_name=old.meta.name,
+        )
+
+    changed_frontmatter, frontmatter_ranks, frontmatter_diffs = (
+        _classify_frontmatter_changes(old, new)
+    )
+    changed_body, body_ranks, body_diffs = _classify_body_changes(
+        old.body, new.body
+    )
+    risk_ranks = frontmatter_ranks + body_ranks
+
+    # The generation contract says L1 is a one-field change.  Multiple L1
+    # fields are conservatively reviewed even though each field is low risk.
+    l1_changes = [name for name in changed_frontmatter if name in L1_FIELDS]
+    if len(l1_changes) > 1 or not risk_ranks:
+        risk_ranks.append(LEVEL_RANK["L2"])
+
+    computed_level: ComputedLevel = _rank_to_level(max(risk_ranks, default=1))
+    _, downgrade_attempt = resolve_effective_level(declared_level, computed_level)
+    return SemanticDiffResult(
+        skill_name=old.meta.name,
+        is_valid=True,
+        invalid_reason=None,
+        declared_level=declared_level,
+        computed_level=computed_level,
+        downgrade_attempt=downgrade_attempt,
+        changed_frontmatter=changed_frontmatter,
+        changed_body_sections=changed_body,
+        unified_diff=unified_diff,
+        section_diffs=frontmatter_diffs + body_diffs,
+    )
+
+
+def _parse_skill_document(text: str) -> _ParsedSkill:
+    match = _FRONTMATTER_RE.match(text)
+    if not match:
+        raise ValueError("缺少或损坏 YAML frontmatter (--- ... ---)")
+    frontmatter_text = match.group(1)
+    body = match.group(2) or ""
+    raw_meta = yaml.load(frontmatter_text, Loader=_UniqueKeyLoader)
+    if not isinstance(raw_meta, dict):
+        raise ValueError("YAML frontmatter 必须是 mapping")
+    if any(not isinstance(key, str) for key in raw_meta):
+        raise ValueError("YAML frontmatter 顶层字段名必须是字符串")
+    meta = SkillMeta(**raw_meta)
+    semantic_meta = meta.model_dump()
+
+    # Pydantic deliberately ignores extras in this legacy schema.  Preserve
+    # them in the semantic view so a new, unknown policy field cannot evade
+    # classification.  Do the same for unknown trigger members.
+    for key, value in raw_meta.items():
+        if key not in _KNOWN_META_FIELDS:
+            semantic_meta[key] = value
+    raw_trigger = raw_meta.get("trigger")
+    if isinstance(raw_trigger, dict):
+        trigger_view = dict(semantic_meta["trigger"])
+        for key, value in raw_trigger.items():
+            if key not in _TRIGGER_FIELDS:
+                trigger_view[key] = value
+        semantic_meta["trigger"] = trigger_view
+
+    return _ParsedSkill(
+        raw_meta=raw_meta,
+        semantic_meta=semantic_meta,
+        meta=meta,
+        body=body,
+    )
+
+
+def _validate_patch_bump(old_version: str, new_version: str) -> Optional[str]:
+    old_match = _SEMVER_RE.fullmatch(old_version)
+    new_match = _SEMVER_RE.fullmatch(new_version)
+    if not old_match or not new_match:
+        return (
+            "version 必须是三段数字语义版本，且候选只能严格 patch bump: "
+            f"{old_version!r} -> {new_version!r}"
+        )
+    old_parts = tuple(int(part) for part in old_match.groups())
+    new_parts = tuple(int(part) for part in new_match.groups())
+    expected = (old_parts[0], old_parts[1], old_parts[2] + 1)
+    if new_parts != expected:
+        return (
+            "version 必须严格 patch bump: "
+            f"{old_version!r} -> {new_version!r}（期望 "
+            f"{expected[0]}.{expected[1]}.{expected[2]}）"
+        )
+    return None
+
+
+def _classify_frontmatter_changes(
+    old: _ParsedSkill, new: _ParsedSkill
+) -> tuple[list[str], list[int], list[SectionDiff]]:
+    names = sorted(set(old.semantic_meta) | set(new.semantic_meta))
+    changed: list[str] = []
+    risks: list[int] = []
+    diffs: list[SectionDiff] = []
+    for name in names:
+        if name in IGNORED_FIELDS or name == "name":
+            continue
+        old_val = old.semantic_meta.get(name)
+        new_val = new.semantic_meta.get(name)
+        if old_val == new_val:
+            continue
+        changed.append(name)
+        level = FRONTMATTER_LEVELS.get(name, "L2")
+        risks.append(LEVEL_RANK[level])
+        diffs.append(
+            SectionDiff(
+                name=name,
+                kind="frontmatter",
+                old_val=old_val,
+                new_val=new_val,
+                diff_text=_value_diff(name, old_val, new_val),
+            )
+        )
+    return changed, risks, diffs
+
+
+def _classify_body_changes(
+    old_body: str, new_body: str
+) -> tuple[list[str], list[int], list[SectionDiff]]:
+    if old_body.strip() == new_body.strip():
+        return [], [], []
+
+    old_sections = split_markdown_sections(old_body)
+    new_sections = split_markdown_sections(new_body)
+    ordered_names = list(old_sections)
+    ordered_names.extend(name for name in new_sections if name not in old_sections)
+    changed = [
+        name
+        for name in ordered_names
+        if old_sections.get(name) != new_sections.get(name)
+    ]
+    if not changed:
+        changed = ["__body_order_or_whitespace__"]
+
+    risks: list[int] = []
+    diffs: list[SectionDiff] = []
+    for name in changed:
+        canonical_name = re.sub(r"#\d+$", "", name)
+        is_constraint = (
+            "constraint" in canonical_name.casefold() or "约束" in canonical_name
+        )
+        risks.append(LEVEL_RANK["L3" if is_constraint else "L2"])
+        old_val = old_sections.get(name)
+        new_val = new_sections.get(name)
+        diffs.append(
+            SectionDiff(
+                name=name,
+                kind="body",
+                old_val=old_val,
+                new_val=new_val,
+                diff_text=_value_diff(name, old_val, new_val),
+            )
+        )
+    return changed, risks, diffs
+
+
+def _value_diff(name: str, old_val: Any, new_val: Any) -> str:
+    return "\n".join(
+        difflib.unified_diff(
+            repr(old_val).splitlines(),
+            repr(new_val).splitlines(),
+            fromfile=f"old/{name}",
+            tofile=f"new/{name}",
+            lineterm="",
+        )
+    )
+
+
+def _make_unified_diff(old_text: str, new_text: str) -> str:
+    return "\n".join(
+        difflib.unified_diff(
+            old_text.splitlines(),
+            new_text.splitlines(),
+            fromfile="old/SKILL.md",
+            tofile="new/SKILL.md",
+            lineterm="",
+        )
+    )
+
+
+def _rank_to_level(rank: int) -> Level:
+    return {1: "L1", 2: "L2", 3: "L3"}[rank]  # type: ignore[return-value]
+
+
+def _invalid_result(
+    declared_level: str,
+    unified_diff: str,
+    reason: str,
+    skill_name: str = "",
+) -> SemanticDiffResult:
+    return SemanticDiffResult(
+        skill_name=skill_name,
+        is_valid=False,
+        invalid_reason=reason,
+        declared_level=declared_level,
+        computed_level="INVALID",
+        downgrade_attempt=False,
+        unified_diff=unified_diff,
+    )

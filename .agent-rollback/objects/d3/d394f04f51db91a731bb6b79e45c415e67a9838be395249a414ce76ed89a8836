@@ -1,0 +1,390 @@
+"""P0-C trust boundary tests for judging and frozen rejudging."""
+from __future__ import annotations
+
+import importlib.util
+import json
+import copy
+import hashlib
+import sys
+from dataclasses import replace
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from skillforge import SkillEvaluator, SkillRegistry
+from skillforge.evaluator.judge import (
+    PairwiseJudge,
+    invert_verdict,
+    skill_is_presented_as_a,
+)
+from skillforge.evaluator.ratchet import check_ratchet
+from skillforge.evaluator.llm_factory import build_llm_pair
+from skillforge.models import ToolCallProvenance
+
+
+def _judge_json(verdict: str) -> str:
+    return json.dumps({
+        "verdict": verdict,
+        "reason_codes": ["TEST_REASON"],
+        "evidence_summary": "test evidence",
+    })
+
+
+def _provenance(*, authentic: bool = True) -> ToolCallProvenance:
+    item = ToolCallProvenance(
+        tool_name="weather",
+        fixture_case_id="weather.v1",
+        call_index=0,
+        call_count=1,
+        is_fixture=True,
+        tool_required=True,
+        tool_called=True,
+        tool_success=True,
+        authenticity_pass=authentic,
+        input_params={},
+        output_status="SUCCESS",
+        output_summary="ok",
+        latency_ms=1.0,
+        timestamp="2026-09-04T00:00:00+00:00",
+        signature="",
+    )
+    canonical = json.dumps(
+        {key: value for key, value in vars(item).items() if key != "signature"},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return replace(item, signature=hashlib.sha256(canonical.encode("utf-8")).hexdigest())
+
+
+class ScriptedLLM:
+    def __init__(self, contents: list[str]):
+        self.contents = list(contents)
+        self.calls: list[list[dict]] = []
+
+    def invoke(self, messages, **kwargs):
+        self.calls.append(messages)
+        content = self.contents.pop(0) if self.contents else _judge_json("tied")
+        return SimpleNamespace(content=content, usage={"total_tokens": 1})
+
+
+def _load_rejudge_module():
+    path = Path(__file__).resolve().parents[1] / "scripts" / "rejudge_frozen.py"
+    spec = importlib.util.spec_from_file_location("rejudge_frozen", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_report_module():
+    path = Path(__file__).resolve().parents[1] / "scripts" / "blind_eval_report.py"
+    spec = importlib.util.spec_from_file_location("blind_eval_report", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_strict_json_parser_and_ambiguous_text_fail_closed():
+    valid = json.dumps(
+        {
+            "verdict": "B_better",
+            "reason_codes": ["MORE_GROUNDED"],
+            "evidence_summary": "A_better appears here but is not the verdict",
+        }
+    )
+    assert PairwiseJudge._parse(valid) == "B_better"
+    assert PairwiseJudge._parse('{"verdict":"tied"}') == "INVALID"
+    assert PairwiseJudge._parse("A_better and B_better") == "INVALID"
+    assert PairwiseJudge._parse("") == "INVALID"
+
+
+def test_truth_sentinel_requires_provenance_and_is_symmetric():
+    llm = ScriptedLLM([])
+    judge = PairwiseJudge(llm)
+    query = "北京今天天气"
+    claim = "今天北京最高 22°C。"
+    refusal = "我没有联网天气数据，请查询权威天气服务。"
+    assert judge.compare(query, claim, refusal, "task_completion") == "B_better"
+    assert judge.compare(query, refusal, claim, "task_completion") == "A_better"
+    assert judge.compare(query, claim, "今天上海 18°C。", "task_completion") == "INVALID"
+    assert llm.calls == []
+
+    verified = ScriptedLLM(
+        ['{"verdict":"A_better","reason_codes":["GROUNDED"],"evidence_summary":"A 有证据"}']
+    )
+    assert PairwiseJudge(verified).compare(
+        query,
+        claim,
+        refusal,
+        "task_completion",
+        tool_evidence_a=_provenance(),
+    ) == "A_better"
+
+
+@pytest.mark.parametrize(
+    ("query", "claim"),
+    [
+        ("比特币现在多少钱", "当前比特币是 $64,321。"),
+        ("北京今天天气", "今天北京气温为二十二摄氏度。"),
+        ("北京今天天气", "北京今天温度 22。"),
+        ("比特币现在多少钱", "当前是 64321。"),
+    ],
+)
+def test_truth_sentinel_covers_realtime_numeric_forms(query: str, claim: str):
+    judge = PairwiseJudge(ScriptedLLM([]))
+    refusal = "没有可验证的实时工具数据。"
+    assert judge.compare(query, claim, refusal, "task_completion") == "B_better"
+
+
+def test_boolean_does_not_spoof_provenance_and_empty_answer_is_invalid():
+    llm = ScriptedLLM([_judge_json("A_better")])
+    judge = PairwiseJudge(llm)
+    assert judge.compare(
+        "北京今天天气",
+        "北京今天温度 22。",
+        "没有实时数据。",
+        "task_completion",
+        tool_evidence_a=True,  # type: ignore[arg-type]
+    ) == "B_better"
+    assert judge.compare("q", "", "answer", "task_completion") == "INVALID"
+    assert llm.calls == []
+
+
+def test_bad_signature_does_not_spoof_provenance_and_user_math_is_not_live_fact():
+    claim = "北京今天温度 22。"
+    refusal = "没有实时数据。"
+    bad = replace(_provenance(), signature="bad")
+    judge = PairwiseJudge(ScriptedLLM([]))
+    assert judge.compare(
+        "北京今天天气", claim, refusal, "task_completion", tool_evidence_a=bad
+    ) == "B_better"
+
+    llm = ScriptedLLM([_judge_json("A_better")])
+    judge = PairwiseJudge(llm)
+    assert judge.compare(
+        "今天气温已知为 22°C，请换算华氏度",
+        "换算结果约为 71.6°F。",
+        "没有回答。",
+        "task_completion",
+    ) == "A_better"
+    assert len(llm.calls) == 1
+
+
+def test_frozen_weather_sentinel_has_zero_candidate_a_better():
+    data = json.loads(
+        (Path(__file__).resolve().parents[1] / "runs" / "blind_eval_samples.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    no_call = ScriptedLLM([])
+    judge = PairwiseJudge(no_call)
+    expected = {"wq_d01", "wq_d02", "wq_d04", "wq_d05", "wq_d06", "wq_d07"}
+    seen = set()
+    for sample in data["samples"]:
+        if sample["case_id"] not in expected:
+            continue
+        seen.add(sample["case_id"])
+        verdict = judge.compare(
+            sample["query"],
+            sample["output_A_skill"],
+            sample["output_B_baseline"],
+            "task_completion",
+            reference=sample["reference"],
+        )
+        assert verdict == "B_better"
+    assert seen == expected
+    assert no_call.calls == []
+
+
+def test_order_is_exactly_balanced_and_inversion_is_canonical():
+    for dimension_index in range(3):
+        values = [skill_is_presented_as_a(i, dimension_index, "run-1") for i in range(21)]
+        assert abs(values.count(True) - values.count(False)) == 1
+        assert values == [skill_is_presented_as_a(i, dimension_index, "run-1") for i in range(21)]
+    assert invert_verdict("A_better") == "B_better"
+    assert invert_verdict("B_better") == "A_better"
+    assert invert_verdict("tied") == "tied"
+    assert invert_verdict("INVALID") == "INVALID"
+
+
+def test_evaluator_requires_isolated_judge_client(tmp_path: Path):
+    execution = ScriptedLLM([])
+    with pytest.raises(ValueError, match="显式配置"):
+        SkillEvaluator(registry=object(), llm=execution)
+    with pytest.raises(ValueError, match="不同"):
+        SkillEvaluator(registry=object(), llm=execution, judge_llm=execution)
+
+
+def test_llm_factory_uses_separate_config_points(monkeypatch):
+    calls = []
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            calls.append(kwargs)
+
+    monkeypatch.setattr("hello_agents.HelloAgentsLLM", FakeClient)
+    values = {
+        "LLM_API_KEY": "exec-key",
+        "LLM_MODEL_ID": "exec-model",
+        "LLM_BASE_URL": "https://exec.invalid",
+        "JUDGE_LLM_API_KEY": "judge-key",
+        "JUDGE_LLM_MODEL_ID": "judge-model",
+        "JUDGE_LLM_BASE_URL": "https://judge.invalid",
+    }
+    for key, value in values.items():
+        monkeypatch.setenv(key, value)
+    execution, judge = build_llm_pair()
+    assert execution is not judge
+    assert calls[0]["model"] == "exec-model"
+    assert calls[1]["model"] == "judge-model"
+    assert calls[0]["temperature"] == calls[1]["temperature"] == 0.0
+
+
+@pytest.fixture
+def minimal_registry(tmp_path: Path):
+    (tmp_path / "skills" / "test_skill").mkdir(parents=True)
+    (tmp_path / "skills" / "test_skill" / "SKILL.md").write_text(
+        """---
+name: test_skill
+version: 1.0.0
+description: test
+use_when: test
+not_for: []
+dependencies: []
+trigger:
+  keywords: [test, example]
+examples: [test]
+---
+## Instructions
+test
+## Constraints
+test
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "evaluation_sets").mkdir()
+    (tmp_path / "evaluation_sets" / "p0_cases.json").write_text(
+        '{"p0_ids":["c1"]}', encoding="utf-8"
+    )
+    registry = SkillRegistry(
+        db_path=tmp_path / "runs" / "db.sqlite",
+        skills_dir=tmp_path / "skills",
+        repo_root=tmp_path,
+    )
+    registry.load_skills_from_dir()
+    yield registry
+    registry.close()
+
+
+def test_invalid_judge_result_invalidates_evaluation_and_first_ratchet(minimal_registry):
+    execution = ScriptedLLM(["bare", "skill"])
+    judge = ScriptedLLM(["", _judge_json("B_better"), _judge_json("A_better")])
+    evaluator = SkillEvaluator(minimal_registry, execution, judge)
+    result = evaluator.evaluate_skill(
+        "test_skill",
+        cases=[{"id": "c1", "query": "q", "reference": "r"}],
+        p0_ids=["c1"],
+    )
+    assert len(execution.calls) == 2
+    assert len(judge.calls) == 3
+    assert all(call[0]["role"] == "system" for call in judge.calls)
+    assert result.valid is False
+    assert result.p0_pass is False
+    assert result.effect_score["task"] == 0.0
+    assert check_ratchet(None, result).decision == "DECLINED"
+    with pytest.raises(ValueError, match="INVALID"):
+        SkillEvaluator._dim_score([("c1", "INVALID")], 25.0)
+
+    valid = result
+    valid.valid = True
+    valid.invalid_reasons = []
+    invalid_old = type(result)(
+        release_id="old",
+        structure_score=dict(valid.structure_score),
+        effect_score=dict(valid.effect_score),
+        objective_metrics={},
+        p0_pass=False,
+        valid=False,
+        invalid_reasons=["old judge invalid"],
+    )
+    assert check_ratchet(invalid_old, valid).decision == "DECLINED"
+
+
+def test_rejudge_frozen_records_balance_hashes_and_canonical_verdicts():
+    module = _load_rejudge_module()
+    source = Path(__file__).resolve().parents[1] / "runs" / "blind_eval_samples.json"
+    source_bytes = source.read_bytes()
+    data = json.loads(source_bytes)
+    # Exact tied is an explicit valid decision for all non-sentinel comparisons.
+    llm = ScriptedLLM([_judge_json("A_better")] * 63)
+    result = module.rejudge_data(
+        data,
+        PairwiseJudge(llm),
+        source_bytes=source_bytes,
+        judge_config={"model": "fake", "base_url": "offline", "temperature": 0},
+    )
+    assert source.read_bytes() == source_bytes
+    assert result["meta"]["invalid_count"] == 0
+    assert result["meta"]["truth_sentinel_candidate_A_better"] == 0
+    for counts in result["meta"]["presented_counts"].values():
+        assert sorted(counts.values()) == [10, 11]
+    for sample in result["samples"]:
+        assert sample["previous_judge_verdicts"]
+        assert set(sample["output_sha256"]) == {"skill", "baseline"}
+        for audit in sample["judge_audit"].values():
+            assert audit["canonical_verdict"] in {"A_better", "tied", "B_better"}
+            assert audit["presented_order"]["A"] in {"skill", "baseline"}
+    assert any(
+        audit["raw_verdict"] == "A_better"
+        and audit["presented_order"]["A"] == "baseline"
+        and audit["canonical_verdict"] == "B_better"
+        for sample in result["samples"]
+        for audit in sample["judge_audit"].values()
+    )
+
+    module._validate_cached(
+        result,
+        result["meta"]["run_key"],
+        result["meta"]["source_file_sha256"],
+        data,
+    )
+    corrupted = copy.deepcopy(result)
+    corrupted["samples"][0]["judge_verdicts"]["readability"] = "B_better"
+    with pytest.raises(ValueError, match="verdict/order"):
+        module._validate_cached(
+            corrupted,
+            result["meta"]["run_key"],
+            result["meta"]["source_file_sha256"],
+            data,
+        )
+
+
+def test_report_rejects_partial_or_legacy_artifact(tmp_path: Path, monkeypatch):
+    module = _load_report_module()
+    dims = ["task_completion", "robustness", "readability"]
+    sample = {
+        "case_id": "c1",
+        "query": "q",
+        "judge_verdicts": {dim: "tied" for dim in dims},
+        "golden_verdicts": {dim: "tied" for dim in dims},
+    }
+    data = {
+        "meta": {
+            "total": 1,
+            "dims": dims,
+            "truth_sentinel_candidate_A_better": 0,
+        },
+        "samples": [sample],
+    }
+    path = tmp_path / "legacy.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["blind_eval_report.py", "--samples", str(path)])
+    assert module.main() == 1
+
+    data["meta"]["schema_version"] = "skillforge.rejudge_frozen.v1"
+    data["samples"][0]["golden_verdicts"]["readability"] = None
+    path.write_text(json.dumps(data), encoding="utf-8")
+    assert module.main() == 1

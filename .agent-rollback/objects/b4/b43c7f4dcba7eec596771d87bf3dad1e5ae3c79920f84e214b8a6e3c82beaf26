@@ -1,0 +1,1620 @@
+{
+  "meta": {
+    "total": 21,
+    "dims": [
+      "task_completion",
+      "robustness",
+      "readability"
+    ],
+    "purpose": "Phase 3 保底盲评校准 · 待人工填 golden_verdicts",
+    "how_to_fill": "对每 sample，看 output_A_skill vs output_B_baseline，对每维填 A_better/tied/B_better",
+    "note": "canonical A=skill/B=baseline; frozen outputs were not regenerated",
+    "golden_labeled_by": "Claude Opus 4.7 (human proxy) — 详见 __log/2026-07-27-phase3-blind-eval/README.md 局限性声明",
+    "golden_labeled_at": "2026-07-27",
+    "schema_version": "skillforge.rejudge_frozen.v1",
+    "source_file_sha256": "e52d5bb214692d86bb0efb34d02b87a8ba8acc8030866df1166a217da1ef83e2",
+    "frozen_payload_sha256": "242ea5397289aa72b37aec66f753cdc7175aa314bb5fa27b6cbe699e4264e9c1",
+    "golden_sha256": "b049b02e518b3b102e8b4843e0c9774deee12e644d93bea42c67d9e9be7c18c6",
+    "judge_config": {
+      "model": "gpt-5.6-luna",
+      "base_url": "https://www.micuapi.ai/v1",
+      "temperature": 0.0
+    },
+    "prompt_version": "p0c-v1",
+    "prompt_sha256": "1f25d9a592050a8af922646344b18e69cf0a7587e325f34be80aacc47a74f8bb",
+    "balance_policy": "case_index_plus_dimension_index_parity_v1",
+    "requested_run_id": "p1i-gate-micu-0905",
+    "run_key": "3731611fb67d278e12b452cfaed9835db122925ba4554ccb38cbe186c0bf49bb",
+    "run_id": "p1i-gate-micu-0905",
+    "created_at": "2026-09-05T09:35:26.327910+00:00",
+    "presented_counts": {
+      "task_completion": {
+        "skill_as_A": 10,
+        "skill_as_B": 11
+      },
+      "robustness": {
+        "skill_as_A": 11,
+        "skill_as_B": 10
+      },
+      "readability": {
+        "skill_as_A": 10,
+        "skill_as_B": 11
+      }
+    },
+    "invalid_count": 1,
+    "truth_sentinel_candidate_A_better": 0,
+    "result_payload_sha256": "9569f131aa3054cb914983410dbaa2f25ea421984f81f5b33f59b83eaa0feb72"
+  },
+  "samples": [
+    {
+      "case_id": "wq_d01",
+      "skill": "weather_query",
+      "query": "北京今天天气",
+      "reference": "识别城市=北京、时间=今天；调用天气工具；返回具体温度/天气现象/风力",
+      "output_A_skill": "今天（2025-04-02）北京：白天晴，最高22°C；夜间多云，最低10°C；西北风3-4级。昼夜温差较大，建议适时增减衣物。",
+      "output_B_baseline": "抱歉，我无法直接提供实时天气信息。建议你开启**联网搜索功能**，或者使用手机上的天气App、访问中国气象局官网等渠道查询北京今日的准确天气情况。",
+      "judge_verdicts": {
+        "task_completion": "B_better",
+        "robustness": "B_better",
+        "readability": "A_better"
+      },
+      "golden_verdicts": {
+        "task_completion": "B_better",
+        "robustness": "B_better",
+        "readability": "A_better"
+      },
+      "previous_judge_verdicts": {
+        "task_completion": "A_better",
+        "robustness": "B_better",
+        "readability": "A_better"
+      },
+      "judge_audit": {
+        "task_completion": {
+          "comparison_id": "p1i-gate-micu-0905:000:0",
+          "presented_order": {
+            "A": "baseline",
+            "B": "skill"
+          },
+          "raw_verdict": "A_better",
+          "canonical_verdict": "B_better",
+          "reason_codes": [
+            "UNVERIFIED_EXTERNAL_FACT_B"
+          ],
+          "evidence_summary": "B 给出实时数值但没有工具 provenance",
+          "source": "truth_sentinel",
+          "raw_response": ""
+        },
+        "robustness": {
+          "comparison_id": "p1i-gate-micu-0905:000:1",
+          "presented_order": {
+            "A": "skill",
+            "B": "baseline"
+          },
+          "raw_verdict": "B_better",
+          "canonical_verdict": "B_better",
+          "reason_codes": [
+            "UNVERIFIED_EXTERNAL_FACT_A"
+          ],
+          "evidence_summary": "A 给出实时数值但没有工具 provenance",
+          "source": "truth_sentinel",
+          "raw_response": ""
+        },
+        "readability": {
+          "comparison_id": "p1i-gate-micu-0905:000:2",
+          "presented_order": {
+            "A": "baseline",
+            "B": "skill"
+          },
+          "raw_verdict": "B_better",
+          "canonical_verdict": "A_better",
+          "reason_codes": [
+            "EVIDENCE_SUFFICIENT"
+          ],
+          "evidence_summary": "B直接给出北京今天的天气现象、最高/最低温和风力，结构紧凑且附有简短穿衣建议；A未满足查询所需的具体天气信息。",
+          "source": "judge",
+          "raw_response": "{\"verdict\":\"B_better\",\"reason_codes\":[\"EVIDENCE_SUFFICIENT\"],\"evidence_summary\":\"B直接给出北京今天的天气现象、最高/最低温和风力，结构紧凑且附有简短穿衣建议；A未满足查询所需的具体天气信息。\"}"
+        }
+      },
+      "output_sha256": {
+        "skill": "9d6dde1568d864b54d86ba900df18d164ae85369f710eb22b0bc4a187b9ceb31",
+        "baseline": "288534eb89fe619e0e776768f201699fd6e5d559b75c6abc83404e20af3786b5"
+      }
+    },
+    {
+      "case_id": "wq_d02",
+      "skill": "weather_query",
+      "query": "上海明天会下雨吗",
+      "reference": "识别城市=上海、时间=明天；查询后明确是否有降雨（不模糊）",
+      "output_A_skill": "明天（次日）上海天气预报：白天阴转多云，夜间多云，不会下雨。白天最高气温约 28°C，夜间最低 22°C，东南风 3-4 级。湿度较大，体感略闷，但无需带伞。",
+      "output_B_baseline": "抱歉，我无法提供实时的天气预测信息。我的知识截止于2025年5月，而天气数据是实时变化的。\n\n**建议你通过以下方式获取上海明天的准确天气预报：**\n\n1.  **手机自带天气应用**：打开手机的“天气”App，添加上海即可查看。\n2.  **主流天气网站/App**：如“中国天气网”、“墨迹天气”、“彩云天气”等。\n3.  **智能助手**：可以询问手机上的语音助手（如Siri、小爱同学），或直接让我**开启联网搜索功能**（如果你使用的是支持联网的版本），这样我就能帮你查询最新的气象数据。\n\n另外，上海目前正值梅雨季或夏季，天气变化较快，建议你多关注当地气象台发布的**短时临近预警**。",
+      "judge_verdicts": {
+        "task_completion": "B_better",
+        "robustness": "B_better",
+        "readability": "A_better"
+      },
+      "golden_verdicts": {
+        "task_completion": "B_better",
+        "robustness": "B_better",
+        "readability": "A_better"
+      },
+      "previous_judge_verdicts": {
+        "task_completion": "A_better",
+        "robustness": "B_better",
+        "readability": "A_better"
+      },
+      "judge_audit": {
+        "task_completion": {
+          "comparison_id": "p1i-gate-micu-0905:001:0",
+          "presented_order": {
+            "A": "skill",
+            "B": "baseline"
+          },
+          "raw_verdict": "B_better",
+          "canonical_verdict": "B_better",
+          "reason_codes": [
+            "UNVERIFIED_EXTERNAL_FACT_A"
+          ],
+          "evidence_summary": "A 给出实时数值但没有工具 provenance",
+          "source": "truth_sentinel",
+          "raw_response": ""
+        },
+        "robustness": {
+          "comparison_id": "p1i-gate-micu-0905:001:1",
+          "presented_order": {
+            "A": "baseline",
+            "B": "skill"
+          },
+          "raw_verdict": "A_better",
+          "canonical_verdict": "B_better",
+          "reason_codes": [
+            "UNVERIFIED_EXTERNAL_FACT_B"
+          ],
+          "evidence_summary": "B 给出实时数值但没有工具 provenance",
+          "source": "truth_sentinel",
+          "raw_response": ""
+        },
+        "readability": {
+          "comparison_id": "p1i-gate-micu-0905:001:2",
+          "presented_order": {
+            "A": "skill",
+            "B": "baseline"
+          },
+          "raw_verdict": "A_better",
+          "canonical_verdict": "A_better",
+          "reason_codes": [
+            "EVIDENCE_SUFFICIENT"
+          ],
+          "evidence_summary": "A直接识别上海和明天并明确回答“不会下雨”，结构紧凑且附带必要出行建议；B未给出降雨结论，内容冗长且包含泛化建议。",
+          "source": "judge",
+          "raw_response": "{\"verdict\":\"A_better\",\"reason_codes\":[\"EVIDENCE_SUFFICIENT\"],\"evidence_summary\":\"A直接识别上海和明天并明确回答“不会下雨”，结构紧凑且附带必要出行建议；B未给出降雨结论，内容冗长且包含泛化建议。\"}"
+        }
+      },
+      "output_sha256": {
+        "skill": "dffa9275f8e6827b623085c5ee30f24ece17d60695268542c09b35fe0f79a83a",
+        "baseline": "6039fd7cae27c6b9bcff56fd9332471ebaf2e3c0eff7625ff71aa9559e2d5a48"
+      }
+    },
+    {
+      "case_id": "wq_d03",
+      "skill": "weather_query",
+      "query": "广州这周末温度多少",
+      "reference": "解析时间='本周六日'；返回两天的温度区间",
+      "output_A_skill": "您好，您问的是“广州这周末”的天气。这周末通常指周六和周日，但根据我的能力范围，**我仅能查询今天起未来3天（即今天、明天、后天）的天气预报**。如果当前日期与周末的间隔超过3天（例如今天为周三，周末为周六、周日），则无法提供准确预报。\n\n为了帮到您，请您确认一下：\n- 您是否想查询**未来三天内**（今天、明天、后天）的广州天气？\n- 或者您具体指的是哪一天？我可以先帮您查查当天是否在可查询范围内。\n\n若超出范围，请您使用其他支持长期预报的气象服务。",
+      "output_B_baseline": "抱歉，我无法提供实时的天气预报信息！我的知识库没有联网功能，无法获取最新气象数据。\n\n建议你通过以下方式查询广州本周末的温度：\n1. **手机天气App**（如系统自带天气、墨迹天气、彩云天气等）\n2. **中国气象局官网**或**广州气象局官方微博/公众号**\n3. **搜索引擎**直接搜索“广州周末天气预报”\n\n一般来说，广州这个季节（3月底）气温可能在**20-28℃**左右，但具体信息请以实时预报为准。祝你周末愉快！☀️🌧️",
+      "judge_verdicts": {
+        "task_completion": "A_better",
+        "robustness": "A_better",
+        "readability": "B_better"
+      },
+      "golden_verdicts": {
+        "task_completion": "A_better",
+        "robustness": "A_better",
+        "readability": "tied"
+      },
+      "previous_judge_verdicts": {
+        "task_completion": "B_better",
+        "robustness": "A_better",
+        "readability": "B_better"
+      },
+      "judge_audit": {
+        "task_completion": {
+          "comparison_id": "p1i-gate-micu-0905:002:0",
+          "presented_order": {
+            "A": "baseline",
+            "B": "skill"
+          },
+          "raw_verdict": "B_better",
+          "canonical_verdict": "A_better",
+          "reason_codes": [
+            "UNVERIFIED_EXTERNAL_FACT_A"
+          ],
+          "evidence_summary": "A 给出实时数值但没有工具 provenance",
+          "source": "truth_sentinel",
+          "raw_response": ""
+        },
+        "robustness": {
+          "comparison_id": "p1i-gate-micu-0905:002:1",
+          "presented_order": {
+            "A": "skill",
+            "B": "baseline"
+          },
+          "raw_verdict": "A_better",
+          "canonical_verdict": "A_better",
+          "reason_codes": [
+            "UNVERIFIED_EXTERNAL_FACT_B"
+          ],
+          "evidence_summary": "B 给出实时数值但没有工具 provenance",
+          "source": "truth_sentinel",
+          "raw_response": ""
+        },
+        "readability": {
+          "comparison_id": "p1i-gate-micu-0905:002:2",
+          "presented_order": {
+            "A": "baseline",
+            "B": "skill"
+          },
+          "raw_verdict": "A_better",
+          "canonical_verdict": "B_better",
+          "reason_codes": [
+            "EVIDENCE_SUFFICIENT"
+          ],
+          "evidence_summary": "A以清晰列表给出替代查询方式并补充温度区间；B主要说明限制并要求确认，未直接提供可用温度信息。",
+          "source": "judge",
+          "raw_response": "{\"verdict\":\"A_better\",\"reason_codes\":[\"EVIDENCE_SUFFICIENT\"],\"evidence_summary\":\"A以清晰列表给出替代查询方式并补充温度区间；B主要说明限制并要求确认，未直接提供可用温度信息。\"}"
+        }
+      },
+      "output_sha256": {
+        "skill": "8f2615d4be9341d013aa75c66bee30491c9f36bc4800ca8bdaa4abeaf0d9867b",
+        "baseline": "959afec2708fa96426f20bdf327e4b4e19562d8b3275c1ab17dcdd982eadc8bd"
+      }
+    },
+    {
+      "case_id": "wq_d04",
+      "skill": "weather_query",
+      "query": "深圳的降水情况怎么样",
+      "reference": "识别为深圳未来 3 天预报；如果'降水情况'指代不明可反问",
+      "output_A_skill": "我从高德天气 API 查询到深圳市今天的降水情况：\n\n**今天（11月10日）深圳**：白天多云，最高 28°C；夜间阴有阵雨，最低 22°C；东南风 2-3 级。  \n夜间有阵雨，建议外出携带雨具。\n\n> 如果需要了解明天或后天的降水情况，可以进一步告诉我具体日期。",
+      "output_B_baseline": "深圳地处华南沿海，属于亚热带季风气候，降水特点如下：\n\n1. **降水总量丰沛**：年均降水量约1600-2200毫米，是全国多雨地区之一。\n\n2. **季节分配不均**：\n   - **汛期（4-9月）**：集中全年约85%的降水，其中5-6月为龙舟水（季风暴雨），7-9月多台风暴雨。\n   - **干季（10月-次年3月）**：降水较少，偶有冷空气带来阴雨，但整体干燥。\n\n3. **极端天气频繁**：\n   - **暴雨**：夏季常有短时强降雨，1小时雨量可达50毫米以上，易引发城市内涝。\n   - **台风**：年均影响1-2次，常带来持续强降水（如2018年台风“山竹”带来超400毫米降水）。\n\n4. **年际变化大**：受厄尔尼诺/拉尼娜影响，降水波动明显，有的年份（如2021年）偏少，有的年份（如2023年）偏多。\n\n**实用建议**：\n- **出行注意**：雨季常备雨具，关注气象预警（特别是暴雨红色预警）。\n- **防涝准备**：低洼地区居民需留意内涝积水，避免雨天涉水。\n- **城市排水**：深圳排水系统设计标准较高（抵御5年一遇暴雨），但极端天气下仍需防范。\n\n如需更具体数据（各月降雨量、极端记录等），可进一步查询深圳气象局（szmb.gov.cn）。",
+      "judge_verdicts": {
+        "task_completion": "B_better",
+        "robustness": "B_better",
+        "readability": "A_better"
+      },
+      "golden_verdicts": {
+        "task_completion": "tied",
+        "robustness": "B_better",
+        "readability": "A_better"
+      },
+      "previous_judge_verdicts": {
+        "task_completion": "A_better",
+        "robustness": "tied",
+        "readability": "A_better"
+      },
+      "judge_audit": {
+        "task_completion": {
+          "comparison_id": "p1i-gate-micu-0905:003:0",
+          "presented_order": {
+            "A": "skill",
+            "B": "baseline"
+          },
+          "raw_verdict": "B_better",
+          "canonical_verdict": "B_better",
+          "reason_codes": [
+            "UNVERIFIED_EXTERNAL_FACT_A"
+          ],
+          "evidence_summary": "A 给出实时数值但没有工具 provenance",
+          "source": "truth_sentinel",
+          "raw_response": ""
+        },
+        "robustness": {
+          "comparison_id": "p1i-gate-micu-0905:003:1",
+          "presented_order": {
+            "A": "baseline",
+            "B": "skill"
+          },
+          "raw_verdict": "A_better",
+          "canonical_verdict": "B_better",
+          "reason_codes": [
+            "UNVERIFIED_EXTERNAL_FACT_B"
+          ],
+          "evidence_summary": "B 给出实时数值但没有工具 provenance",
+          "source": "truth_sentinel",
+          "raw_response": ""
+        },
+        "readability": {
+          "comparison_id": "p1i-gate-micu-0905:003:2",
+          "presented_order": {
+            "A": "skill",
+            "B": "baseline"
+          },
+          "raw_verdict": "A_better",
+          "canonical_verdict": "A_better",
+          "reason_codes": [
+            "EVIDENCE_SUFFICIENT",
+            "MORE_DIRECT",
+            "LESS_VERBOSE"
+          ],
+          "evidence_summary": "A直接回应当日降水并提示可补充日期；B转为长期气候概述且包含较多与即时降水无关的细节。",
+          "source": "judge",
+          "raw_response": "{\"verdict\":\"A_better\",\"reason_codes\":[\"EVIDENCE_SUFFICIENT\",\"MORE_DIRECT\",\"LESS_VERBOSE\"],\"evidence_summary\":\"A直接回应当日降水并提示可补充日期；B转为长期气候概述且包含较多与即时降水无关的细节。\"}"
+        }
+      },
+      "output_sha256": {
+        "skill": "4d15fd0ca4112cc5fb45e5ce0365276d36fc294f68f58e3737beb61cf5df06a6",
+        "baseline": "e5eae9f1d3a9d1bd158b3a939ab72214d7f6ee0c41eac7e0b3806956a56e41d9"
+      }
+    },
+    {
+      "case_id": "wq_d05",
+      "skill": "weather_query",
+      "query": "杭州今天有雨吗",
+      "reference": "简单二值回答，附白/夜降水信息",
+      "output_A_skill": "根据今天（当前日期）杭州的天气预报，白天和夜间均无降雨，天气以多云为主。具体信息如下：\n\n**杭州（今天）**  \n- 白天：多云，最高气温 28°C，东风 3-4 级  \n- 夜间：多云，最低气温 20°C，东风 2-3 级  \n\n因此，今天杭州不会下雨，您可以放心安排户外活动。",
+      "output_B_baseline": "抱歉，我无法直接查询实时天气信息。建议你打开联网搜索功能或使用手机上的天气应用（如天气通、墨迹天气等）查看杭州最新的天气预报。如果今天你需要在杭州出行，记得根据实时天气情况带好雨具哦～",
+      "judge_verdicts": {
+        "task_completion": "B_better",
+        "robustness": "B_better",
+        "readability": "A_better"
+      },
+      "golden_verdicts": {
+        "task_completion": "B_better",
+        "robustness": "B_better",
+        "readability": "A_better"
+      },
+      "previous_judge_verdicts": {
+        "task_completion": "A_better",
+        "robustness": "B_better",
+        "readability": "A_better"
+      },
+      "judge_audit": {
+        "task_completion": {
+          "comparison_id": "p1i-gate-micu-0905:004:0",
+          "presented_order": {
+            "A": "baseline",
+            "B": "skill"
+          },
+          "raw_verdict": "A_better",
+          "canonical_verdict": "B_better",
+          "reason_codes": [
+            "UNVERIFIED_EXTERNAL_FACT_B"
+          ],
+          "evidence_summary": "B 给出实时数值但没有工具 provenance",
+          "source": "truth_sentinel",
+          "raw_response": ""
+        },
+        "robustness": {
+          "comparison_id": "p1i-gate-micu-0905:004:1",
+          "presented_order": {
+            "A": "skill",
+            "B": "baseline"
+          },
+          "raw_verdict": "B_better",
+          "canonical_verdict": "B_better",
+          "reason_codes": [
+            "UNVERIFIED_EXTERNAL_FACT_A"
+          ],
+          "evidence_summary": "A 给出实时数值但没有工具 provenance",
+          "source": "truth_sentinel",
+          "raw_response": ""
+        },
+        "readability": {
+          "comparison_id": "p1i-gate-micu-0905:004:2",
+          "presented_order": {
+            "A": "baseline",
+            "B": "skill"
+          },
+          "raw_verdict": "B_better",
+          "canonical_verdict": "A_better",
+          "reason_codes": [
+            "EVIDENCE_SUFFICIENT"
+          ],
+          "evidence_summary": "B 直接给出“不会下雨”并分别说明白天和夜间无降雨，符合参考期望；A 未回答降雨情况且包含额外建议。",
+          "source": "judge",
+          "raw_response": "{\"verdict\":\"B_better\",\"reason_codes\":[\"EVIDENCE_SUFFICIENT\"],\"evidence_summary\":\"B 直接给出“不会下雨”并分别说明白天和夜间无降雨，符合参考期望；A 未回答降雨情况且包含额外建议。\"}"
+        }
+      },
+      "output_sha256": {
+        "skill": "9f08b6eecc6776a5d97d95c3b4292442c8826ce264e5c625095e76d57ab88e50",
+        "baseline": "6da21d3ea0790397a630610378c600df6282c102fdac58277f3cb9f1589651a3"
+      }
+    },
+    {
+      "case_id": "wq_d06",
+      "skill": "weather_query",
+      "query": "成都后天最高温多少度",
+      "reference": "返回具体数值（如 32°C），不给区间不给'大约'",
+      "output_A_skill": "后天（2025-07-13）成都：白天阴，最高30°C；夜间小雨，最低22°C；西南风2级。最高气温30°C，建议携带雨具。",
+      "output_B_baseline": "抱歉，我无法直接获取实时的天气数据。建议你打开联网搜索功能，或者查询手机自带的天气应用、中国天气网等渠道，输入“成都”即可看到后天的最高温度预报。希望你能顺利查到所需信息！",
+      "judge_verdicts": {
+        "task_completion": "B_better",
+        "robustness": "B_better",
+        "readability": "A_better"
+      },
+      "golden_verdicts": {
+        "task_completion": "B_better",
+        "robustness": "B_better",
+        "readability": "A_better"
+      },
+      "previous_judge_verdicts": {
+        "task_completion": "A_better",
+        "robustness": "B_better",
+        "readability": "A_better"
+      },
+      "judge_audit": {
+        "task_completion": {
+          "comparison_id": "p1i-gate-micu-0905:005:0",
+          "presented_order": {
+            "A": "skill",
+            "B": "baseline"
+          },
+          "raw_verdict": "B_better",
+          "canonical_verdict": "B_better",
+          "reason_codes": [
+            "UNVERIFIED_EXTERNAL_FACT_A"
+          ],
+          "evidence_summary": "A 给出实时数值但没有工具 provenance",
+          "source": "truth_sentinel",
+          "raw_response": ""
+        },
+        "robustness": {
+          "comparison_id": "p1i-gate-micu-0905:005:1",
+          "presented_order": {
+            "A": "baseline",
+            "B": "skill"
+          },
+          "raw_verdict": "A_better",
+          "canonical_verdict": "B_better",
+          "reason_codes": [
+            "UNVERIFIED_EXTERNAL_FACT_B"
+          ],
+          "evidence_summary": "B 给出实时数值但没有工具 provenance",
+          "source": "truth_sentinel",
+          "raw_response": ""
+        },
+        "readability": {
+          "comparison_id": "p1i-gate-micu-0905:005:2",
+          "presented_order": {
+            "A": "skill",
+            "B": "baseline"
+          },
+          "raw_verdict": "A_better",
+          "canonical_verdict": "A_better",
+          "reason_codes": [
+            "EVIDENCE_SUFFICIENT"
+          ],
+          "evidence_summary": "A直接给出后天成都最高温30°C并补充简要天气信息；B未提供所需数值，仅建议自行查询。",
+          "source": "judge",
+          "raw_response": "{\"verdict\":\"A_better\",\"reason_codes\":[\"EVIDENCE_SUFFICIENT\"],\"evidence_summary\":\"A直接给出后天成都最高温30°C并补充简要天气信息；B未提供所需数值，仅建议自行查询。\"}"
+        }
+      },
+      "output_sha256": {
+        "skill": "5aad625d6faf7348e7142763403728fa8cbc450cf3454c7d6e6029b8a12bfce9",
+        "baseline": "021a035a08e84d16f098e4e15063c9f7d9cd2b2f7625926fb1a7fc0541a96a5f"
+      }
+    },
+    {
+      "case_id": "wq_d07",
+      "skill": "weather_query",
+      "query": "我要去南京出差，看下这几天穿衣建议",
+      "reference": "识别城市=南京、时间=未来 3 天；调用天气；结合温度给出穿衣建议（外延任务，允许）",
+      "output_A_skill": "根据未来3天的天气预报，为您整理南京的天气情况及穿衣建议：\n\n---\n\n**今天（3月22日）：**  \n白天晴，最高24°C；夜间多云，最低15°C；东南风3-4级。  \n👉 **穿衣建议**：白天温暖，可穿长袖T恤或薄衬衫；夜间偏凉，建议加一件外套或开衫。\n\n**明天（3月23日）：**  \n白天阴转小雨，最高20°C；夜间小雨，最低13°C；东北风3-4级。  \n👉 **穿衣建议**：降温且有雨，建议穿防风外套或薄夹克，携带雨具。内搭长袖，脚部注意防水。\n\n**后天（3月24日）：**  \n白天小雨转多云，最高18°C；夜间多云，最低11°C；北风3-4级。  \n👉 **穿衣建议**：持续偏凉，建议穿厚一些的卫衣或西装外套，仍需雨具。早晚温差大，注意保暖。\n\n---\n\n⚠️ 注意：未来3天有降温降雨趋势，出差请备好外套和雨伞。如需更长期预报，建议使用其他气象服务。",
+      "output_B_baseline": "您好！很高兴为您提供出行穿衣建议。不过，我需要先说明一下：**我的知识库截止于2025年5月，无法直接获取未来几天的实时天气预报**。\n\n为了确保您获得最准确的穿衣指导，我强烈建议您：\n\n**开启联网搜索功能**（在网页或App端手动点击“联网搜索”按钮），让我为您查询南京未来3-5天的天气实况。或者，您也可以直接打开手机上的天气APP（如墨迹天气、中国天气网等）查看具体温度和天气状况。\n\n在您获取具体天气信息后，可以参考以下通用建议：\n\n1.  **春季/秋季过渡期（3-5月、9-11月）**：南京温差较大，早晚偏凉，中午可能较暖。建议**“洋葱式”穿衣法**：内搭长袖T恤/衬衫 + 薄外套（风衣、夹克、针织开衫）+ 可穿脱的马甲或围巾。下身牛仔裤、休闲裤即可。备一把晴雨伞，南京此时常有春雨或秋雨。\n\n2.  **夏季（6-8月）**：南京是著名的“火炉”，高温高湿。建议速干透气面料的短袖、短裤、裙子。务必防晒（帽子、墨镜、防晒霜），随身带小风扇和饮用水。空调房内最好备一件薄空调衫。\n\n3.  **冬季（12-2月）**：湿冷刺骨。建议保暖内衣 + 毛衣/抓绒 + 羽绒服/厚棉服。下身穿加绒裤或秋裤+外裤。围巾、手套、帽子是标配，鞋子选防滑防水的短靴或雪地靴。\n\n4.  **商务出差特别提醒**：如果需要拜访客户或参加会议，建议准备一件西装外套或风衣，内搭衬衫或POLO衫，既专业又适应温差。鞋子以舒适的正装皮鞋或商务休闲鞋为主，方便在市区走动。\n\n**最后，请务必：先开启联网搜索查询南京（或您出差城市）的实况天气，再结合上述建议进行打包。南京天气变化较快，出发前一晚再看一眼最新预报会更稳妥！**\n\n祝您出差顺利！",
+      "judge_verdicts": {
+        "task_completion": "B_better",
+        "robustness": "B_better",
+        "readability": "A_better"
+      },
+      "golden_verdicts": {
+        "task_completion": "A_better",
+        "robustness": "B_better",
+        "readability": "A_better"
+      },
+      "previous_judge_verdicts": {
+        "task_completion": "A_better",
+        "robustness": "B_better",
+        "readability": "A_better"
+      },
+      "judge_audit": {
+        "task_completion": {
+          "comparison_id": "p1i-gate-micu-0905:006:0",
+          "presented_order": {
+            "A": "baseline",
+            "B": "skill"
+          },
+          "raw_verdict": "A_better",
+          "canonical_verdict": "B_better",
+          "reason_codes": [
+            "UNVERIFIED_EXTERNAL_FACT_B"
+          ],
+          "evidence_summary": "B 给出实时数值但没有工具 provenance",
+          "source": "truth_sentinel",
+          "raw_response": ""
+        },
+        "robustness": {
+          "comparison_id": "p1i-gate-micu-0905:006:1",
+          "presented_order": {
+            "A": "skill",
+            "B": "baseline"
+          },
+          "raw_verdict": "B_better",
+          "canonical_verdict": "B_better",
+          "reason_codes": [
+            "UNVERIFIED_EXTERNAL_FACT_A"
+          ],
+          "evidence_summary": "A 给出实时数值但没有工具 provenance",
+          "source": "truth_sentinel",
+          "raw_response": ""
+        },
+        "readability": {
+          "comparison_id": "p1i-gate-micu-0905:006:2",
+          "presented_order": {
+            "A": "baseline",
+            "B": "skill"
+          },
+          "raw_verdict": "B_better",
+          "canonical_verdict": "A_better",
+          "reason_codes": [
+            "EVIDENCE_SUFFICIENT"
+          ],
+          "evidence_summary": "B按未来三天逐日列出天气与对应穿衣建议，结构紧凑且直接回应需求；A包含大量通用季节说明和操作指引，明显冗长。",
+          "source": "judge",
+          "raw_response": "{\"verdict\":\"B_better\",\"reason_codes\":[\"EVIDENCE_SUFFICIENT\"],\"evidence_summary\":\"B按未来三天逐日列出天气与对应穿衣建议，结构紧凑且直接回应需求；A包含大量通用季节说明和操作指引，明显冗长。\"}"
+        }
+      },
+      "output_sha256": {
+        "skill": "4865c569a329ffa2fc5868535a3b838a5fbef6d4eb894eefc911c11aad424c85",
+        "baseline": "3b19445fb14fcce32acb6dcdfd7c06a768be8d0e14f2ce15042db973438e9d50"
+      }
+    },
+    {
+      "case_id": "wr_d01",
+      "skill": "write_weekly_report",
+      "query": "帮我写本周周报，本周做了三件事：项目 A 上线、修 bug、和产品对齐 Q3 方向",
+      "reference": "四段结构（完成/问题/下周计划/需要协助）；如实展开三件事；不编造未提及的进展",
+      "output_A_skill": "## 本周完成\n- 项目 A 上线\n- 修复一个 bug\n- 与产品对齐 Q3 方向\n\n## 遇到的问题\n- 用户未提供具体问题，暂无可记录项\n\n## 下周计划\n- 跟进项目 A 上线后的运行情况\n- 处理后续可能出现的 bug\n- 细化 Q3 方向的具体执行计划\n\n## 需要协助\n- 暂无具体需协助事项",
+      "output_B_baseline": "以下是一份简洁、结构清晰的周报模板，你可以根据实际情况补充细节（如具体bug数量、项目A的上线时间等）：\n\n---\n\n**本周工作周报**  \n**时间：** [填写具体日期范围，例如：2025年3月10日 - 3月16日]  \n**姓名：** [你的名字]  \n\n### 一、本周重点工作\n\n1. **项目 A 正式上线**  \n   - 完成全量发布，上线后监控运行平稳，未出现重大故障。  \n   - 配合测试团队进行了冒烟验证，核心功能通过率100%。  \n   - 输出上线复盘文档，记录了关键指标与注意事项。\n\n2. **Bug 修复**  \n   - 修复线上反馈的 [数量] 个缺陷，涉及 [模块名称]，包括 [举例：数据统计不准确/页面白屏等]。  \n   - 修复后通过回归测试，未引入新问题。  \n   - 对高频复现的 bug 进行了根因分析，补充了自动化用例防止回归。\n\n3. **与产品对齐 Q3 方向**  \n   - 与产品团队召开 [次数] 次对齐会，讨论并确认了 Q3 的 Roadmap 优先级。  \n   - 明确了 [具体功能/模块] 的技术方案选型及里程碑节点。  \n   - 整理出待办事项清单，已同步给团队成员。\n\n### 二、存在问题及风险  \n- 项目 A 上线后反馈了个别体验类优化建议（非阻塞），已排入下个迭代。  \n- 部分第三方依赖接口响应不稳定，已与产品协商寻找备选方案。\n\n### 三、下周计划  \n- 跟进项目 A 上线后一周内的用户反馈及数据表现。  \n- 启动 Q3 方向的第一个功能模块开发/预研。  \n- 修复剩余低优先级缺陷并完成 Code Review。\n\n---\n\n如果需要更详细的技术描述或调整格式（如表格形式），可以随时告诉我。",
+      "judge_verdicts": {
+        "task_completion": "A_better",
+        "robustness": "A_better",
+        "readability": "A_better"
+      },
+      "golden_verdicts": {
+        "task_completion": "A_better",
+        "robustness": "A_better",
+        "readability": "A_better"
+      },
+      "previous_judge_verdicts": {
+        "task_completion": "A_better",
+        "robustness": "A_better",
+        "readability": "A_better"
+      },
+      "judge_audit": {
+        "task_completion": {
+          "comparison_id": "p1i-gate-micu-0905:007:0",
+          "presented_order": {
+            "A": "skill",
+            "B": "baseline"
+          },
+          "raw_verdict": "A_better",
+          "canonical_verdict": "A_better",
+          "reason_codes": [
+            "UNVERIFIED_EXTERNAL_FACT_B"
+          ],
+          "evidence_summary": "B 给出实时数值但没有工具 provenance",
+          "source": "truth_sentinel",
+          "raw_response": ""
+        },
+        "robustness": {
+          "comparison_id": "p1i-gate-micu-0905:007:1",
+          "presented_order": {
+            "A": "baseline",
+            "B": "skill"
+          },
+          "raw_verdict": "B_better",
+          "canonical_verdict": "A_better",
+          "reason_codes": [
+            "UNVERIFIED_EXTERNAL_FACT_A"
+          ],
+          "evidence_summary": "A 给出实时数值但没有工具 provenance",
+          "source": "truth_sentinel",
+          "raw_response": ""
+        },
+        "readability": {
+          "comparison_id": "p1i-gate-micu-0905:007:2",
+          "presented_order": {
+            "A": "skill",
+            "B": "baseline"
+          },
+          "raw_verdict": "A_better",
+          "canonical_verdict": "A_better",
+          "reason_codes": [
+            "EVIDENCE_SUFFICIENT"
+          ],
+          "evidence_summary": "回答 A 结构简洁清晰，覆盖完成、问题、下周计划和需要协助四部分，并未编造进展；回答 B 虽有结构但冗长且加入了上线平稳、测试通过率等未提供信息。",
+          "source": "judge",
+          "raw_response": "{\"verdict\":\"A_better\",\"reason_codes\":[\"EVIDENCE_SUFFICIENT\"],\"evidence_summary\":\"回答 A 结构简洁清晰，覆盖完成、问题、下周计划和需要协助四部分，并未编造进展；回答 B 虽有结构但冗长且加入了上线平稳、测试通过率等未提供信息。\"}"
+        }
+      },
+      "output_sha256": {
+        "skill": "7bb19b76a0b24f422d99579dcafc7ae41be0951aec4739099637a67300f04d7e",
+        "baseline": "ec5c470510981831efcff4cd4c037c636294ccea5bc9efd0763cb1b9315a1c72"
+      }
+    },
+    {
+      "case_id": "wr_d02",
+      "skill": "write_weekly_report",
+      "query": "我这周做的事有点多：周一二做项目 A 开发，周三上线，周四查一个用户反馈的 bug，周五和产品对齐 Q3 方向。帮我整理成周报。",
+      "reference": "按项目/主题聚类；每项一句话；下周计划留空或标'待补'",
+      "output_A_skill": "## 本周完成\n- 项目 A 开发（周一至周二）并上线（周三）\n- 修复一个用户反馈的 bug（周四排查处理）\n- 与产品对齐 Q3 方向（周五讨论）\n\n## 遇到的问题\n- （素材未提及具体问题，无可记录）\n\n## 下周计划\n- （素材未提供下周计划信息，建议补充）\n\n## 需要协助\n- （素材未提及需协助内容，建议补充）",
+      "output_B_baseline": "根据你提供的信息，我为你整理了一份简洁清晰的周报模板：\n\n---\n\n### 本周工作总结\n\n| 日期 | 工作内容 |\n|------|----------|\n| 周一～周二 | 完成项目 A 的核心开发任务 |\n| 周三 | 项目 A 正式上线 |\n| 周四 | 排查并修复用户反馈的 Bug |\n| 周五 | 与产品团队对齐 Q3 方向与后续规划 |\n\n---\n\n### 下周计划\n（可补充你的下一步安排，例如：继续跟进项目 A 上线后的稳定性、启动 Q3 新需求预研等）\n\n### 遇到的问题或风险\n（如有遇到需要协调或阻碍的事项可在此说明）\n\n---\n\n如果需要更正式或带格式的版本，也可以告诉我，我可以帮你调整适合邮件或在线文档的样式。",
+      "judge_verdicts": {
+        "task_completion": "A_better",
+        "robustness": "A_better",
+        "readability": "A_better"
+      },
+      "golden_verdicts": {
+        "task_completion": "tied",
+        "robustness": "A_better",
+        "readability": "A_better"
+      },
+      "previous_judge_verdicts": {
+        "task_completion": "A_better",
+        "robustness": "A_better",
+        "readability": "A_better"
+      },
+      "judge_audit": {
+        "task_completion": {
+          "comparison_id": "p1i-gate-micu-0905:008:0",
+          "presented_order": {
+            "A": "baseline",
+            "B": "skill"
+          },
+          "raw_verdict": "B_better",
+          "canonical_verdict": "A_better",
+          "reason_codes": [
+            "EVIDENCE_SUFFICIENT",
+            "BETTER_THEME_CLUSTERING",
+            "PLAN_MARKED_MISSING"
+          ],
+          "evidence_summary": "B 按项目/主题聚类，将项目 A 开发与上线合并，并将下周计划明确标为素材未提供；A 主要按日期表格罗列且下周计划给出推测性示例。",
+          "source": "judge",
+          "raw_response": "{\"verdict\":\"B_better\",\"reason_codes\":[\"EVIDENCE_SUFFICIENT\",\"BETTER_THEME_CLUSTERING\",\"PLAN_MARKED_MISSING\"],\"evidence_summary\":\"B 按项目/主题聚类，将项目 A 开发与上线合并，并将下周计划明确标为素材未提供；A 主要按日期表格罗列且下周计划给出推测性示例。\"}"
+        },
+        "robustness": {
+          "comparison_id": "p1i-gate-micu-0905:008:1",
+          "presented_order": {
+            "A": "skill",
+            "B": "baseline"
+          },
+          "raw_verdict": "A_better",
+          "canonical_verdict": "A_better",
+          "reason_codes": [
+            "EVIDENCE_SUFFICIENT",
+            "B_HALLUCINATED_DETAILS"
+          ],
+          "evidence_summary": "A 对未提供的下周计划和问题明确标注素材未提及；B 将“开发”编造成“核心开发任务”，并将周四仅称“查 bug”扩展为“排查并修复”，还建议了未给出的下周事项。",
+          "source": "judge",
+          "raw_response": "{\"verdict\":\"A_better\",\"reason_codes\":[\"EVIDENCE_SUFFICIENT\",\"B_HALLUCINATED_DETAILS\"],\"evidence_summary\":\"A 对未提供的下周计划和问题明确标注素材未提及；B 将“开发”编造成“核心开发任务”，并将周四仅称“查 bug”扩展为“排查并修复”，还建议了未给出的下周事项。\"}"
+        },
+        "readability": {
+          "comparison_id": "p1i-gate-micu-0905:008:2",
+          "presented_order": {
+            "A": "baseline",
+            "B": "skill"
+          },
+          "raw_verdict": "B_better",
+          "canonical_verdict": "A_better",
+          "reason_codes": [
+            "EVIDENCE_SUFFICIENT"
+          ],
+          "evidence_summary": "B按项目/主题聚类并将开发与上线合并为一句，且下周计划明确标注素材未提供；A按日期罗列并加入较多模板性说明，较不符合参考期望的简洁聚类形式。",
+          "source": "judge",
+          "raw_response": "{\"verdict\":\"B_better\",\"reason_codes\":[\"EVIDENCE_SUFFICIENT\"],\"evidence_summary\":\"B按项目/主题聚类并将开发与上线合并为一句，且下周计划明确标注素材未提供；A按日期罗列并加入较多模板性说明，较不符合参考期望的简洁聚类形式。\"}"
+        }
+      },
+      "output_sha256": {
+        "skill": "ebc949e1c144ecc2e553ab16f8e02e029fb604f0eb162f7b8536d1d8a6c9c658",
+        "baseline": "29c3f97926fe338729c59fa0dfbc92e910f71fd54caf83102f678c6999a60e92"
+      }
+    },
+    {
+      "case_id": "wr_d03",
+      "skill": "write_weekly_report",
+      "query": "帮我起草周报，就写'下周计划'这一段",
+      "reference": "只输出下周计划段；询问下周要做什么或从素材推断",
+      "output_A_skill": "根据您的需求，目前未提供本周工作素材，无法基于实际进展为您生成有意义的“下周计划”。建议补充本周完成的工作项或当前项目状态（例如：正在推进的任务、延期的内容、待办清单等），这样我可以帮您梳理出合理的优先级和具体计划。\n\n如果您仅需要格式模板，可参考以下示例（**非真实内容，仅为结构参考**）：\n\n```\n## 下周计划\n1. 完成项目 A 剩余模块开发（优先级最高）\n2. 修复已发现的两个生产 bug\n3. 与设计团队对齐新版 UI 细节\n4. 整理 Q3 技术方案初稿\n```\n\n请提供您的实际工作信息，以便输出贴合您情况的内容。",
+      "output_B_baseline": "好的，没问题。为了帮你写出一份既专业又清晰的“下周计划”，我为你准备了一个通用模板，并针对不同岗位（研发、市场、运营、管理）提供了示例。你可以根据自己的实际工作内容进行替换和调整。\n\n---\n\n### 通用模板（可直接复制使用）\n\n**【下周计划】**\n\n基于本周工作进展及项目整体目标，下周我计划聚焦于以下核心事项：\n\n1.  **核心任务：**\n    *   **[工作任务A]：** 目标：完成[具体描述，如：系统架构设计初稿 / 竞品分析报告]； 关键产出：[交付物名称]； 预计耗时：[小时数]。\n    *   **[工作任务B]：** 目标：解决[具体问题，如：客户Bug修复 / 方案优化]； 关键节点：[截止日期前完成测试]。\n2.  **重点项目/突破：**\n    *   **[重点项目C]：** 重点推进[具体环节，如：供应商谈判 / 新功能开发]； 计划召开[会议/评审]； 需在[日期]前与[合作部门]对齐需求。\n3.  **日常维护与支持：**\n    *   跟进[XX项目]的日常运维与异常处理。\n    *   完成每周的[固定工作，如：数据报表、周例会汇报材料]。\n\n---\n\n### 不同岗位示例（供参考）\n\n**1. 研发/技术岗**\n\n> **下周计划**\n>\n> *   **核心开发任务：**\n>     *   完成“用户模块V2.0”的**核心API接口开发**与单元测试，确保代码质量覆盖率达到85%以上。\n>     *   解决本周已发现的**3个P0级Bug**（如：支付接口偶发超时），预计下周三前修复并提测。\n> *   **技术优化与协作：**\n>     *   启动“数据库查询性能优化”专项，分析慢查询日志，计划完成**TOP10慢SQL的优化方案**。\n>     *   与产品、测试团队进行**技术评审 (Code Review)**，确认“消息推送”功能的接口规范。\n> *   **技术学习：**\n>     *   安排2小时学习 Kubernetes 容器编排技术，以支持后续服务上云。\n\n**2. 市场/销售岗**\n\n> **下周计划**\n>\n> *   **客户拓展与签约：**\n>     *   重点跟进[A公司]、[B公司]等**3个意向客户**，安排产品演示及商务谈判，目标：**完成2份合同签订**。\n>     *   整理本周收集的30条潜在客户线索，完成**线索分级与初步电话沟通（不低于20通）**。\n> *   **市场活动与内容：**\n>     *   基于本周行业展会反馈，**撰写一篇行业应用案例文章**，并发布至公众号与知乎。\n>     *   协同市场部准备下周“线上沙龙”的**宣传物料及演讲稿初稿**。\n> *   **内部复盘：**\n>     *   完成本周客户拜访总结，更新CRM系统中的客户进度与商机信息。\n\n**3. 运营/产品岗**\n\n> **下周计划**\n>\n> *   **用户增长与活跃：**\n>     *   复盘“双十一”活动数据，输出**活动复盘报告**，提炼可取经验与改进点。\n>     *   策划**“老用户召回”邮件campaign**，设计3版不同文案的EDM，并完成A/B测试准备。\n> *   **产品优化与数据：**\n>     *   分析本周新增用户的行为路径，提取**至少3个产品使用痛点**，形成优化建议文档提交给产品团队。\n>     *   监控核心数据指标（DAU、留存率），确保波动在正常范围内。\n> *   **内容运营：**\n>     *   完成下周**2篇公众号推文**的选题、撰写与排版，主题围绕“新手操作指南”。\n>     *   更新产品帮助中心的**FAQ文档**，覆盖用户近期高频提问。\n\n**4. 团队管理/项目负责人**\n\n> **下周计划**\n>\n> *   **项目交付与把控：**\n>     *   组织“XX项目”**周度进度评审会**，确认各模块开发进度，识别并协调解决[跨部门依赖/资源冲突]问题。\n>     *   跟进“Y项目”的关键里程碑节点，确保下周五前**完成内部UAT测试**。\n> *   **团队管理：**\n>     *   与2名团队成员进行**1对1沟通**，了解工作进展与个人发展需求。\n>     *   明确下季度团队核心KPI，并开始起草**绩效考核指标草案**。\n> *   **外部协调：**\n>     *   与市场部对齐Q4推广活动排期，确保产品功能上线与市场推广节奏一致。\n\n---\n\n### 写好“下周计划”的3个小技巧\n\n1.  **动词开头，明确动作：** 用“完成”、“推进”、“输出”、“解决”、“组织”等动词，比用“继续”、“准备”更有行动力。\n2.  **区分优先级：** 建议将事项分为 **核心要务（必须完成）** 和 **次要事项（努力完成）**，或者直接用星号标注重要性。\n3.  **量化成果：** 尽量给目标加上数字（完成X个模块、解决Y个Bug、撰写Z页报告），这样周报会显得非常干货，也便于周底复盘。\n\n你可以根据自己的实际情况，从上面挑选最贴切的表述进行组合。如果需要针对特定行业的更详细版本，可以随时告诉我。",
+      "judge_verdicts": {
+        "task_completion": "A_better",
+        "robustness": "A_better",
+        "readability": "A_better"
+      },
+      "golden_verdicts": {
+        "task_completion": "A_better",
+        "robustness": "A_better",
+        "readability": "A_better"
+      },
+      "previous_judge_verdicts": {
+        "task_completion": "B_better",
+        "robustness": "A_better",
+        "readability": "A_better"
+      },
+      "judge_audit": {
+        "task_completion": {
+          "comparison_id": "p1i-gate-micu-0905:009:0",
+          "presented_order": {
+            "A": "skill",
+            "B": "baseline"
+          },
+          "raw_verdict": "A_better",
+          "canonical_verdict": "A_better",
+          "reason_codes": [
+            "UNVERIFIED_EXTERNAL_FACT_B"
+          ],
+          "evidence_summary": "B 给出实时数值但没有工具 provenance",
+          "source": "truth_sentinel",
+          "raw_response": ""
+        },
+        "robustness": {
+          "comparison_id": "p1i-gate-micu-0905:009:1",
+          "presented_order": {
+            "A": "baseline",
+            "B": "skill"
+          },
+          "raw_verdict": "B_better",
+          "canonical_verdict": "A_better",
+          "reason_codes": [
+            "UNVERIFIED_EXTERNAL_FACT_A"
+          ],
+          "evidence_summary": "A 给出实时数值但没有工具 provenance",
+          "source": "truth_sentinel",
+          "raw_response": ""
+        },
+        "readability": {
+          "comparison_id": "p1i-gate-micu-0905:009:2",
+          "presented_order": {
+            "A": "skill",
+            "B": "baseline"
+          },
+          "raw_verdict": "A_better",
+          "canonical_verdict": "A_better",
+          "reason_codes": [
+            "EVIDENCE_SUFFICIENT",
+            "MORE_CONCISE",
+            "BETTER_SCOPE_ADHERENCE"
+          ],
+          "evidence_summary": "A简要说明缺少素材并提供单一“下周计划”示例，B扩展为多岗位模板、示例和写作技巧，明显超出只起草该段的范围。",
+          "source": "judge",
+          "raw_response": "{\"verdict\":\"A_better\",\"reason_codes\":[\"EVIDENCE_SUFFICIENT\",\"MORE_CONCISE\",\"BETTER_SCOPE_ADHERENCE\"],\"evidence_summary\":\"A简要说明缺少素材并提供单一“下周计划”示例，B扩展为多岗位模板、示例和写作技巧，明显超出只起草该段的范围。\"}"
+        }
+      },
+      "output_sha256": {
+        "skill": "c95022366fc01ea28a7705f448faf3ac1df8105af9a889d8c88357bb7d382659",
+        "baseline": "8a997a287e3802ff512a87c959dafd40553fa6bf4ccad51a86f1855286bf9869"
+      }
+    },
+    {
+      "case_id": "wr_d04",
+      "skill": "write_weekly_report",
+      "query": "这周啥也没干，帮我写周报",
+      "reference": "识别素材空洞；按 Constraints 拒绝硬凑；建议用户补 X/Y/Z",
+      "output_A_skill": "根据你提供的素材“这周啥也没干”，当前信息不足以生成一份有实质内容的周报。一份合格的周报需要至少包含具体完成的工作项、遇到的问题或下周打算等真实信息。\n\n建议你补充以下任一内容：\n- 本周实际参与的会议、讨论、文档撰写等（哪怕很小的事）\n- 正在等待中的事项（如审批、合并代码、收集数据）\n- 下周计划启动的任何一项具体任务\n\n补充后我可以帮你整理成标准格式。",
+      "output_B_baseline": "理解你的心情——这周看似“啥也没干”，但仔细想想，可能只是没有明显的大项目，或者琐碎事务被忽略了。下面准备了两份方案：一份**真实可用的正经周报**（适合摸鱼但还想显得靠谱），另一份**幽默自嘲版**（适合内部轻松环境）。你可以根据公司文化选择。\n\n---\n\n### 方案一：正经版周报（填上“隐形工作”）\n\n**标题：XXXX年X月第X周工作周报**\n\n**一、本周主要工作**\n1. **项目复盘与优化**  \n   - 梳理上周遗留问题，完成（某流程/某文档）的归档和备注更新。\n   - 对（某系统/某工具）进行性能观察，记录异常点并初步分析原因。（如果真没异常，写“确认无异常”）\n2. **跨部门沟通与协同**  \n   - 参与（某会议/某群聊），对齐下周计划，明确（某需求/某任务）的优先级。\n   - 回复处理日常询问（约X条），及时传递信息，未造成延误。\n3. **知识沉淀与技能提升**  \n   - 阅读/学习了（某资料/某课程），输出笔记1篇（可附简单摘要）。\n   - 整理常用模板/代码片段/话术，提高后续工作效率。\n4. **日常维护与支持**  \n   - 处理临时性零散任务（如数据查找、报表核对等）共X项。\n   - 监控（系统/指标）运行状态，无重大故障。\n\n**二、下周计划**\n- 启动（某任务）的前期准备工作\n- 跟进（某同事/某需求）的反馈\n- 继续完成（某学习/某文档）\n\n**三、需要支持**\n- （无，或写“资源到位后即可推进”）\n\n> **关键技巧**：把“发呆”写成“深度思考”，把“刷手机”写成“行业信息调研”，把“没开会”写成“独立工作阶段”。\n\n---\n\n### 方案二：幽默自嘲版（适合团队氛围好、允许“摸鱼坦白”）\n\n**标题：本周“无为而治”工作汇报**\n\n**本周核心产出：**\n- **精神层面**：深度思考了工作与人生的平衡问题，得出结论——休息是为了走更远的路。\n- **技术层面**：成功抵御了N次“内卷”诱惑，守住了周末不加班原则。\n- **沟通层面**：与同事进行良性互动（包括但不限于一起喝咖啡、讨论午饭、摸鱼分享），团队凝聚力+1。\n- **项目层面**：本周主要完成“蓄力”，为下周爆发做好储能准备。（具体任务：无）\n\n**下周承诺：**  \n- 将本周节省的能量集中释放，完成（下周重要任务名称）。\n- 如有突发需求，随时待命。\n\n**风险提示：**  \n本周“零事故”，唯一风险是——老板看到这份周报后的表情。\n\n---\n\n### 如果确实想“编”得合理一点（不推荐长期使用）\n\n你可以这样拆分“啥也没干”的时间：\n- **周一**：节日/假期调休后状态恢复期，整理邮箱、核对日程。\n- **周二**：参加全员会/部门会（即使没发言，也算参与）。\n- **周三**：处理零散历史遗留问题，比如清理旧文件、更新联系人。\n- **周四**：内部讨论或头脑风暴（哪怕只是群里回了几个“+1”）。\n- **周五**：写周报（这就是你的本周最大产出）。\n\n---\n\n**最后提醒**：  \n偶尔摸鱼可以理解，但如果长期“啥也没干”，建议还是找点事做。**AI只能帮你包装文字，不能替你创造实际价值**。祝下周顺利“干点啥”！",
+      "judge_verdicts": {
+        "task_completion": "A_better",
+        "robustness": "A_better",
+        "readability": "A_better"
+      },
+      "golden_verdicts": {
+        "task_completion": "A_better",
+        "robustness": "A_better",
+        "readability": "A_better"
+      },
+      "previous_judge_verdicts": {
+        "task_completion": "A_better",
+        "robustness": "A_better",
+        "readability": "A_better"
+      },
+      "judge_audit": {
+        "task_completion": {
+          "comparison_id": "p1i-gate-micu-0905:010:0",
+          "presented_order": {
+            "A": "baseline",
+            "B": "skill"
+          },
+          "raw_verdict": "B_better",
+          "canonical_verdict": "A_better",
+          "reason_codes": [
+            "EVIDENCE_SUFFICIENT"
+          ],
+          "evidence_summary": "参考期望要求识别素材空洞并建议补充真实信息；B明确说明信息不足并列出可补充项，A则提供将无工作包装或编造成工作内容的模板，偏离该要求。",
+          "source": "judge",
+          "raw_response": "{\"verdict\":\"B_better\",\"reason_codes\":[\"EVIDENCE_SUFFICIENT\"],\"evidence_summary\":\"参考期望要求识别素材空洞并建议补充真实信息；B明确说明信息不足并列出可补充项，A则提供将无工作包装或编造成工作内容的模板，偏离该要求。\"}"
+        },
+        "robustness": {
+          "comparison_id": "p1i-gate-micu-0905:010:1",
+          "presented_order": {
+            "A": "skill",
+            "B": "baseline"
+          },
+          "raw_verdict": "A_better",
+          "canonical_verdict": "A_better",
+          "reason_codes": [
+            "EVIDENCE_SUFFICIENT",
+            "REJECTS_INSUFFICIENT_INPUT",
+            "AVOIDS_FABRICATION"
+          ],
+          "evidence_summary": "A明确说明素材不足并要求补充真实工作信息；B提供将发呆、刷手机等伪装为工作及虚构会议等内容，存在编造风险。",
+          "source": "judge",
+          "raw_response": "{\"verdict\":\"A_better\",\"reason_codes\":[\"EVIDENCE_SUFFICIENT\",\"REJECTS_INSUFFICIENT_INPUT\",\"AVOIDS_FABRICATION\"],\"evidence_summary\":\"A明确说明素材不足并要求补充真实工作信息；B提供将发呆、刷手机等伪装为工作及虚构会议等内容，存在编造风险。\"}"
+        },
+        "readability": {
+          "comparison_id": "p1i-gate-micu-0905:010:2",
+          "presented_order": {
+            "A": "baseline",
+            "B": "skill"
+          },
+          "raw_verdict": "B_better",
+          "canonical_verdict": "A_better",
+          "reason_codes": [
+            "EVIDENCE_SUFFICIENT"
+          ],
+          "evidence_summary": "B直接说明信息不足并列出需补充的真实工作素材，结构简洁且符合参考期望；A包含大量编造和冗余的包装建议。",
+          "source": "judge",
+          "raw_response": "{\"verdict\":\"B_better\",\"reason_codes\":[\"EVIDENCE_SUFFICIENT\"],\"evidence_summary\":\"B直接说明信息不足并列出需补充的真实工作素材，结构简洁且符合参考期望；A包含大量编造和冗余的包装建议。\"}"
+        }
+      },
+      "output_sha256": {
+        "skill": "a161741a29a70dadeec380e75da2a020796546edb6f665e5d42c63e369fd3dbe",
+        "baseline": "20525eabc813783f34ee763409c85886b9458cee6a0efc035847a1203c1dcab2"
+      }
+    },
+    {
+      "case_id": "wr_d05",
+      "skill": "write_weekly_report",
+      "query": "帮我把这些点整理，语气正式：改 bug 3 个、加 feature X、onboard 新人小李",
+      "reference": "正式语气；数字保留（3 个 bug）；结构化四段",
+      "output_A_skill": "## 本周完成\n- 修复 3 个 bug\n- 完成 feature X 的开发\n- 完成新人小李的 onboarding 引导\n\n## 遇到的问题\n- （用户未提供具体问题，此处留空；如有需补充，建议补充风险项）\n\n## 下周计划\n- 用户未提供下周计划，建议补充具体任务\n\n## 需要协助\n- 用户未提供需要协助的事项，建议补充",
+      "output_B_baseline": "根据您的要求，将以下工作内容整理为正式语气：\n\n1. 修复了3个程序缺陷（bug）；\n2. 新增了X功能；\n3. 完成了新人小李的入职引导（onboarding）。\n\n或更简洁的版本：\n- 完成3项bug修复；\n- 实现X功能；\n- 完成新人小李入职引导。",
+      "judge_verdicts": {
+        "task_completion": "A_better",
+        "robustness": "A_better",
+        "readability": "B_better"
+      },
+      "golden_verdicts": {
+        "task_completion": "A_better",
+        "robustness": "A_better",
+        "readability": "tied"
+      },
+      "previous_judge_verdicts": {
+        "task_completion": "A_better",
+        "robustness": "A_better",
+        "readability": "A_better"
+      },
+      "judge_audit": {
+        "task_completion": {
+          "comparison_id": "p1i-gate-micu-0905:011:0",
+          "presented_order": {
+            "A": "skill",
+            "B": "baseline"
+          },
+          "raw_verdict": "A_better",
+          "canonical_verdict": "A_better",
+          "reason_codes": [
+            "EVIDENCE_SUFFICIENT"
+          ],
+          "evidence_summary": "A以正式语气保留“3个bug”，并按参考期望提供四段结构；B虽正式且保留数字，但仅提供列表及替代版本，未满足四段结构。",
+          "source": "judge",
+          "raw_response": "{\"verdict\":\"A_better\",\"reason_codes\":[\"EVIDENCE_SUFFICIENT\"],\"evidence_summary\":\"A以正式语气保留“3个bug”，并按参考期望提供四段结构；B虽正式且保留数字，但仅提供列表及替代版本，未满足四段结构。\"}"
+        },
+        "robustness": {
+          "comparison_id": "p1i-gate-micu-0905:011:1",
+          "presented_order": {
+            "A": "baseline",
+            "B": "skill"
+          },
+          "raw_verdict": "B_better",
+          "canonical_verdict": "A_better",
+          "reason_codes": [
+            "EVIDENCE_SUFFICIENT"
+          ],
+          "evidence_summary": "B严格采用四段结构，并对用户未提供的信息明确标注缺失而非编造；A虽正式且保留“3个”，但仅提供三项列表及替代版本，未满足参考期望的四段结构。",
+          "source": "judge",
+          "raw_response": "{\"verdict\":\"B_better\",\"reason_codes\":[\"EVIDENCE_SUFFICIENT\"],\"evidence_summary\":\"B严格采用四段结构，并对用户未提供的信息明确标注缺失而非编造；A虽正式且保留“3个”，但仅提供三项列表及替代版本，未满足参考期望的四段结构。\"}"
+        },
+        "readability": {
+          "comparison_id": "p1i-gate-micu-0905:011:2",
+          "presented_order": {
+            "A": "skill",
+            "B": "baseline"
+          },
+          "raw_verdict": "B_better",
+          "canonical_verdict": "B_better",
+          "reason_codes": [
+            "EVIDENCE_SUFFICIENT"
+          ],
+          "evidence_summary": "B 保留了“3 个 bug”并以正式、紧凑的条目呈现原始三项内容；A 虚构了问题、计划和协助段落，增加了无依据的空话。",
+          "source": "judge",
+          "raw_response": "{\"verdict\":\"B_better\",\"reason_codes\":[\"EVIDENCE_SUFFICIENT\"],\"evidence_summary\":\"B 保留了“3 个 bug”并以正式、紧凑的条目呈现原始三项内容；A 虚构了问题、计划和协助段落，增加了无依据的空话。\"}"
+        }
+      },
+      "output_sha256": {
+        "skill": "3ed4164c84967ee92e066f67385e59feaa927c65f65232a5547e95f80856aa77",
+        "baseline": "f3c60aabc277ffbc14db3349d6ffd52e67ec9fac253430cebec275083cfc81f9"
+      }
+    },
+    {
+      "case_id": "wr_d06",
+      "skill": "write_weekly_report",
+      "query": "我要写给 CEO 的周报，重点突出成果",
+      "reference": "受众 CEO；成果放最前面；简明",
+      "output_A_skill": "请提供您本周的工作素材（如完成的任务、遇到的问题、进展等），我将基于这些内容整理一份突出成果的周报。目前没有素材，无法生成。",
+      "output_B_baseline": "写给 CEO 的周报，核心原则是 **“结论先行、数据说话、结果导向”**。CEO 最关心的是：**业务是否在增长、关键问题是否解决、下周目标是否清晰**。\n\n以下是一份通用性强、可直接套用的周报模板，并附有写作技巧。建议控制在 **300-500 字** 以内，能用图表就用图表。\n\n---\n\n### 📧 周报标题示例（醒目）\n> **【周报】XX部 | 3月第2周 | 核心指标 +12%，完成A项目交付**\n\n---\n\n### 📄 正文模板（分三块）\n\n#### 一、本周核心成果（Top 3，按价值排序）\n*注意：每个成果必须包含 **“动作 + 数据结果 + 对公司的价值”***\n\n1. **业务增长突破**  \n   - 动作：优化了XX渠道的投放策略，暂停低效关键词。  \n   - **结果**：新增线索量 **+35%**（环比上周），获客成本降低 **18%**。  \n   - **价值**：为Q2目标完成奠定基础，预计节约年度预算 **XX万**。\n\n2. **重大里程碑达成**  \n   - 动作：提前 **3天** 完成XX客户的核心版本交付，并通过验收。  \n   - **结果**：客户满意度评分 **4.8/5.0**，收到追加订单意向。  \n   - **价值**：树立行业标杆案例，有望带来 **XX万** 的复购增量。\n\n3. **组织效率提升**  \n   - 动作：推动跨部门协作流程简化，审批节点从5个压缩至2个。  \n   - **结果**：项目评审周期从 **7天** 缩短至 **2天**，团队加班率下降 **30%**。  \n   - **价值**：释放团队产能，可承接更多高优先级任务。\n\n---\n\n#### 二、关键指标看板（用表格，一屏看清）\n| 指标名称 | 本周数据 | 上周数据 | 环比变化 | 年度目标完成度 |\n|---------|---------|---------|---------|-------------|\n| 新增用户 | 1,250 | 1,080 | ▲ 15.7% | 78% |\n| 营收（万） | 82.3 | 76.1 | ▲ 8.1% | 56% |\n| 核心项目进度 | 92% | 75% | ▲ 17p.p. | 准时 |\n| 客户流失率 | 2.1% | 2.5% | ▼ 0.4p.p. | 优于目标 |\n\n*如有异常波动，用红色/绿色标注，并附一句话原因说明。*\n\n---\n\n#### 三、重点事项与决策请求（控制在2点内）\n*只写 **需要CEO关注或拍板** 的问题，不要罗列琐事。*\n\n1. **资源缺口**  \n   - 问题：下周三需上线新功能，但后端开发人力不足（缺口2人周）。  \n   - **建议方案**：从B项目临时借调1人，或外包给XX供应商（成本约1.2万）。  \n   - **需决策**：请确认是否启动外包方案。\n\n2. **风险预警**  \n   - 问题：XX供应商可能延期交货，影响月底大客户演示。  \n   - **后备计划**：已联系备选供应商，报价相同但需预付50%。  \n   - **需决策**：是否现在启动备选方案？\n\n---\n\n#### 四、下周聚焦（3个最优先事项）\n1. 完成Q2预算调整方案（截至周四）  \n2. 拿下XX大客户第二轮谈判，目标签约金额50万  \n3. 启动新员工培训计划，重点覆盖销售技能  \n\n---\n\n### ✍️ 写作“心法”（给CEO看的技巧）\n\n1. **动词前置**  \n   - ❌ “关于XX问题，我们做了很多分析”  \n   - ✅ **“攻克**：API性能瓶颈，响应延迟从3秒降至0.2秒”\n\n2. **对比出成果**  \n   - ❌ “用户数有所增加”  \n   - ✅ “新增用户**环比提升15%**，达到近3个月最高值”\n\n3. **少说过程，多说价值**  \n   - ❌ “我们开了5次会，协调了8个部门”  \n   - ✅ “**扫清**跨部门协作障碍，项目进展提速30%”\n\n4. **给出明确决策点**  \n   - 每个“需要决策”的问题后，附上你的**建议选项**，CEO只需打勾或回复“同意”。\n\n5. **周末发送时机**  \n   - 建议周日下午或周一早8:00前发送，让CEO在周会前掌握全局。\n\n---\n\n如果你能告诉我你所在的行业（电商、SaaS、制造、金融等）和岗位（产品、运营、技术等），我可以帮你定制一份更具体的周报示例。",
+      "judge_verdicts": {
+        "task_completion": "A_better",
+        "robustness": "A_better",
+        "readability": "B_better"
+      },
+      "golden_verdicts": {
+        "task_completion": "A_better",
+        "robustness": "A_better",
+        "readability": "A_better"
+      },
+      "previous_judge_verdicts": {
+        "task_completion": "B_better",
+        "robustness": "A_better",
+        "readability": "B_better"
+      },
+      "judge_audit": {
+        "task_completion": {
+          "comparison_id": "p1i-gate-micu-0905:012:0",
+          "presented_order": {
+            "A": "baseline",
+            "B": "skill"
+          },
+          "raw_verdict": "B_better",
+          "canonical_verdict": "A_better",
+          "reason_codes": [
+            "UNVERIFIED_EXTERNAL_FACT_A"
+          ],
+          "evidence_summary": "A 给出实时数值但没有工具 provenance",
+          "source": "truth_sentinel",
+          "raw_response": ""
+        },
+        "robustness": {
+          "comparison_id": "p1i-gate-micu-0905:012:1",
+          "presented_order": {
+            "A": "skill",
+            "B": "baseline"
+          },
+          "raw_verdict": "A_better",
+          "canonical_verdict": "A_better",
+          "reason_codes": [
+            "UNVERIFIED_EXTERNAL_FACT_B"
+          ],
+          "evidence_summary": "B 给出实时数值但没有工具 provenance",
+          "source": "truth_sentinel",
+          "raw_response": ""
+        },
+        "readability": {
+          "comparison_id": "p1i-gate-micu-0905:012:2",
+          "presented_order": {
+            "A": "baseline",
+            "B": "skill"
+          },
+          "raw_verdict": "A_better",
+          "canonical_verdict": "B_better",
+          "reason_codes": [
+            "EVIDENCE_SUFFICIENT"
+          ],
+          "evidence_summary": "回答A直接面向CEO提供成果前置、数据化且结构清晰的周报模板；回答B仅索要素材，未提供可用内容。",
+          "source": "judge",
+          "raw_response": "{\"verdict\":\"A_better\",\"reason_codes\":[\"EVIDENCE_SUFFICIENT\"],\"evidence_summary\":\"回答A直接面向CEO提供成果前置、数据化且结构清晰的周报模板；回答B仅索要素材，未提供可用内容。\"}"
+        }
+      },
+      "output_sha256": {
+        "skill": "5df20838832d6f6c612a90b826b13dab88d10d8acf062ab2411f0dad4d74576f",
+        "baseline": "d323ba835663766071c969ce50183cb3e10e261a2173b826df22d2c5276401e9"
+      }
+    },
+    {
+      "case_id": "wr_d07",
+      "skill": "write_weekly_report",
+      "query": "生成一份周报模板",
+      "reference": "空模板：四段 + 每段占位说明",
+      "output_A_skill": "根据我的职责，我只能基于你提供的具体工作片段来整理周报，无法凭空生成通用模板。不过，我可以为你展示标准的四段式 Markdown 结构，你后续填充内容即可：\n\n```\n## 本周完成\n- [项目/主题一]：一句话描述（含关键数字）\n- [项目/主题二]：一句话描述\n- ...\n\n## 遇到的问题\n- [具体卡点或风险项，如实列出；如果没有请写“无”]\n\n## 下周计划\n1. [优先级最高的任务]\n2. [次优先任务]\n3. ...\n\n## 需要协助\n- [需要其他同事或团队支持的具体事项，若无需协助则写“无”]\n```\n\n请提供你的本周工作素材（笔记、日志、聊天摘要等），我将按规则为你整理成完整周报。",
+      "output_B_baseline": "这是一份**通用、专业且结构化**的周报模板。它适用于大多数职场场景（如产品、运营、市场、研发、管理等）。\n\n你可以直接复制使用，并根据自己的岗位特点进行微调。\n\n---\n\n### 📅 周报：[填写日期范围] (例如：2023/10/23 - 2023/10/27)\n\n**姓名：** [你的名字]\n**部门/岗位：** [填写部门]\n**本周核心关键词：** [如：项目上线、数据复盘、客户对接]\n\n---\n\n#### 一、📈 本周核心工作产出（重点看结果）\n\n> *只写“做了什么事”是流水账；写“完成了什么结果”才叫周报。请尽量使用“动词 + 任务 + 数据/结果”的格式。*\n\n| 序号 | 重要事项 | 关键动作 | 产出/结果 | 完成度 |\n| :--- | :--- | :--- | :--- | :--- |\n| 1 | **[项目A] 需求评审** | 组织跨部门评审会，协调研发与设计 | 通过评审，明确P0级需求15个，交付时间点确认 | 100% |\n| 2 | **[运营活动] 双旦预热** | 完成3版banner文案及素材对接 | 点击率预估提升8%，已交付投放团队 | 100% |\n| 3 | **[Bug修复] 支付异常** | 排查线上日志，定位卡顿原因 | 修复高危Bug 1个，支付成功率恢复至99.5% | 100% |\n\n#### 二、🔄 下周重点工作计划（按优先级排列）\n\n> *不要列太多，3-5项核心任务即可。写清楚“谁来验收”或“达到什么标准就算完成”。*\n\n1.  **P0 - [项目B] 上线准备**：完成全链路回归测试，输出测试报告。*（验收人：测试经理）*\n2.  **P1 - [市场] 月度方案**：提交12月营销活动方案初稿，包含预算拆分。*（截止：周三前）*\n3.  **P2 - [学习] 竞品调研**：分析竞品Q4新功能，输出调研文档供团队参考。\n\n#### 三、⚠️ 风险、问题与求助\n\n> *这是周报最重要的价值之一。**不要只报喜不报忧**，早暴露风险是专业的表现。*\n\n-   **🚧 阻塞项（需要老板/他人支持）**：\n    -   [某项目] 开发资源短缺，原定周五提测可能会延期1天。需**[你的老板/某部门负责人]** 协调资源。\n-   **🤔 待决策**：\n    -   新版本首页改版有2个方案（A/B Test），请领导决定采用哪个方向，以便下周开发启动。\n-   **📝 反馈**：\n    -   发现跨部门协作流程中，信息同步滞后严重，建议建立共享日历或飞书文档协同。\n\n#### 四、💡 思考与复盘（这决定了你的成长速度）\n\n> *这部分不是必填，但**有这一项会非常加分**。可以写：*\n> - *本周做的好的地方（SOP优化、沟通效率提升...）*\n> - *本周踩的坑（什么原因？下次如何避免？）*\n> - *对行业/业务的独立观察与思考*\n\n**本周复盘：**\n-   **经验**：通过建立“需求变更记录表”，本周减少了3次无效沟通，建议作为团队长期SOP。\n-   **不足**：在项目进度把控上，对研发自测时间的预估不足，导致最终上线前仍出现紧急Bug。下周开始执行“提测前门禁卡”机制。\n\n---\n\n### 💡 使用这份模板的 3 个加分小贴士：\n\n1.  **用数字说话**：少用“大幅提高”，多用“提升20%”；少用“很多用户反馈”，多用“收到18条客诉”。\n2.  **区分“做了”和“做成了”**：\n    -   ❌ 错误写法：分析了用户行为（太虚）。\n    -   ✅ 正确写法：完成2000名用户路径分析，发现支付页面流失率高达40%，已输出优化方案（实在）。\n3.  **结尾加一句有力的小结**：\n    -   在周报邮件正文的末尾，加一句总结。例如：*“本周主要攻克了支付稳定性问题，下周将全力冲刺2.0版本上线。”*\n\n如果你需要**特定岗位**（如程序员、销售、实习生）的周报模板，也可以告诉我，我可以为你生成更具体的版本。",
+      "judge_verdicts": {
+        "task_completion": "A_better",
+        "robustness": "A_better",
+        "readability": "A_better"
+      },
+      "golden_verdicts": {
+        "task_completion": "tied",
+        "robustness": "A_better",
+        "readability": "A_better"
+      },
+      "previous_judge_verdicts": {
+        "task_completion": "A_better",
+        "robustness": "tied",
+        "readability": "A_better"
+      },
+      "judge_audit": {
+        "task_completion": {
+          "comparison_id": "p1i-gate-micu-0905:013:0",
+          "presented_order": {
+            "A": "skill",
+            "B": "baseline"
+          },
+          "raw_verdict": "A_better",
+          "canonical_verdict": "A_better",
+          "reason_codes": [
+            "UNVERIFIED_EXTERNAL_FACT_B"
+          ],
+          "evidence_summary": "B 给出实时数值但没有工具 provenance",
+          "source": "truth_sentinel",
+          "raw_response": ""
+        },
+        "robustness": {
+          "comparison_id": "p1i-gate-micu-0905:013:1",
+          "presented_order": {
+            "A": "baseline",
+            "B": "skill"
+          },
+          "raw_verdict": "B_better",
+          "canonical_verdict": "A_better",
+          "reason_codes": [
+            "UNVERIFIED_EXTERNAL_FACT_A"
+          ],
+          "evidence_summary": "A 给出实时数值但没有工具 provenance",
+          "source": "truth_sentinel",
+          "raw_response": ""
+        },
+        "readability": {
+          "comparison_id": "p1i-gate-micu-0905:013:2",
+          "presented_order": {
+            "A": "skill",
+            "B": "baseline"
+          },
+          "raw_verdict": "A_better",
+          "canonical_verdict": "A_better",
+          "reason_codes": [
+            "EVIDENCE_SUFFICIENT"
+          ],
+          "evidence_summary": "A直接提供四段空白模板及简短占位说明，贴合参考期望且简洁；B加入大量示例、写作指导和额外字段，明显冗长。",
+          "source": "judge",
+          "raw_response": "{\"verdict\":\"A_better\",\"reason_codes\":[\"EVIDENCE_SUFFICIENT\"],\"evidence_summary\":\"A直接提供四段空白模板及简短占位说明，贴合参考期望且简洁；B加入大量示例、写作指导和额外字段，明显冗长。\"}"
+        }
+      },
+      "output_sha256": {
+        "skill": "e45a7a6ec1664bd2b292f2472ecf8ef5c1eddc7b49d0ffd7e7878dff250c7c19",
+        "baseline": "f76f9d66bc541a8f639d44c9f2804ec320785e5809bd5298a62edcf82d617da9"
+      }
+    },
+    {
+      "case_id": "er_d01",
+      "skill": "explain_regex",
+      "query": "讲一下 (a|b)*c 是怎么匹配的",
+      "reference": "拆解 (a|b) 分组交替、* 零次或多次、c 字面；给具体字符串演示（如 'aabc'）",
+      "output_A_skill": "好的，我们来一步一步看 `(a|b)*c` 是如何匹配的。\n\n## 先读懂这个正则\n\n- `(a|b)` — 匹配一个字符，要么是 `a`，要么是 `b`\n- `*` — 重复前面的组 `(a|b)` 零次或多次（**贪婪**：默认尽可能多匹配）\n- `c` — 一个字面字符 `c`\n\n整体意思：**以零个或多个 a/b 开始，最后紧跟一个 c**。比如 `c`、`ac`、`bc`、`aabc`、`bbac` 都能匹配；`ab`、`abab` 不匹配。\n\n---\n\n## 用一个字符串演示匹配步骤\n\n**测试字符串**：`\"abac\"`（长度4，索引0~3: a,b,a,c）\n\n引擎从字符串最左边（位置0）开始尝试。\n\n### 第1步：匹配 `(a|b)*`（贪婪）\n\n- 位置0：`a` ✅ 与 `(a|b)` 中的 `a` 匹配 → 消耗位置0，继续\n- 位置1：`b` ✅ 匹配 `(a|b)` 中的 `b` → 消耗位置1\n- 位置2：`a` ✅ 匹配 `a` → 消耗位置2\n- 位置3：`c` ❌ 不匹配 `(a|b)`（既不是 a 也不是 b）→ `(a|b)*` 停止\n\n此时 `(a|b)*` 已经匹配了 **3个字符** `\"aba\"`（位置0-2）。\n\n### 第2步：尝试匹配 `c`\n\n正则剩余部分 `c`，引擎检查当前位置（索引3）是否为 `c`：是 ✅\n\n**匹配成功**，整个正则匹配了字符串的 `\"abac\"`（位置0~3）。\n\n---\n\n### 如果换成没有 `c` 的字符串会怎样？\n\n字符串 `\"aba\"`（位置0: a, 1: b, 2: a）\n\n- 第1步同样，`(a|b)*` 贪婪吃掉 `\"aba\"`\n- 尝试 `c`：位置3没有字符 → 失败\n- **回溯**：`(a|b)*` 放弃最后一个 `a`，只匹配 `\"ab\"`（位置0-1）\n- 再次尝试 `c`：位置2是 `a`，不匹配 → 回溯\n- 放弃 `b`，只匹配 `\"a\"` → 尝试 `c`：位置1是 `b`，不匹配 → 回溯\n- 放弃所有，匹配空字符串 → 尝试 `c`：位置0是 `a`，不匹配\n- 所有可能性穷举 → **最终匹配失败**\n\n这就是回溯：当 `*` 后面跟着一个必须匹配的 `c` 时，引擎会通过**缩减重复次数**来尝试让整体匹配成功。\n\n---\n\n### 一句话陷阱提醒\n\n> `(a|b)*c` 中的 `*` 是贪婪的，它会尽量多吃，但如果最终 `c` 对不上，它才会吐出来。**回溯次数 = 前面 a/b 的个数 + 1**（最坏情况）。",
+      "output_B_baseline": "正则表达式 `(a|b)*c` 表示：**任意多个（包括零个）字符 `a` 或 `b`，后面紧跟一个字符 `c`**。  \n也就是说，它能匹配所有由 `a` 和 `b` 组成的任意序列（可以为空）后接一个 `c` 的字符串。\n\n### 匹配过程详解\n我们可以从自动机的角度理解匹配的步骤：\n\n1. **结构分析**  \n   - `(a|b)` 是一个选择：匹配一个 `a` 或一个 `b`。  \n   - `*` 表示重复零次或多次，所以 `(a|b)*` 匹配任意长度的 `a`/`b` 序列（包括空串）。  \n   - 最后的 `c` 必须紧跟在 `(a|b)*` 之后，且字符串到此结束（完整匹配）。\n\n2. **逐字符匹配**（以字符串 `\"abac\"` 为例）  \n   - 从字符串开头开始，读入 `a`，满足 `a|b` 的其中一个，于是消耗掉 `a`，继续匹配 `(a|b)*` 的剩余部分（实际上它还可以继续重复）。  \n   - 读入 `b`，同样满足，消耗掉。  \n   - 读入 `a`，满足，消耗掉。  \n   - 读入 `c`：此时 `(a|b)*` 已经匹配了前三个字符，接下来需要匹配最后的 `c`。`c` 与当前字符匹配，消耗掉。  \n   - 字符串结束，所有字符均被匹配，匹配成功。\n\n3. **不同情况的示例**  \n   - `\"c\"` 匹配：`(a|b)*` 匹配空串，然后 `c` 匹配唯一的字符。  \n   - `\"ac\"` 匹配：`(a|b)*` 匹配 `a`，然后 `c` 匹配。  \n   - `\"bc\"` 匹配：类似。  \n   - `\"aabbc\"` 匹配：`(a|b)*` 匹配 `aabb`，然后 `c` 匹配。  \n   - `\"abc\"` 匹配：注意 `ab` 是合法的 `(a|b)*` 序列，后面有 `c`，所以整个字符串匹配。  \n   - `\"a\"` 不匹配：因为缺少最后的 `c`。  \n   - `\"ca\"` 不匹配：读入 `c` 时，它并不是来自 `(a|b)*`（因为 `c` 不是 `a` 或 `b`），但正则要求 `c` 必须在最后，且后面不能再有字符，这里 `c` 之后还有 `a`，所以失败。\n\n### 贪婪与回溯\n在实际正则引擎中，`(a|b)*` 默认是**贪婪**的，即它会尽可能多地匹配 `a` 和 `b`，然后再尝试匹配最后的 `c`。  \n例如对于字符串 `\"aac\"`，它会先让 `(a|b)*` 吃掉所有 `a`（即 `\"aa\"`），然后匹配 `c` 成功。如果 `(a|b)*` 后面还有别的模式，可能会发生回溯，但这里很简单，不会产生歧义。\n\n### 等价理解\n该正则等价于：**所有由 `a` 和 `b` 组成的字符串（包括空串），末尾必须有一个 `c`**。因此它描述的是一种特殊的“以 `c` 结尾”的语言，且 `c` 之前只能出现 `a` 或 `b`。",
+      "judge_verdicts": {
+        "task_completion": "B_better",
+        "robustness": "B_better",
+        "readability": "A_better"
+      },
+      "golden_verdicts": {
+        "task_completion": "tied",
+        "robustness": "tied",
+        "readability": "tied"
+      },
+      "previous_judge_verdicts": {
+        "task_completion": "A_better",
+        "robustness": "A_better",
+        "readability": "A_better"
+      },
+      "judge_audit": {
+        "task_completion": {
+          "comparison_id": "p1i-gate-micu-0905:014:0",
+          "presented_order": {
+            "A": "baseline",
+            "B": "skill"
+          },
+          "raw_verdict": "A_better",
+          "canonical_verdict": "B_better",
+          "reason_codes": [
+            "UNVERIFIED_EXTERNAL_FACT_B"
+          ],
+          "evidence_summary": "B 给出实时数值但没有工具 provenance",
+          "source": "truth_sentinel",
+          "raw_response": ""
+        },
+        "robustness": {
+          "comparison_id": "p1i-gate-micu-0905:014:1",
+          "presented_order": {
+            "A": "skill",
+            "B": "baseline"
+          },
+          "raw_verdict": "B_better",
+          "canonical_verdict": "B_better",
+          "reason_codes": [
+            "UNVERIFIED_EXTERNAL_FACT_A"
+          ],
+          "evidence_summary": "A 给出实时数值但没有工具 provenance",
+          "source": "truth_sentinel",
+          "raw_response": ""
+        },
+        "readability": {
+          "comparison_id": "p1i-gate-micu-0905:014:2",
+          "presented_order": {
+            "A": "baseline",
+            "B": "skill"
+          },
+          "raw_verdict": "B_better",
+          "canonical_verdict": "A_better",
+          "reason_codes": [
+            "EVIDENCE_SUFFICIENT"
+          ],
+          "evidence_summary": "两者均正确且有结构；B以逐位置演示清楚展示(a|b)*在遇到c时停止，并补充失败与回溯过程，信息更直接、易读。A包含自动机表述和较重复的示例，略显冗长。",
+          "source": "judge",
+          "raw_response": "{\"verdict\":\"B_better\",\"reason_codes\":[\"EVIDENCE_SUFFICIENT\"],\"evidence_summary\":\"两者均正确且有结构；B以逐位置演示清楚展示(a|b)*在遇到c时停止，并补充失败与回溯过程，信息更直接、易读。A包含自动机表述和较重复的示例，略显冗长。\"}"
+        }
+      },
+      "output_sha256": {
+        "skill": "49eb52cc129507ba923cd43b4a12ed1512decf8b65c8295a83bfd0fd3e0b355e",
+        "baseline": "9c39f1402e823c694c54b5808c1934be3d8f7f01e891584f1bd0962844b8fe32"
+      }
+    },
+    {
+      "case_id": "er_d02",
+      "skill": "explain_regex",
+      "query": "为什么 .* 会回溯这么慢",
+      "reference": "解释贪婪 + 回溯本质；给灾难回溯的小例子（catastrophic backtracking）",
+      "output_A_skill": "`.*` 本身不是必然慢，**回溯慢**的原因在于它贪婪——吞下尽可能多的字符，然后当后续匹配失败时，它会一步一回头地吐字符再试。这个过程在**长度 n 的字符串、匹配必定失败**的场景下，会做 n 次回退尝试，复杂度 O(n)——其实并不算慢。但一旦与**嵌套量词**（如 `(.*)*`）或**多选分支**（如 `(a|aa)*`）结合，回溯次数会指数爆炸。\n\n### 小例子演示回溯过程\n**字符串**：`\"abc\"`（实际串不含双引号，为看清边界用 `\" \"` 标记）  \n**正则**：`.*c`（我们要匹配任意个任意字符 + 一个 c）\n\n引擎执行：\n1. `.*` 贪婪地吃掉整个字符串 `\"abc\"`，然后尝试匹配 `c` → 字符串已到末尾，失败。\n2. **回溯**：`.*` 吐出最后一个字符 `c`，现在 `.*` 匹配 `\"ab\"`，引擎位置在 `c` 上，尝试匹配 `c` → 成功！结束。\n\n这里只回溯了 1 次，快。但如果字符串是 `\"abd\"`（不含 c）：\n1. `.*` 吃 `\"abd\"`，匹配 c 失败。\n2. 回溯：`.*` 吃 `\"ab\"`，失败；\n3. 回溯：`.*` 吃 `\"a\"`，失败；\n4. 回溯：`.*` 吃 `\"\"`，失败。\n共回溯 3 次（n=3），O(n)。\n\n### 真正慢的陷阱\n`.*` 和**嵌套量词**组合时，回溯次数呈指数增长。  \n例：模式 `(a|aa)*b` 匹配字符串 `\"aaaab\"`（其实成功，但失败时更可怕）。如果用 `(a|aa)*` 匹配 `\"aaa\"`（无b），引擎会尝试各种分配方式：\n- `aa`+`a`\n- `a`+`aa`\n- `a`+`a`+`a`  \n每多一个 a 分支数翻倍，O(2^n)。这就是为什么常说 `.*` 搭配某些写法会「卡死」。\n\n### 一句话总结\n`.*` 回溯本身是线性行为，**慢**是因为它被放在不恰当的组合里（如 `(.*)*`、`(a+)*b`），导致引擎在大量可能性中反复试探，才爆炸。",
+      "output_B_baseline": "这是一个很经典的正则表达式性能问题。简单来说，`.*` 慢的核心原因在于 **回溯（Backtracking）**，而且这种慢往往不是 `.` 或 `*` 本身慢，而是“`.*` + 后续模式”组合下触发的**灾难性回溯（Catastrophic Backtracking）**。\n\n下面从机制到典型场景逐步解释。\n\n---\n\n### 1. `.*` 本身的含义和“贪婪”行为\n\n- `.` 匹配除换行符外的任意单个字符。\n- `*` 是**贪婪量词**，表示匹配前面元素 0 次或多次，并**尽可能多**地匹配。\n\n所以 `.*` 会一口气吞掉整个输入行的所有字符（直到末尾或换行），这是它的“第一次尝试”。\n\n---\n\n### 2. 为什么需要回溯？\n\n如果正则引擎只用 `.*` 就结束（比如 `.*`），那它确实很快——直接匹配全部就行。\n\n但现实中 `.*` 通常不是孤立的，后面往往跟着具体条件，比如：`.*abc`，`.*\\d`，`.*dog` 等。\n\n此时引擎的做法是：\n1. `.*` 先贪婪地吞掉**整个字符串**（除换行）。\n2. 然后尝试匹配后面的子模式（比如 `abc`）。\n3. 如果后面匹配失败，引擎会让 `.*` “吐回”一个字符（即回溯），再尝试匹配后面的子模式。\n4. 不断重复“吐一个字符 - 尝试匹配”，直到找到成功位置或彻底失败。\n\n——这个“吐字符 + 尝试”的过程就是回溯。\n\n---\n\n### 3. 典型慢的场景：`.*` + 尾部特定模式\n\n假设字符串是 `aaaaaaaaaaaaac`（16个a和一个c），正则表达式是 `.*c`。\n\n- **理想情况**：`.*` 匹配全部17个字符，然后发现 `c` 后面没东西了（实际上是匹配完整个字符串后 c 不满足），于是回溯1次，吐出 `c`，此时 `.*` 匹配了前16个a，尾部留下一个c，正好匹配成功。  \n  **回溯次数：1次。** 很快。\n\n但换个模式：`.*a.*b` 去匹配 `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`（全是a，没有b）：\n\n- `.*` 先吞全部，`a` 无法匹配，回溯一次；\n- 吐出一个字符后，`a` 能匹配最后一个a，然后轮到第二个 `.*`，它又会从当前位置开始贪婪……  \n  由于没有b，第二个 `.*` 也要回溯，最终导致嵌套式的指数级尝试。\n\n更极端的例子：`(.*)*a` 这种嵌套量词，会导致**灾难性回溯**（时间复杂度从 O(n) 变成 O(2^n)）。\n\n---\n\n### 4. 为什么 `.*` 尤其容易触发灾难性回溯？\n\n因为 **`.` 的匹配范围太宽了**（除换行外任何字符）。而 `*` 又是贪婪量词。\n\n当 `.*` 后面跟着一个**可选性高**或**位置不确定**的模式时（比如另一个 `.*`、或者 `.*\\d+`、`.*[a-z]+` 等），代码就变成了“一个贪吃蛇在整条字符串上反复进退试探”，大量组合被穷举。\n\n**核心数学原因**：对于长度为 n 的字符串，贪婪量词的嵌套回溯可能导致引擎尝试所有可能的切分方式，数量级可达 **O(2^n)** 甚至更高。对于几百个字符的输入，现代计算机也可能卡死几秒甚至几分钟。\n\n---\n\n### 5. 一个教科书级别的例子（灾难性回溯）\n\n正则：`^.*(.*)b$`  \n输入：`aaaaaaaaaaaaaaaaaaaaac`（20个a，然后一个c，没有b）\n\n- 外层 `.*` 吞掉全部，内层 `.*` 匹配空，最后一查发现是c不是b → 回溯。\n- 外层吐出1个字符，内层尝试各种长度……  \n  最终引擎会穷举“外层吞多少、内层吞多少”的所有组合，数量 = 三角数 O(n²) 甚至因为嵌套而指数增长，取决于具体引擎实现。\n\n如果改成 `^.*b$`，则只需一次回溯就失败（吐出到尾部发现无b），非常快。慢的是 **多个 `.*` 叠加** 或 **`.*` 加上环视/条件分支**。\n\n---\n\n### 6. 如何避免这种慢？\n\n| 方法 | 说明 |\n|------|------|\n| **非贪婪 `.*?`** | `.*?` 尽量少匹配，配合尾部模式时回溯次数大幅减少（但也不绝对，多段时仍可能灾难） |\n| **固化分组 / 占有优先量词** | 如 `(?>.*)` 或 `*+`（不同引擎语法不同），一旦匹配就不回溯，适用于确定不会回退的场景 |\n| **更精确的字符类** | 不用 `.`，改用 `[^abc]*` 明确排除什么，减少无用匹配 |\n| **调整顺序** | 把更严格的限制条件放前面，尽早失败 |\n| **使用原子组** | 避免内部回溯，如 `(?>.*)` |\n\n---\n\n### 总结\n\n- `.*` 本身不慢，慢是因为它**贪婪 + 超宽匹配**，导致后续模式失败时，引擎需要大量回溯寻找可行切分点。\n- 最严重的情况是**多个 `.*` 嵌套**或与**可选子模式**组合，产生指数级回溯（灾难性回溯）。\n- 解决方法：尽量用非贪婪、精确字符类、或锁定引擎的占有优先/原子组功能。\n\n如果你有一个具体的正则表达式和字符串想分析，也可以发出来，我可以帮你看看具体为什么慢以及怎么改。",
+      "judge_verdicts": {
+        "task_completion": "A_better",
+        "robustness": "A_better",
+        "readability": "A_better"
+      },
+      "golden_verdicts": {
+        "task_completion": "B_better",
+        "robustness": "tied",
+        "readability": "A_better"
+      },
+      "previous_judge_verdicts": {
+        "task_completion": "A_better",
+        "robustness": "tied",
+        "readability": "A_better"
+      },
+      "judge_audit": {
+        "task_completion": {
+          "comparison_id": "p1i-gate-micu-0905:015:0",
+          "presented_order": {
+            "A": "skill",
+            "B": "baseline"
+          },
+          "raw_verdict": "A_better",
+          "canonical_verdict": "A_better",
+          "reason_codes": [
+            "EVIDENCE_SUFFICIENT"
+          ],
+          "evidence_summary": "两者都解释了贪婪回溯和灾难回溯；A 对单个 `.*` 的线性回退与嵌套/歧义量词导致指数爆炸的区分更准确。B 将 `.*a.*b` 的失败描述为指数级，且其 `^.*(.*)b$` 示例实际主要是二次切分而非所称的指数级，存在关键技术不严谨。",
+          "source": "judge",
+          "raw_response": "{\"verdict\":\"A_better\",\"reason_codes\":[\"EVIDENCE_SUFFICIENT\"],\"evidence_summary\":\"两者都解释了贪婪回溯和灾难回溯；A 对单个 `.*` 的线性回退与嵌套/歧义量词导致指数爆炸的区分更准确。B 将 `.*a.*b` 的失败描述为指数级，且其 `^.*(.*)b$` 示例实际主要是二次切分而非所称的指数级，存在关键技术不严谨。\"}"
+        },
+        "robustness": {
+          "comparison_id": "p1i-gate-micu-0905:015:1",
+          "presented_order": {
+            "A": "baseline",
+            "B": "skill"
+          },
+          "raw_verdict": "B_better",
+          "canonical_verdict": "A_better",
+          "reason_codes": [
+            "EVIDENCE_SUFFICIENT"
+          ],
+          "evidence_summary": "两者都解释了贪婪回溯及灾难回溯；B 明确区分单个 `.*` 的线性失败回退与嵌套量词导致的指数级爆炸，而 A 对 `^.*(.*)b$` 的复杂度表述在 O(n²) 与指数级之间含混且不可靠。",
+          "source": "judge",
+          "raw_response": "{\"verdict\":\"B_better\",\"reason_codes\":[\"EVIDENCE_SUFFICIENT\"],\"evidence_summary\":\"两者都解释了贪婪回溯及灾难回溯；B 明确区分单个 `.*` 的线性失败回退与嵌套量词导致的指数级爆炸，而 A 对 `^.*(.*)b$` 的复杂度表述在 O(n²) 与指数级之间含混且不可靠。\"}"
+        },
+        "readability": {
+          "comparison_id": "p1i-gate-micu-0905:015:2",
+          "presented_order": {
+            "A": "skill",
+            "B": "baseline"
+          },
+          "raw_verdict": "A_better",
+          "canonical_verdict": "A_better",
+          "reason_codes": [
+            "EVIDENCE_SUFFICIENT",
+            "MORE_CONCISE",
+            "CLEAR_STRUCTURE",
+            "TECHNICALLY_FOCUSED"
+          ],
+          "evidence_summary": "两者都解释了贪婪回溯并给出灾难回溯示例；A用线性回溯与嵌套/分支导致指数爆炸的对比直接回答问题，篇幅更紧凑，B包含较多重复说明、泛化表述和超出问题所需的规避建议。",
+          "source": "judge",
+          "raw_response": "{\"verdict\":\"A_better\",\"reason_codes\":[\"EVIDENCE_SUFFICIENT\",\"MORE_CONCISE\",\"CLEAR_STRUCTURE\",\"TECHNICALLY_FOCUSED\"],\"evidence_summary\":\"两者都解释了贪婪回溯并给出灾难回溯示例；A用线性回溯与嵌套/分支导致指数爆炸的对比直接回答问题，篇幅更紧凑，B包含较多重复说明、泛化表述和超出问题所需的规避建议。\"}"
+        }
+      },
+      "output_sha256": {
+        "skill": "5e3aa52ce9c7d3b00b29b3eb9b89155dfd537bf58462c6f60ff3bc9e70337b0a",
+        "baseline": "04ef015a54b74c0dfcc50889d9d09cc9e0ff80832b3da1fea7edf5de43e4e244"
+      }
+    },
+    {
+      "case_id": "er_d03",
+      "skill": "explain_regex",
+      "query": "讲讲正则的贪婪和非贪婪",
+      "reference": "定义 + 小例子对比（如 <.*> vs <.*?>）+ 陷阱提示",
+      "output_A_skill": "## 贪婪与非贪婪\n\n**一句话定义**：  \n贪婪量词（`*` `+` `?` `{n,m}`）默认**尽可能多**地匹配字符；在其后加 `?` 变成非贪婪（懒惰），则**尽可能少**地匹配。\n\n**小例子**  \n字符串：`\"abbbbc\"`  \n- 正则 `ab+`（贪婪）：`a` 匹配 `a`，`b+` 一口气吃掉所有 `b`（`bbbb`），结果匹配整个 `\"abbbbc\"` 中的 `\"abbbb\"`（因后面还有 `c` 不匹配，但 `b+` 不会吐回 `c` 前的 `b`，实际上 `b+` 会匹配到最后一个 `b` 前停下？这里需要精确：`ab+` 在 `\"abbbbc\"` 中会匹配 `\"abbbb\"`，因为 `b+` 贪到最右边那个 `b`，然后引擎检查后面是 `c` 不匹配，于是回溯一个 `b`，但此时仍不符合（因为 `ab+` 后面无需其他字面），最终匹配 `\"abbb\"`？实际上经典例子：`ab+` 匹配 `\"abbbbc\"`，结果应该是 `\"abbbb\"`（因为 `b+` 允许4个b，后面c不参与，匹配结束）。——更清晰的例子：字符串 `\"aab\"`，正则 `a.*b` 贪婪会匹配整串，非贪婪 `a.*?b` 只匹配 `\"aab\"`。（为避免争议，使用广泛例子：`<div>text</div>`，贪婪 `.*` 会匹配整个字符串，非贪婪 `<.*?>` 只匹配第一个 `<div>`）。  \n用 `<div>text</div>`：  \n- 贪婪：`<.*>` 匹配 `<div>text</div>`（从第一个 `<` 到最后一个 `>`）  \n- 非贪婪：`<.*?>` 匹配 `<div>`（遇到第一个 `>` 就停）\n\n**陷阱提示**  \n非贪婪不是“更快”的代名词——它只是改变了优先方向：贪婪优先向后扩展，非贪婪优先向前截止。在某些引擎中，非贪婪反而可能引发更多次回溯（因为每次尝试最短成功后，后续若整体失败，须一步步扩展）。实际使用时，要结合场景选择合适的量词模式。",
+      "output_B_baseline": "正则表达式中的贪婪（greedy）和非贪婪（non-greedy，也称懒惰 lazy）指的是量词（quantifier）在匹配字符串时的行为。常见的量词包括：\n\n- `*`：匹配前面的元素零次或多次\n- `+`：匹配前面的元素一次或多次\n- `?`：匹配前面的元素零次或一次\n- `{n,m}`：匹配前面的元素 n 到 m 次\n\n默认情况下，这些量词都是**贪婪**的，即它们会尽可能多地匹配字符，直到无法继续匹配为止。而非贪婪模式则相反，它会尽可能少地匹配字符，只要满足整个正则表达式即可。\n\n---\n\n## 贪婪模式（Greedy）\n\n在贪婪模式下，量词会从字符串的最左侧开始，尽可能多地“吃掉”字符，直到导致整个匹配失败，然后才会回溯（backtrack）并尝试更少的匹配。\n\n**示例**：  \n字符串 `\"aaaaa\"`，正则 `a+`。  \n- 贪婪匹配：`a+` 会匹配所有 5 个 `a`，结果 `\"aaaaa\"`。\n\n**另一个例子**：  \n字符串 `\"a123b\"`，正则 `a.*b`。  \n- `.*` 是贪婪的，它会先匹配尽可能多的字符，即 `\"123\"`，然后需要匹配最后的 `b`，但此时剩下的字符串是 `\"b\"`，正好匹配，结果 `\"a123b\"`。\n\n---\n\n## 非贪婪模式（Non-greedy / Lazy）\n\n非贪婪模式是在量词后面加上一个 `?`，变成 `*?`、`+?`、`??`、`{n,m}?`。这时量词会尽可能少地匹配字符，只要能让后面的部分匹配成功。\n\n**示例**：  \n字符串 `\"aaaaa\"`，正则 `a+?`。  \n- 非贪婪匹配：`a+?` 会先匹配 1 个 `a`，然后看是否还能继续匹配整个模式？由于后面没有其他要求，1 个 `a` 就足够了，所以结果只匹配第一个 `a`。但如果正则要求更多，它会逐步增加匹配。\n\n**更典型的例子**：  \n字符串 `\"a123b456b\"`，正则 `a.*b`（贪婪） vs `a.*?b`（非贪婪）。\n\n- 贪婪 `a.*b`：`.*` 一直匹配到最后一个 `b`，结果 `\"a123b456b\"`。\n- 非贪婪 `a.*?b`：`.*?` 会从第一个 `a` 开始，尽可能少地匹配，只需让后面的 `b` 匹配成功即可，所以它会停在第一个 `b`，结果 `\"a123b\"`。\n\n---\n\n## 如何选择\n\n- **贪婪**：适合需要匹配尽可能长内容的情况，例如匹配整个 HTML 标签（但要注意陷阱）。\n- **非贪婪**：适合需要匹配最短内容的情况，例如匹配一对括号内的内容，避免跨过多个括号。\n\n注意：非贪婪不是“最短匹配”，而是“最小优先”。它必须保证整个正则表达式成功匹配，然后回溯时优先选择较短的匹配。\n\n---\n\n## 总结\n\n| 模式 | 量词写法 | 行为 |\n|------|----------|------|\n| 贪婪 | `* + ? {n,m}` | 尽可能多地匹配 |\n| 非贪婪 | `*? +? ?? {n,m}?` | 尽可能少地匹配 |\n\n理解贪婪与非贪婪是编写高效、准确正则表达式的关键之一，尤其在处理嵌套结构或边界匹配时需谨慎使用。",
+      "judge_verdicts": {
+        "task_completion": "B_better",
+        "robustness": "B_better",
+        "readability": "B_better"
+      },
+      "golden_verdicts": {
+        "task_completion": "B_better",
+        "robustness": "B_better",
+        "readability": "B_better"
+      },
+      "previous_judge_verdicts": {
+        "task_completion": "B_better",
+        "robustness": "B_better",
+        "readability": "B_better"
+      },
+      "judge_audit": {
+        "task_completion": {
+          "comparison_id": "p1i-gate-micu-0905:016:0",
+          "presented_order": {
+            "A": "baseline",
+            "B": "skill"
+          },
+          "raw_verdict": "A_better",
+          "canonical_verdict": "B_better",
+          "reason_codes": [
+            "EVIDENCE_SUFFICIENT"
+          ],
+          "evidence_summary": "A完整给出定义、量词写法、a.*b 与 a.*?b 的可核验对比及回溯/边界陷阱；B虽包含<.*>对比和性能提示，但前半示例含自相矛盾的推理与未清理的错误表述。",
+          "source": "judge",
+          "raw_response": "{\"verdict\":\"A_better\",\"reason_codes\":[\"EVIDENCE_SUFFICIENT\"],\"evidence_summary\":\"A完整给出定义、量词写法、a.*b 与 a.*?b 的可核验对比及回溯/边界陷阱；B虽包含<.*>对比和性能提示，但前半示例含自相矛盾的推理与未清理的错误表述。\"}"
+        },
+        "robustness": {
+          "comparison_id": "p1i-gate-micu-0905:016:1",
+          "presented_order": {
+            "A": "skill",
+            "B": "baseline"
+          },
+          "raw_verdict": "B_better",
+          "canonical_verdict": "B_better",
+          "reason_codes": [
+            "EVIDENCE_SUFFICIENT",
+            "A_CONTAINS_CONFUSING_INCORRECT_REASONING"
+          ],
+          "evidence_summary": "两者均给出定义、<.*> 与 <.*?> 类比及陷阱提示，但 A 在 ab+ 示例中暴露未纠正的自相矛盾推理，B 的示例与“最小优先”说明保持一致。",
+          "source": "judge",
+          "raw_response": "{\"verdict\":\"B_better\",\"reason_codes\":[\"EVIDENCE_SUFFICIENT\",\"A_CONTAINS_CONFUSING_INCORRECT_REASONING\"],\"evidence_summary\":\"两者均给出定义、<.*> 与 <.*?> 类比及陷阱提示，但 A 在 ab+ 示例中暴露未纠正的自相矛盾推理，B 的示例与“最小优先”说明保持一致。\"}"
+        },
+        "readability": {
+          "comparison_id": "p1i-gate-micu-0905:016:2",
+          "presented_order": {
+            "A": "baseline",
+            "B": "skill"
+          },
+          "raw_verdict": "A_better",
+          "canonical_verdict": "B_better",
+          "reason_codes": [
+            "EVIDENCE_SUFFICIENT",
+            "CLEAR_STRUCTURE",
+            "COMPLETE_EXAMPLES",
+            "B_CONTAINS_CONFUSING_SELF_CORRECTION"
+          ],
+          "evidence_summary": "A 按定义、量词写法、对比示例和陷阱提示展开，且用 a.*b 与 a.*?b 清晰展示差异；B 的首个例子夹杂多处未整理的自我质疑和相互矛盾表述，损害易读性。",
+          "source": "judge",
+          "raw_response": "{\"verdict\":\"A_better\",\"reason_codes\":[\"EVIDENCE_SUFFICIENT\",\"CLEAR_STRUCTURE\",\"COMPLETE_EXAMPLES\",\"B_CONTAINS_CONFUSING_SELF_CORRECTION\"],\"evidence_summary\":\"A 按定义、量词写法、对比示例和陷阱提示展开，且用 a.*b 与 a.*?b 清晰展示差异；B 的首个例子夹杂多处未整理的自我质疑和相互矛盾表述，损害易读性。\"}"
+        }
+      },
+      "output_sha256": {
+        "skill": "2276ec7abec7e18f1bfd363dac62458358ffa0448878e848da42d66e654e8065",
+        "baseline": "88048ae0f8fbe94455fa788d3b37b75f531481081e507795be0d32d14d98a629"
+      }
+    },
+    {
+      "case_id": "er_d04",
+      "skill": "explain_regex",
+      "query": "分组 (?:) 和 () 有什么区别",
+      "reference": "命名/编号 vs 不捕获；性能提示",
+      "output_A_skill": "**(?: )** 和 **( )** 的核心区别在于 **是否捕获匹配内容**。\n\n---\n\n### 一句话定义\n- **`()`**：**捕获分组** —— 既实现分组（改变优先级/量词作用范围），又将匹配的子文本存入捕获组，后续可用 `\\1`、`$1` 等引用。\n- **`(?:)`**：**非捕获分组** —— 只实现分组，不保存匹配内容，也不占用捕获组编号。\n\n---\n\n### 用同一个测试字符串对比\n假设字符串：`\"abab\"`\n\n#### 1. 用 `(ab)+`（捕获分组）\n- 正则 `/^(ab)+$/` 匹配 `\"abab\"` 时，整体匹配成功。\n- `\\1` 保存的是最后一次循环捕获的内容：`\"ab\"`（第二个 `ab`），而不是 `\"abab\"`。\n- 捕获组编号为1，会占用内存记录子匹配。\n\n#### 2. 用 `(?:ab)+`（非捕获分组）\n- 同样 `/^(?:ab)+$/` 匹配 `\"abab\"`。\n- **没有捕获组**，所以 `\\1` 或 `$1` 未定义或指向其他捕获组（如果存在）。\n- 分组效果与捕获分组完全一致（`+` 将 `ab` 重复两次），但不会多余存储子匹配。\n\n---\n\n### 陷阱提示\n- **性能**：非捕获分组免去了捕获记录的额外开销，在循环分组或大量重复时能提升效率。\n- **编号影响**：捕获组的编号是按左括号出现的顺序依次分配的。如果滥用捕获分组（例如仅为了分组而用 `()`），后面的真正需要捕获的组编号会变得混乱。使用 `(?:)` 可以避免这种干扰。\n\n> 简单记忆：**用 `()` 是因为需要** `\\1`、`$1` **引用或后续替换时保留文本；否则用 `(?:)` 更干净、高效。**",
+      "output_B_baseline": "在正则表达式中，`()` 和 `(?:)` 都用于**分组**，但它们的核心区别在于是否**捕获匹配的内容**。\n\n### 1. `()` —— 捕获分组\n- **作用**：将括号内的子表达式视为一个整体，并**捕获**该部分匹配到的文本。捕获的内容会被存储在内存中，可以通过**反向引用**（如 `\\1`、`$1`）或程序中的匹配结果来获取。\n- **使用场景**：\n  - 需要提取匹配的子串时（例如从字符串中提取电话号码、邮箱等）。\n  - 需要在正则表达式内部进行反向引用（如 `(\\w)\\1` 匹配连续重复字符）。\n- **示例**：\n  ```regex\n  (\\w+)@(\\w+)\\.(\\w+)\n  ```\n  匹配 `user@example.com` 后，可以通过 `$1` 获取 `user`，`$2` 获取 `example`，`$3` 获取 `com`。\n\n### 2. `(?:)` —— 非捕获分组\n- **作用**：同样用于**分组**（将多个子表达式当作一个整体），但**不捕获**匹配的内容。它只是纯粹的分组，不占用内存保存匹配结果，也不能用于反向引用。\n- **使用场景**：\n  - 只需要**逻辑分组**而不需要提取内容时（例如使用 `|` 选择时限定范围）。\n  - 为了优化性能（避免不必要的捕获开销）。\n- **示例**：\n  ```regex\n  (?:https?|ftp)://\\S+\n  ```\n  匹配 `http://`、`https://` 或 `ftp://` 开头的 URL，但不会单独捕获协议名。\n\n### 主要区别总结\n\n| 特性               | `()`（捕获分组）               | `(?:)`（非捕获分组）           |\n|--------------------|-------------------------------|-------------------------------|\n| 分组功能           | ✅                            | ✅                            |\n| 捕获文本并存储     | ✅                            | ❌                            |\n| 支持反向引用       | ✅（如 `\\1`）                 | ❌                            |\n| 影响匹配结果索引   | ✅（增加捕获组编号）           | ❌（不参与编号）              |\n| 性能               | 稍慢（需内存存储）             | 稍快（无额外存储）             |\n\n### 示例对比\n假设字符串为 `\"ab123\"`：\n\n- 用 `(a)(?:b)(\\d+)` 匹配：\n  - 捕获组1：`a`\n  - 捕获组2：`123`（因为 `(?:b)` 不参与捕获编号）\n- 若用 `(a)(b)(\\d+)` 匹配：\n  - 捕获组1：`a`\n  - 捕获组2：`b`\n  - 捕获组3：`123`\n\n### 何时使用非捕获分组？\n- 当你只需要将多个选项组合在一起（如 `(?:cat|dog)`），但不需要单独提取它们时。\n- 当你需要应用量词到一组模式（如 `(?:ab)+`），但后续不会引用该组内容时。\n- 当捕获分组数量过多可能影响性能或导致正则表达式复杂时。\n\n总之，**`()`用于需要提取或引用子匹配的场合，而`(?:)`用于纯分组以提高效率和简洁性**。",
+      "judge_verdicts": {
+        "task_completion": "INVALID",
+        "robustness": "tied",
+        "readability": "A_better"
+      },
+      "golden_verdicts": {
+        "task_completion": "tied",
+        "robustness": "tied",
+        "readability": "tied"
+      },
+      "previous_judge_verdicts": {
+        "task_completion": "tied",
+        "robustness": "tied",
+        "readability": "A_better"
+      },
+      "judge_audit": {
+        "task_completion": {
+          "comparison_id": "p1i-gate-micu-0905:017:0",
+          "presented_order": {
+            "A": "skill",
+            "B": "baseline"
+          },
+          "raw_verdict": "INVALID",
+          "canonical_verdict": "INVALID",
+          "reason_codes": [
+            "JUDGE_CALL_FAILED"
+          ],
+          "evidence_summary": "HelloAgentsException: OpenAI API调用失败: Connection error.",
+          "source": "infrastructure",
+          "raw_response": ""
+        },
+        "robustness": {
+          "comparison_id": "p1i-gate-micu-0905:017:1",
+          "presented_order": {
+            "A": "baseline",
+            "B": "skill"
+          },
+          "raw_verdict": "tied",
+          "canonical_verdict": "tied",
+          "reason_codes": [
+            "EVIDENCE_SUFFICIENT"
+          ],
+          "evidence_summary": "两者均准确说明 () 会捕获并占用编号、(?:) 仅分组且不捕获，并均给出合理的性能开销提示；均未编造未知信息或未处理异常输入。",
+          "source": "judge",
+          "raw_response": "{\"verdict\":\"tied\",\"reason_codes\":[\"EVIDENCE_SUFFICIENT\"],\"evidence_summary\":\"两者均准确说明 () 会捕获并占用编号、(?:) 仅分组且不捕获，并均给出合理的性能开销提示；均未编造未知信息或未处理异常输入。\"}"
+        },
+        "readability": {
+          "comparison_id": "p1i-gate-micu-0905:017:2",
+          "presented_order": {
+            "A": "skill",
+            "B": "baseline"
+          },
+          "raw_verdict": "A_better",
+          "canonical_verdict": "A_better",
+          "reason_codes": [
+            "EVIDENCE_SUFFICIENT"
+          ],
+          "evidence_summary": "两者均准确覆盖捕获与非捕获、编号及性能；A以一句话定义、同例对比和简短提示组织信息，重复更少且更直接，B的场景、表格和结尾存在较多重复。",
+          "source": "judge",
+          "raw_response": "{\"verdict\":\"A_better\",\"reason_codes\":[\"EVIDENCE_SUFFICIENT\"],\"evidence_summary\":\"两者均准确覆盖捕获与非捕获、编号及性能；A以一句话定义、同例对比和简短提示组织信息，重复更少且更直接，B的场景、表格和结尾存在较多重复。\"}"
+        }
+      },
+      "output_sha256": {
+        "skill": "fb026794e1b60f5f178c6a71955a2614829029422c538f7ff14cb14a56be4f3b",
+        "baseline": "46c37fad2f24ab039a8a8d361d2426c02880f2c42235e431a96d85fcada8148e"
+      }
+    },
+    {
+      "case_id": "er_d05",
+      "skill": "explain_regex",
+      "query": "什么是正则的锚点",
+      "reference": "定义 ^ $ \\b \\B；给小例子",
+      "output_A_skill": "## 锚点（Anchors）\n\n**一句话定义**：锚点不匹配具体字符，只匹配字符串中的**位置**（开头、结尾、单词边界等），用于限定匹配发生的方位。\n\n**小例子**：字符串 `\"hello world\"`\n\n- `^hello` 能匹配开头的 `hello`，因为 `^` 匹配字符串开始位置。\n- `world$` 能匹配结尾的 `world`，因为 `$` 匹配字符串结束位置。\n- `\\bworld` 能匹配 `world`（前面是空格，属于单词边界），而 `\\bello` 不能匹配，因为 `ello` 前面是 `h`（非单词边界）。`\\B` 则相反。\n\n**陷阱提示**：锚点不消耗字符，例如 `/^abc/` 匹配 `\"abc\"` 后，匹配位置是在 `c` 之后；如果用 `/^abc|def$/` 想表达“开头是abc或结尾是def”，由于 `|` 优先级过低，实际会匹配 `(^abc)|(def$)` 而非 `^(abc|def)$`，需要加括号。",
+      "output_B_baseline": "正则表达式中的**锚点**（Anchors）是一种特殊的元字符，它不匹配具体的字符，而是匹配**位置**。你可以把锚点想象成“定位器”，它用来指定匹配操作应该在字符串的**哪个位置**开始或结束。\n\n常见的有以下几种：\n\n### 1. 行/字符串的开始与结束\n\n-   **`^` （脱字符）：匹配字符串或行的开头。**\n    -   默认情况下，它匹配整个字符串的起始位置。\n    -   在多行模式（如 JavaScript 的 `m` 标志）下，它匹配每一行的开头。\n    -   **例子：** 正则 `^hello` 可以匹配 `\"hello world\"` 中的 `hello`，但不会匹配 `\"say hello\"` 中的 `hello`。\n\n-   **`$` （美元符号）：匹配字符串或行的结尾。**\n    -   默认情况下，它匹配整个字符串的结束位置。\n    -   在多行模式下，它匹配每一行的结尾。\n    -   **例子：** 正则 `world$` 可以匹配 `\"hello world\"` 中的 `world`，但不会匹配 `\"world is big\"` 中的 `world`。\n\n### 2. 单词边界\n\n-   **`\\b`：匹配一个单词的边界。**\n    -   即 `\\w`（单词字符：字母、数字、下划线）和 `\\W`（非单词字符）之间的位置。也包括字符串开头或结尾之前/之后的位置。\n    -   可以理解为“位置检查”：当前位置的一侧是单词字符，另一侧不是单词字符。\n    -   **例子：**\n        -   正则 `\\bcat\\b` 可以匹配句子 `\"The cat sat.\"` 中的 `cat`，因为它的前后都是空格（非单词字符）。\n        -   但它**不会**匹配 `\"category\"` 中的 `cat`，因为 `cat` 后面跟着单词字符 `e`，不是边界。\n\n-   **`\\B`：匹配非单词边界。**\n    -   与 `\\b` 相反，它匹配 `\\w` 和 `\\w` 之间，或者 `\\W` 和 `\\W` 之间的位置。\n    -   **例子：** 正则 `\\Bcat\\B` 可以匹配 `\"concatenate\"` 中的 `cat`（因为前后都是单词字符），但不会匹配 `\"cat\"` 这个词本身。\n\n### 关键区别与注意事项\n\n1.  **锚点不占用字符**：`^`、`$`、`\\b` 这些锚点本身不会被匹配结果包含。“匹配”的是它们所标识的那个位置。\n2.  **`^` 在字符组 `[...]` 中的作用完全不同**：在字符组内部，`^` 表示“取反”。例如 `[^abc]` 表示匹配“不是 a、b、c 的任意字符”。而作为锚点，`^` 必须在字符组**外面**。\n3.  **多行模式的影响**：\n    -   在不启用多行模式时，`^` 和 `$` 只匹配整个字符串的开头和结尾。\n    -   启用多行模式（例如在正则末尾加 `m` 修饰符）后，它们会匹配每一行的开头和结尾（由换行符分隔）。\n4.  **与其他语言的差异**：某些正则引擎（如 Python 的 `re` 模块）还有 `\\A` 和 `\\Z`，它们始终匹配**整个字符串**的开始和结束，不受多行模式影响。\n\n### 简单的对比示例\n\n假设我们要从字符串中查找单词 `\"is\"`：\n\n-   **字符串：** `\"This is a test.\"`\n-   **无锚点：** 正则 `is` 会匹配 `\"Th**is**\"` 中的 `is` 和 `\"**is**\"` 中的 `is`。\n-   **使用锚点：** 正则 `\\bis\\b` 会**只**匹配 `\"**is**\"` 中的 `is`，因为它前后都是边界（空格），而 `\"This\"` 中的 `is` 前面是 `h`（单词字符），不是边界。\n\n总结：锚点是正则表达式的“定位工具”，用来精确控制匹配的位置，避免意外匹配到单词的一部分或错误的位置。",
+      "judge_verdicts": {
+        "task_completion": "B_better",
+        "robustness": "B_better",
+        "readability": "B_better"
+      },
+      "golden_verdicts": {
+        "task_completion": "tied",
+        "robustness": "tied",
+        "readability": "A_better"
+      },
+      "previous_judge_verdicts": {
+        "task_completion": "tied",
+        "robustness": "tied",
+        "readability": "A_better"
+      },
+      "judge_audit": {
+        "task_completion": {
+          "comparison_id": "p1i-gate-micu-0905:018:0",
+          "presented_order": {
+            "A": "baseline",
+            "B": "skill"
+          },
+          "raw_verdict": "A_better",
+          "canonical_verdict": "B_better",
+          "reason_codes": [
+            "EVIDENCE_SUFFICIENT"
+          ],
+          "evidence_summary": "A 明确定义并分别解释了 ^、$、\\b、\\B，且每项都有可验证示例；B 对 \\B 仅称“相反”，缺少定义和示例，未完整满足参考期望。",
+          "source": "judge",
+          "raw_response": "{\"verdict\":\"A_better\",\"reason_codes\":[\"EVIDENCE_SUFFICIENT\"],\"evidence_summary\":\"A 明确定义并分别解释了 ^、$、\\\\b、\\\\B，且每项都有可验证示例；B 对 \\\\B 仅称“相反”，缺少定义和示例，未完整满足参考期望。\"}"
+        },
+        "robustness": {
+          "comparison_id": "p1i-gate-micu-0905:018:1",
+          "presented_order": {
+            "A": "skill",
+            "B": "baseline"
+          },
+          "raw_verdict": "B_better",
+          "canonical_verdict": "B_better",
+          "reason_codes": [
+            "EVIDENCE_SUFFICIENT"
+          ],
+          "evidence_summary": "两者均定义并举例了 ^、$、\\b、\\B；但 A 将 /^abc|def$/ 误称为需要括号，其实际分组 (^abc)|(def$) 正符合“开头是 abc 或结尾是 def”，且所给 ^(abc|def)$ 改变了语义。B 未编造该错误结论，并明确说明多行模式和引擎差异。",
+          "source": "judge",
+          "raw_response": "{\"verdict\":\"B_better\",\"reason_codes\":[\"EVIDENCE_SUFFICIENT\"],\"evidence_summary\":\"两者均定义并举例了 ^、$、\\\\b、\\\\B；但 A 将 /^abc|def$/ 误称为需要括号，其实际分组 (^abc)|(def$) 正符合“开头是 abc 或结尾是 def”，且所给 ^(abc|def)$ 改变了语义。B 未编造该错误结论，并明确说明多行模式和引擎差异。\"}"
+        },
+        "readability": {
+          "comparison_id": "p1i-gate-micu-0905:018:2",
+          "presented_order": {
+            "A": "baseline",
+            "B": "skill"
+          },
+          "raw_verdict": "A_better",
+          "canonical_verdict": "B_better",
+          "reason_codes": [
+            "EVIDENCE_SUFFICIENT"
+          ],
+          "evidence_summary": "A 完整定义并分别举例说明 ^、$、\\b、\\B，结构虽较长但清晰；B 对 \\B 未作具体定义，且其关于 /^abc|def$/ 需要改为 /^(abc|def)$/ 的提示会改变原本“开头 abc 或结尾 def”的语义。",
+          "source": "judge",
+          "raw_response": "{\"verdict\":\"A_better\",\"reason_codes\":[\"EVIDENCE_SUFFICIENT\"],\"evidence_summary\":\"A 完整定义并分别举例说明 ^、$、\\\\b、\\\\B，结构虽较长但清晰；B 对 \\\\B 未作具体定义，且其关于 /^abc|def$/ 需要改为 /^(abc|def)$/ 的提示会改变原本“开头 abc 或结尾 def”的语义。\"}"
+        }
+      },
+      "output_sha256": {
+        "skill": "c5369afe6a434ab5895edbb615f68813ab6930cca223f3b799034d9406e3fbc5",
+        "baseline": "1eed14cb4bb5488327b94ab4ef7e389f2a7ce3acbacd14eee2e2256e1229563e"
+      }
+    },
+    {
+      "case_id": "er_d06",
+      "skill": "explain_regex",
+      "query": "讲一下 lookahead",
+      "reference": "定义（?= ?!）；小例子；提示 lookbehind",
+      "output_A_skill": "**Lookahead** 是正则里的一种**零宽断言**，它只检查当前位置 **后面** 是否满足某个模式，但 **不消耗字符**（匹配结果不包含该模式）。有正向（肯定）和负向（否定）两种形式。\n\n**正向先行断言** `(?=...)`  \n例句：「匹配一个后面紧跟着数字的字母」  \n测试字符串 `\"a1b2c\"`  \n- 模式 `[a-z](?=\\d)` 会匹配 `a` 和 `b`（因为 `a` 后面是 `1`，`b` 后面是 `2`），但不会匹配 `c`（后面不是数字）。\n\n**负向先行断言** `(?!...)`  \n例句：「匹配一个后面不是数字的字母」  \n- 用 `[a-z](?!\\d)` 匹配同一字符串，结果只有 `c`（因为 `c` 后面是字符串结尾，不是数字）。\n\n**陷阱**：  \n- Lookahead **不消费字符**，所以多次使用 lookahead 实际上都是在同一个位置同时检查多个条件。  \n- 配合量词时小心：`\\d(?=.*[a-z])` 看似匹配「后面有字母的数字」，但 `.*` 会贪婪回溯，可能不是你预期的位置。",
+      "output_B_baseline": "我们来详细讲讲 **Lookahead（前瞻）**。它是一个在多个领域（尤其是**正则表达式**和**编译器设计**）中非常重要的概念。\n\n为了让你更清晰地理解，我们主要聚焦在**正则表达式中的 Lookahead**，这是最常用到的地方，最后再简单提一下其他领域的应用。\n\n### 核心思想：看前不看后，不吃不喝\n\nLookahead 的核心思想是：**它允许你“向前”查看字符串，检查某个模式是否在后面出现，但不会真正“消费”（匹配）这些字符**。\n\n你可以把它想象成一个“侦察兵”。侦察兵向前探路，看看有没有敌人（特定模式），然后回来报告。但侦察兵自己并不参与战斗（不消费字符），而且他也**不会移动自己所在的位置**（匹配位置仍在原地）。\n\n因为不消费字符，所以 Lookahead 是一种**零宽断言**。这意味着它只表明一个位置或条件，而不匹配任何实际字符。\n\n### 正则表达式中的 Lookahead\n\n在正则表达式中，Lookahead 有两种主要形式：\n\n1.  **正向先行断言 (Positive Lookahead)**\n    -   **语法**：`(?=...)`\n    -   **含义**：检查当前位置之后的内容是否匹配 `...` 这个模式。如果匹配，则当前位置符合条件，继续匹配；如果不匹配，则整个匹配失败。\n    -   **通俗理解**：后面必须是 `...`。\n\n    -   **例子**：我们想匹配所有以 “ing” 结尾的单词中的前面部分。\n        -   正则：`\\w+(?=ing)`\n        -   待匹配文本：`playing, singing, worked`\n        -   **匹配过程**：\n            -   引擎先尝试匹配 `\\w+` （一个或多个字母），直到遇到边界。\n            -   然后 Lookahead `(?=ing)` 查看当前位置后面是否是 `ing`。\n            -   在 `playing` 中，`\\w+` 匹配到 `playing`，Lookahead 检查 `ing` 是否在它后面。是的，所以整个 `playing` 被匹配？**不对！** 因为 Lookahead 不消费字符，实际匹配的是 `\\w+` **停在 Lookahead 判断成功的那部分**。\n            -   更精确地说，`\\w+(?=ing)` 会匹配 `playing` 中的 `play`。因为 `\\w+` 会尝试尽可能多匹配，Lookahead 会检查匹配完 `playing` 后后面跟着 `ing`（字符串末尾），这成立，所以匹配的是 `playing`。等一下，这个例子容易混淆。我们换一个。\n        -   **更好的例子**：匹配单词 “apple” 但只匹配后面跟着 “pie” 的那个 “apple”。\n            -   正则：`apple(?= pie)`\n            -   待匹配文本：`apple pie, apple juice`\n            -   匹配结果：它会匹配第一个句子中的 `apple`（后面有空格和pie），但**不会**匹配第二个句子中的 `apple`（后面是空格和juice）。匹配到的字符只有 `apple`，空格和 `pie` 只是被“看到了”但没被匹配。\n\n2.  **负向先行断言 (Negative Lookahead)**\n    -   **语法**：`(?!...)`\n    -   **含义**：检查当前位置之后的内容**是否不匹配** `...` 这个模式。如果不匹配，则当前位置符合条件；如果匹配，则失败。\n    -   **通俗理解**：后面**不能**是 `...`。\n\n    -   **例子**：我们想匹配所有**不以** “ing” 结尾的单词的完整部分。\n        -   正则：`\\w+(?!ing)`\n        -   待匹配文本：`playing, worked`\n        -   **匹配过程：**\n            -   引擎先匹配 `\\w+`，得到 `playing`。\n            -   然后 Lookahead `(?!ing)` 检查 `playing` 后面。`playing` 后面是字符串结束，不是 `ing`，所以符合条件。`playing` 被匹配。\n            -   在 `worked` 中，`\\w+` 匹配 `worked`，Lookahead 检查后面是字符串结束，不是 `ing`，所以 `worked` 也被匹配。这个例子看起来成功了，但有一个重要的陷阱：**回溯**。\n            -   `\\w+` 默认是贪婪的。它会先匹配整个单词，然后Lookahead失败，引擎会回溯，让`\\w+`少匹配一个字母，再检查Lookahead。例如在 `playing` 中：\n                1.  `\\w+` 匹配 `playing`，Lookahead 检查 `^`（字符串结尾）是否是 `ing`？不是，成功。匹配 `playing`。\n                2.  但在 `swimming` 中：\n                    1.  `\\w+` 匹配 `swimming`，Lookahead检查 `^` 是否是 `ing`？不是，成功？**不对！** Lookahead看的是`...`，这里检查的是`^`（空字符串）是否匹配`ing`？空字符串不是`ing`，所以成功？**不**，Lookahead会检查`^`（也就是`m`之后的字符）是否是`ing`。`m`后面是字符串结尾，不是`ing`，所以`swimming`被匹配了。这显然不是我们想要的。我们想匹配`swim`。\n            -   所以**负向先行断言常与捕获组或特定模式结合使用**来达到更精确的效果。更常见的用法是：`\\b\\w+\\b(?!ing)` 或者更精确的：`\\b\\w+(?<!i)(?<!n)(?<!g)\\b` 等，但这会引入逆向断言。\n\n### 实际应用场景（正则）\n\n1.  **密码强度验证**：要求密码必须包含大写字母、小写字母、数字和特殊字符中的至少三种，且长度至少8位。\n    -   `^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[!@#$%^&*()_+\\-=\\[\\]{};':\"\\\\|,.<>\\/?]).{8,}$`\n    -   这里有四个 Lookahead，每个都检查整个字符串中是否存在某种字符，但都不消费字符，最后 `.{8,}` 才真正匹配整个字符串（长度至少8）。\n\n2.  **排除特定模式**：比如匹配所有不以 “abc” 开头的行。\n    -   `^(?!abc).*$`\n    -   `^` 匹配行首，Lookahead `(?!abc)` 检查行首后面不是 “abc”，如果符合，`.*` 就匹配整行。\n\n3.  **替换操作中的条件判断**：虽然替换本身在结果上直接修改，但 Lookahead 可以用来决定替换的位置。例如，在每三位数字后插入一个逗号（千位分隔符）：`(\\d)(?=(\\d{3})+(?!\\d))` 用 `$1,` 替换。\n\n### 在其他领域的 Lookahead\n\n1.  **编译器设计（语法分析）**\n    -   **LL(k) 解析器**：这里 “k” 就是 lookahead token 的数量。解析器遇到一个非终结符时，需要查看后面多个 token 来决定选择哪条产生式。比如，解析 `A ::= B C | D E`，如果看到 `B` 就选第一条，看到 `D` 就选第二条。如果语法有歧义，就需要更多 lookahead（比如 LL(2)）来区分。\n    -   **LR 解析器**：使用一个栈和 lookahead token 来决定是“移进”还是“规约”。\n\n2.  **自然语言处理（NLP）**\n    -   在语言模型中，Lookahead 可以指模型在预测下一个词时，不仅看左边的上下文（单向），也可以看到右边的一些词（双向），比如 BERT 模型就是基于双向上下文（masked language model 其实是看到了左右，但通常说 Lookahead 在自回归模型中用于训练时防止作弊，比如 masked self-attention 中的 lookahead mask）。\n\n### 总结\n\n| 特性 | 正向先行断言 `(?=...)` | 负向先行断言 `(?!...)` |\n| :--- | :--- | :--- |\n| **作用** | 确保后面**紧跟**指定模式 | 确保后面**不紧跟**指定模式 |\n| **消费字符** | 不消费（零宽） | 不消费（零宽） |\n| **匹配本质** | 条件判断，非字符匹配 | 条件判断，非字符匹配 |\n| **典型用例** | 密码规则、千位分隔符 | 排除特定单词、避免特定模式 |\n\n**一句话总结：Lookahead 让你在匹配时能“向前看”检查条件，但只检查不取走，像一个只负责侦察的哨兵，帮你在需要精确条件判断的场景下写出更简洁的规则。**",
+      "judge_verdicts": {
+        "task_completion": "A_better",
+        "robustness": "A_better",
+        "readability": "A_better"
+      },
+      "golden_verdicts": {
+        "task_completion": "A_better",
+        "robustness": "A_better",
+        "readability": "A_better"
+      },
+      "previous_judge_verdicts": {
+        "task_completion": "B_better",
+        "robustness": "tied",
+        "readability": "A_better"
+      },
+      "judge_audit": {
+        "task_completion": {
+          "comparison_id": "p1i-gate-micu-0905:019:0",
+          "presented_order": {
+            "A": "skill",
+            "B": "baseline"
+          },
+          "raw_verdict": "A_better",
+          "canonical_verdict": "A_better",
+          "reason_codes": [
+            "UNVERIFIED_EXTERNAL_FACT_B"
+          ],
+          "evidence_summary": "B 给出实时数值但没有工具 provenance",
+          "source": "truth_sentinel",
+          "raw_response": ""
+        },
+        "robustness": {
+          "comparison_id": "p1i-gate-micu-0905:019:1",
+          "presented_order": {
+            "A": "baseline",
+            "B": "skill"
+          },
+          "raw_verdict": "B_better",
+          "canonical_verdict": "A_better",
+          "reason_codes": [
+            "UNVERIFIED_EXTERNAL_FACT_A"
+          ],
+          "evidence_summary": "A 给出实时数值但没有工具 provenance",
+          "source": "truth_sentinel",
+          "raw_response": ""
+        },
+        "readability": {
+          "comparison_id": "p1i-gate-micu-0905:019:2",
+          "presented_order": {
+            "A": "skill",
+            "B": "baseline"
+          },
+          "raw_verdict": "A_better",
+          "canonical_verdict": "A_better",
+          "reason_codes": [
+            "EVIDENCE_SUFFICIENT"
+          ],
+          "evidence_summary": "A 直接给出 (?=...) 与 (?!...) 定义、简洁示例和零宽提示；B 明显冗长，包含自相矛盾且被自行推翻的示例推导，并扩展到与查询无关的领域。",
+          "source": "judge",
+          "raw_response": "{\"verdict\":\"A_better\",\"reason_codes\":[\"EVIDENCE_SUFFICIENT\"],\"evidence_summary\":\"A 直接给出 (?=...) 与 (?!...) 定义、简洁示例和零宽提示；B 明显冗长，包含自相矛盾且被自行推翻的示例推导，并扩展到与查询无关的领域。\"}"
+        }
+      },
+      "output_sha256": {
+        "skill": "e8e0d9767e78d500ab1fbb1aa129096c8d20d808c7ac4676fa3116b7791479c0",
+        "baseline": "4f6fa93f93b98921e13bfa5ed8a4dfd04ffa147e04bddf234280cc595c135dcc"
+      }
+    },
+    {
+      "case_id": "er_d07",
+      "skill": "explain_regex",
+      "query": "这个正则我看不懂 [a-z]+@\\w+\\.\\w+ 你讲讲",
+      "reference": "逐段拆解字符类 + 一次或多次 + @ + 单词字符 + . + 单词字符",
+      "output_A_skill": "好的，我们从头到尾把 `[a-z]+@\\w+\\.\\w+` 拆开讲一遍。这个正则本质上是一个**简化版的邮箱匹配模式**。\n\n---\n\n### 从左到右逐块解释\n\n| 部分 | 含义 | 举例可匹配 |\n|------|------|-----------|\n| `[a-z]+` | 字符类 `[a-z]` 匹配任意一个小写字母（a~z）；`+` 表示一次或多次，所以整体匹配**一段连续的小写字母** | `john`, `test`, `a` |\n| `@` | 字面量，必须匹配一个 at 符号 | `@` |\n| `\\w+` | `\\w` 是单词字符，等价于 `[a-zA-Z0-9_]`（字母、数字、下划线）；`+` 表示一次或多次，匹配**一段连续的单词字符** | `gmail`, `outlook`, `mail1` |\n| `\\.` | 点号 `.` 在正则中默认匹配任意字符，这里用反斜杠转义，表示**字面的点号** | `.` |\n| `\\w+` | 同上，再次匹配一段单词字符，对应**顶级域名** | `com`, `org`, `net` |\n\n整体效果：匹配 `小写字符串@单词.单词` 这样的结构。\n\n---\n\n### 一个匹配例子\n\n字符串 `\"john@gmail.com\"` 被匹配的过程：\n\n1. `[a-z]+` 匹配 `john`  \n2. `@` 匹配 `@`  \n3. `\\w+` 匹配 `gmail`  \n4. `\\.` 匹配 `.`  \n5. `\\w+` 匹配 `com`  \n\n最终完全匹配。\n\n---\n\n### 一个不匹配的例子\n\n字符串 `\"John@gmail.com\"`（大写J）  \n- `[a-z]+` 尝试匹配时，`J` 不在 `[a-z]` 范围内，立即失败。  \n- 整个正则匹配失败。  \n（注意：`\\w` 是包含大写的，但这里用户名部分限死了小写。）\n\n---\n\n### 陷阱提示\n\n1. **只认小写用户名** —— 真实邮箱允许大小写，若需要大小写不敏感，应改为 `[a-zA-Z]+` 或直接 `\\w+`（但 `\\w` 会允许数字和下划线，可能导致多余匹配）。  \n2. **不支持多级域名** —— 比如 `mail.example.co.uk` 会无法匹配，因为模式只允许一个点号；需要更复杂的写法（如 `(\\.\\w+)+`）。  \n3. **点号必须转义** —— 如果忘写反斜杠，写成 `[a-z]+@\\w+.\\w+`，那么 `.` 会匹配任意字符，导致 `a@bXcom` 这种非法格式也被认为匹配。\n\n---\n\n如果你想了解这个正则的**原理层概念**（如字符类、量词、转义），也可以继续问我。",
+      "output_B_baseline": "这个正则表达式 `[a-z]+@\\w+\\.\\w+` 是用来匹配简单格式的电子邮件地址的。我们来逐段拆解：\n\n- `[a-z]+`  \n  - `[a-z]` 表示匹配任意一个小写英文字母（a 到 z）。  \n  - `+` 表示前面的字符（或字符集）出现**一次或多次**。  \n  - 所以 `[a-z]+` 匹配一个或多个连续的小写字母，比如 `abc`、`hello`，但不能包含数字、大写字母或下划线。\n\n- `@`  \n  - 直接匹配字符 `@`，也就是电子邮件地址中常见的“at”符号。\n\n- `\\w+`  \n  - `\\w` 是单词字符的简写，通常等价于 `[a-zA-Z0-9_]`，即匹配大小写字母、数字或下划线。  \n  - `+` 表示一个或多个。  \n  - 因此这里匹配一个或多个单词字符，比如 `gmail`、`outlook`、`company123`。\n\n- `\\.`  \n  - 点号 `.` 在正则里默认匹配任意字符，所以要用反斜杠 `\\` 转义，表示匹配真正的**点号** `.`。\n\n- `\\w+`  \n  - 再次匹配一个或多个单词字符，通常是顶级域名，比如 `com`、`cn`、`org`。\n\n**整体匹配的示例：**  \n`username@example.com`（注意这里的 `username` 必须全是小写字母，而 `example` 和 `com` 可以包含字母、数字、下划线。）\n\n**局限性：**  \n- 用户名只允许小写字母，实际邮箱允许大小写、数字、点号、下划线等。  \n- 域名部分只允许单点分隔，无法匹配 `example.co.uk` 这种多级域名。  \n- 不支持域名中的连字符 `-`（例如 `my-site.com` 就匹配不了）。\n\n这是一个非常简化的电子邮件匹配模式，常用于快速验证或提取简单格式的邮箱。",
+      "judge_verdicts": {
+        "task_completion": "A_better",
+        "robustness": "tied",
+        "readability": "B_better"
+      },
+      "golden_verdicts": {
+        "task_completion": "tied",
+        "robustness": "tied",
+        "readability": "A_better"
+      },
+      "previous_judge_verdicts": {
+        "task_completion": "tied",
+        "robustness": "tied",
+        "readability": "A_better"
+      },
+      "judge_audit": {
+        "task_completion": {
+          "comparison_id": "p1i-gate-micu-0905:020:0",
+          "presented_order": {
+            "A": "baseline",
+            "B": "skill"
+          },
+          "raw_verdict": "B_better",
+          "canonical_verdict": "A_better",
+          "reason_codes": [
+            "EVIDENCE_SUFFICIENT"
+          ],
+          "evidence_summary": "两者均逐段解释了字符类、+、@、\\w 和转义点号；B额外用完整匹配与失败示例演示实际匹配过程，更直接地帮助理解该正则。",
+          "source": "judge",
+          "raw_response": "{\"verdict\":\"B_better\",\"reason_codes\":[\"EVIDENCE_SUFFICIENT\"],\"evidence_summary\":\"两者均逐段解释了字符类、+、@、\\\\w 和转义点号；B额外用完整匹配与失败示例演示实际匹配过程，更直接地帮助理解该正则。\"}"
+        },
+        "robustness": {
+          "comparison_id": "p1i-gate-micu-0905:020:1",
+          "presented_order": {
+            "A": "skill",
+            "B": "baseline"
+          },
+          "raw_verdict": "tied",
+          "canonical_verdict": "tied",
+          "reason_codes": [
+            "EVIDENCE_SUFFICIENT"
+          ],
+          "evidence_summary": "两者均准确逐段解释了字符类、+、@、\\w、转义点号及末尾\\w+，且均明确说明这是简化邮箱模式及其限制，未编造未知信息。",
+          "source": "judge",
+          "raw_response": "{\"verdict\":\"tied\",\"reason_codes\":[\"EVIDENCE_SUFFICIENT\"],\"evidence_summary\":\"两者均准确逐段解释了字符类、+、@、\\\\w、转义点号及末尾\\\\w+，且均明确说明这是简化邮箱模式及其限制，未编造未知信息。\"}"
+        },
+        "readability": {
+          "comparison_id": "p1i-gate-micu-0905:020:2",
+          "presented_order": {
+            "A": "baseline",
+            "B": "skill"
+          },
+          "raw_verdict": "A_better",
+          "canonical_verdict": "B_better",
+          "reason_codes": [
+            "EVIDENCE_SUFFICIENT"
+          ],
+          "evidence_summary": "两者均逐段准确拆解了字符类、量词、@、单词字符和转义点号；A以更少层级完成解释并补充必要局限，较符合不啰嗦、易读的要求。",
+          "source": "judge",
+          "raw_response": "{\"verdict\":\"A_better\",\"reason_codes\":[\"EVIDENCE_SUFFICIENT\"],\"evidence_summary\":\"两者均逐段准确拆解了字符类、量词、@、单词字符和转义点号；A以更少层级完成解释并补充必要局限，较符合不啰嗦、易读的要求。\"}"
+        }
+      },
+      "output_sha256": {
+        "skill": "43b4dce25d36893d7e7bc4077d0b2fc9c325324f7610e3d251ac31d970f40895",
+        "baseline": "dba9fdda290e16461b57d9c21a439dc22ec9f5850decf4de2f8ff553f63c8b8f"
+      }
+    }
+  ]
+}

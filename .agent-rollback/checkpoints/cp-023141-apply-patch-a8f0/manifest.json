@@ -1,0 +1,336 @@
+{
+  "createdAt": "2026-09-04T02:31:41.453Z",
+  "files": {
+    ".gitignore": {
+      "mode": 384,
+      "sha256": "6a2890524807c47407880f28f730105fc8ef9898fc770971bd26c06b88f301d7",
+      "size": 554,
+      "type": "file"
+    },
+    "ARCHITECTURE.md": {
+      "mode": 384,
+      "sha256": "7a69890e39d53447c337f6421b05ec6eda9e20ba360467913d8b81c9b1bfb69e",
+      "size": 25745,
+      "type": "file"
+    },
+    "evaluation_sets/baseline_dev.json": {
+      "mode": 436,
+      "sha256": "ff454d3dab5865bf0d3ea094e338dd7e544787929956ccc417bee9e9ecb1ac48",
+      "size": 6457,
+      "type": "file"
+    },
+    "evaluation_sets/baseline_hidden.json": {
+      "mode": 436,
+      "sha256": "c6a902a9fcdf3e0d53d8a92f98c66a1e311bc65dc11bdc91a7824927037100a4",
+      "size": 1940,
+      "type": "file"
+    },
+    "evaluation_sets/p0_cases.json": {
+      "mode": 436,
+      "sha256": "1c0606fe381be7fcf2dc97edc0d3dc4085ac1dc25c7ddd4841962ccd20382507",
+      "size": 1411,
+      "type": "file"
+    },
+    "evaluation_sets/router_negatives.json": {
+      "mode": 436,
+      "sha256": "e8f3a9d97764702e44a3e0db1973f204da44beba68caf3397606a1d0cd0b4a2b",
+      "size": 7535,
+      "type": "file"
+    },
+    "pyproject.toml": {
+      "mode": 436,
+      "sha256": "c229362055ac71d2270991db2713de70ddeac68a48cee300b16dbe43ec7289d7",
+      "size": 686,
+      "type": "file"
+    },
+    "README.md": {
+      "mode": 436,
+      "sha256": "df4f0962c9fe8e6ef0ec8365e3ac3629e15ab7418bf24c72aae28b7149b42963",
+      "size": 13616,
+      "type": "file"
+    },
+    "runs/blind_eval_samples.json": {
+      "mode": 436,
+      "sha256": "e52d5bb214692d86bb0efb34d02b87a8ba8acc8030866df1166a217da1ef83e2",
+      "size": 80867,
+      "type": "file"
+    },
+    "runs/failures/.gitkeep": {
+      "mode": 436,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "type": "file"
+    },
+    "scripts/blind_eval_report.py": {
+      "mode": 436,
+      "sha256": "78e36c92626944dc35a0b5edf00d112146979e38a5f622d6d7db55580133e6a9",
+      "size": 2952,
+      "type": "file"
+    },
+    "scripts/blind_eval_run.py": {
+      "mode": 436,
+      "sha256": "ac5050483f9d2357b3fb96a0ad5f39c454a7f7693a1fac56f1d7982b4435243d",
+      "size": 4443,
+      "type": "file"
+    },
+    "scripts/eval_router.py": {
+      "mode": 436,
+      "sha256": "5cee635cb00844ca4dc812194ec05ee78a666bf2d2fa8aa4f3d5b3a916c428dc",
+      "size": 5268,
+      "type": "file"
+    },
+    "skills/explain_regex/SKILL.md": {
+      "mode": 436,
+      "sha256": "8e85d0cb3d61bf8bd148081b34bebfedcfde578fe123b3e2cdeeed8ef5f61e86",
+      "size": 2340,
+      "type": "file"
+    },
+    "skills/weather_query/SKILL.md": {
+      "mode": 436,
+      "sha256": "37d16aa5fca4d2d00a04c1d938eaa027d182bf8ddf0b5189b23f8c881803e953",
+      "size": 1805,
+      "type": "file"
+    },
+    "skills/write_weekly_report/SKILL.md": {
+      "mode": 436,
+      "sha256": "5cb3d1f4c91f2b9b1d5bc0f1275201b950457d380af0df2e1d590abfe49991f8",
+      "size": 2287,
+      "type": "file"
+    },
+    "src/skillforge/__init__.py": {
+      "mode": 436,
+      "sha256": "c6baa583c7fa358c8b0ed87a013f7adf691941369083abcf83f41329d087f258",
+      "size": 835,
+      "type": "file"
+    },
+    "src/skillforge/cli.py": {
+      "mode": 436,
+      "sha256": "f66b7473aa14f484e34f994b3c309bdc735bc005b632e0528041a3bc1eee6493",
+      "size": 11478,
+      "type": "file"
+    },
+    "src/skillforge/diff.py": {
+      "mode": 436,
+      "sha256": "0f10d5460c9aff134ba0339f70aae6a819998e134a40761647dc1426482a02e6",
+      "size": 14072,
+      "type": "file"
+    },
+    "src/skillforge/evaluator/__init__.py": {
+      "mode": 436,
+      "sha256": "cf4b513e18821fd3447c86381175b71a6d1b241646a2acbf30857e365a610215",
+      "size": 11346,
+      "type": "file"
+    },
+    "src/skillforge/evaluator/fixtures.py": {
+      "mode": 436,
+      "sha256": "3762bc33aa809371d75615d6fbf3c4e64a0e1594720cf421d039599a65394d7f",
+      "size": 8778,
+      "type": "file"
+    },
+    "src/skillforge/evaluator/judge.py": {
+      "mode": 436,
+      "sha256": "a23f28a4473676e4246fbae40e981c9b67c74b6e6f463d0ac20a72d568551815",
+      "size": 2749,
+      "type": "file"
+    },
+    "src/skillforge/evaluator/metrics.py": {
+      "mode": 436,
+      "sha256": "672c5716c9fb575c734e6235cd4fc19f565ab2f3a6d0fbadfbb36fa8235c1be2",
+      "size": 1427,
+      "type": "file"
+    },
+    "src/skillforge/evaluator/ratchet.py": {
+      "mode": 436,
+      "sha256": "22677a0aff3a173912519434d46abce694772fef0a6bfb422318858cc72fef90",
+      "size": 3823,
+      "type": "file"
+    },
+    "src/skillforge/evaluator/structure.py": {
+      "mode": 436,
+      "sha256": "487e8c9efc4a06a2b4c4c6c2988c2ac4a3f466c7c39492f4de2f9fb2a0c3b746",
+      "size": 2097,
+      "type": "file"
+    },
+    "src/skillforge/evaluator/validators.py": {
+      "mode": 436,
+      "sha256": "308c64042694aab0998b1907d7713428090759c6a6b497bea57d842fa72bf758",
+      "size": 6385,
+      "type": "file"
+    },
+    "src/skillforge/evolver.py": {
+      "mode": 436,
+      "sha256": "4dfec4679793db80a9a785def87ee4b3e9ad3fc592b33174cb957114326d0f41",
+      "size": 28509,
+      "type": "file"
+    },
+    "src/skillforge/models.py": {
+      "mode": 436,
+      "sha256": "c0be2c8a4396cab7d88eacddc181aaeccc60c600cd79b70a1dcc42a2685155b7",
+      "size": 3231,
+      "type": "file"
+    },
+    "src/skillforge/registry.py": {
+      "mode": 436,
+      "sha256": "6c3a53a172d0a6c101dc3ed796099666169c1f8e98624bb23c1e825042318804",
+      "size": 7080,
+      "type": "file"
+    },
+    "src/skillforge/router/__init__.py": {
+      "mode": 436,
+      "sha256": "f2b25c358955d4727822d18bb38248bd722dcdec992452dd29154f3d4453639b",
+      "size": 128,
+      "type": "file"
+    },
+    "src/skillforge/router/cascade.py": {
+      "mode": 436,
+      "sha256": "4ae6ba30d4e78e9517c59b8cd43188da3f0ca3f2b061260d2588db4864c49c37",
+      "size": 5528,
+      "type": "file"
+    },
+    "src/skillforge/router/embed.py": {
+      "mode": 436,
+      "sha256": "a55ee6cfdadda8e6d85b1bebc15301a6da35062ee2cfec40f724bd735b244745",
+      "size": 3280,
+      "type": "file"
+    },
+    "src/skillforge/router/evaluation.py": {
+      "mode": 436,
+      "sha256": "0bf147ca20600f635ff90069ac466e5befe6fffbe3be13cf46ea0f750586eed6",
+      "size": 2550,
+      "type": "file"
+    },
+    "src/skillforge/router/llm.py": {
+      "mode": 436,
+      "sha256": "4878c7773cfe5d216884c5c7e129807a739c0dbc53d00f65d21858dcea3c2582",
+      "size": 3847,
+      "type": "file"
+    },
+    "src/skillforge/router/rule.py": {
+      "mode": 436,
+      "sha256": "9294dce75d44295c14f819f9c871b658fc8bca4271fc7848a04ccb25400eaece",
+      "size": 1036,
+      "type": "file"
+    },
+    "src/skillforge/state_machine.py": {
+      "mode": 436,
+      "sha256": "3d3095bd4e0be1d831c86ad7fd63d89f4e5b1c906ee87fd58c3d247404bf1908",
+      "size": 6983,
+      "type": "file"
+    },
+    "src/skillforge/storage/__init__.py": {
+      "mode": 436,
+      "sha256": "91b877bb4e02054713d537da72b9ccb32083149f07dab8df2c0a74dd0f447d8f",
+      "size": 150,
+      "type": "file"
+    },
+    "src/skillforge/storage/db.py": {
+      "mode": 436,
+      "sha256": "a69aa6eb2571ef10b2f8959aad34fab43bbcd9fd3a9687adcf0c2f8953b86159",
+      "size": 1541,
+      "type": "file"
+    },
+    "src/skillforge/storage/git_ops.py": {
+      "mode": 436,
+      "sha256": "24380148fe57aa3393893b9f9a4dbf356bdfc226e1e82c53149230a3533fa5eb",
+      "size": 1711,
+      "type": "file"
+    },
+    "src/skillforge/storage/jsonl.py": {
+      "mode": 436,
+      "sha256": "22d59db783c5b3fad7e2db9b603a1f6e1ec123d312ed486d2f352d7932ae30b0",
+      "size": 698,
+      "type": "file"
+    },
+    "tests/__init__.py": {
+      "mode": 436,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "type": "file"
+    },
+    "tests/test_diff_and_levels.py": {
+      "mode": 436,
+      "sha256": "fd92f87aa8234d6c63ec3b76661fc5c38b351821750291758795d02bd84ce6d0",
+      "size": 12324,
+      "type": "file"
+    },
+    "tests/test_evaluator.py": {
+      "mode": 436,
+      "sha256": "7fe7392d7f40b1610cb94f04b6dc8ed82d45a3fc61756b70773ab1dc1f5eccb5",
+      "size": 8980,
+      "type": "file"
+    },
+    "tests/test_evolver.py": {
+      "mode": 436,
+      "sha256": "76e275cbc163f25c8cf9c03c70b6898fcf30d3a5613ce4fa623e2b3703400353",
+      "size": 8510,
+      "type": "file"
+    },
+    "tests/test_registry.py": {
+      "mode": 436,
+      "sha256": "db0251f839af1984b9e6377cf0f9c8ff65947b558afd6936ee81e24cf92f9e59",
+      "size": 8054,
+      "type": "file"
+    },
+    "tests/test_router.py": {
+      "mode": 436,
+      "sha256": "a495f9eee6912a4d7e684c32583fdb36cd715af3317b1cbd6866ac1cc26f8a01",
+      "size": 6874,
+      "type": "file"
+    },
+    "tests/test_state_machine.py": {
+      "mode": 436,
+      "sha256": "c5ab7be33053af67c035cab084062ef6220627f19ec02652338b9fa28831fbff",
+      "size": 4541,
+      "type": "file"
+    },
+    "tests/test_validator_coupling.py": {
+      "mode": 436,
+      "sha256": "30fc5ca3db5d6252606f1a869f4adb48c96270fa00d31ae3d3a8a2f152d6fd7c",
+      "size": 10082,
+      "type": "file"
+    },
+    "uv.lock": {
+      "mode": 436,
+      "sha256": "87c2a0a7d12ce12767136ddd4d475a2d1ed34eae242d430654cea3bfab727f0e",
+      "size": 463995,
+      "type": "file"
+    }
+  },
+  "id": "cp-023141-apply-patch-a8f0",
+  "metadata": {
+    "hookEvent": "PostToolUse",
+    "permissionMode": "bypassPermissions",
+    "prompt": "",
+    "sessionId": "01a06a36-45f2-7a33-afdd-063f5bff862d",
+    "source": "codex-hook",
+    "toolName": "apply_patch",
+    "toolUseId": "exec-80196219-83fe-4dd0-b389-319dbb02df94",
+    "transcriptTail": [
+      "{\"timestamp\":\"2026-09-04T02:30:45.661Z\",\"ordinal\":363,\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":3204427,\"cached_input_tokens\":3097344,\"cache_write_input_tokens\":0,\"output_tokens\":27174,\"reasoning_output_tokens\":9807,\"total_tokens\":3231601},\"last_token_usage\":{\"input_tokens\":116207,\"cached_input_tokens\":114944,\"cache_write_input_tokens\":0,\"output_tokens\":3717,\"reasoning_output_tokens\":1172,\"total_tokens\":119924},\"model_context_window\":258400},\"rate_limits\":{\"limit_id\":\"codex\",\"limit_name\":null,\"primary\":{\"used_percent\":92.0,\"window_minutes\":300,\"resets_at\":1788496331},\"secondary\":{\"used_percent\":56.0,\"window_minutes\":10080,\"resets_at\":1788959607},\"credits\":{\"has_credits\":false,\"unlimited\":false,\"balance\":\"0\"},\"individual_limit\":null,\"spend_control_reached\":null,\"plan_type\":\"plus\",\"rate_limit_reached_type\":null}}}",
+      "{\"timestamp\":\"2026-09-04T02:30:45.662Z\",\"ordinal\":364,\"type\":\"inter_agent_communication_metadata\",\"payload\":{\"trigger_turn\":false}}",
+      "{\"timestamp\":\"2026-09-04T02:30:45.662Z\",\"ordinal\":365,\"type\":\"response_item\",\"payload\":{\"type\":\"agent_message\",\"id\":\"amsg_01a06a41-169e-7012-83b4-7066109d7696\",\"author\":\"/root/impl_review\",\"recipient\":\"/root\",\"content\":[{\"type\":\"input_text\",\"text\":\"Message Type: FINAL_ANSWER\\nTask name: /root\\nSender: /root/impl_review\\nPayload:\\n审查结论：6/10，需修复后定稿。\\n\\n- P1 `validators.py:39-45`：正例门近乎失效；实测 weather 基线 R1=0/10，元数据全改成量子物理仍 PASS。应按 embed retrieval@1/@3 比较。\\n- P1 `validators.py:75-100`：清空 trigger keywords 仍 PASS；降级路径须同时检查正例和跨 Skill 回归。\\n- P1 `validators.py:111-115`：删除唯一依赖返回 PASS 且 0 provenance；应比较 old/new 依赖并验证变更并集。\\n- P2 `fixtures.py:109`：fixture 异常逸出，无 ERROR provenance；应逐项捕获并结构化拒绝。\\n\\n实测 compileall、目标 5/5、全量 99/99 均绿；未知依赖关闭、组合 all-pass/fail-fast、沙箱隔离、序列化兼容通过。勿提交 `.agent-rollback/`。\"}],\"internal_chat_message_metadata_passthrough\":{\"turn_id\":\"01a06a36-463a-7b40-a58a-cd8a354d7427\",\"create_time\":1788489045.6620233}}}",
+      "{\"timestamp\":\"2026-09-04T02:30:56.572Z\",\"ordinal\":366,\"type\":\"event_msg\",\"payload\":{\"type\":\"item_completed\",\"thread_id\":\"01a06a36-45f2-7a33-afdd-063f5bff862d\",\"turn_id\":\"01a06a36-463a-7b40-a58a-cd8a354d7427\",\"item\":{\"type\":\"Reasoning\",\"id\":\"rs_0b052b5e97b4f800016a9a2d5abd2c87d08110149c7f06ec94\",\"summary_text\":[],\"raw_content\":[]},\"started_at_ms\":1788489051079,\"completed_at_ms\":1788489056572}}",
+      "{\"timestamp\":\"2026-09-04T02:30:56.573Z\",\"ordinal\":367,\"type\":\"response_item\",\"payload\":{\"type\":\"reasoning\",\"id\":\"rs_0b052b5e97b4f800016a9a2d5abd2c87d08110149c7f06ec94\",\"summary\":[],\"encrypted_content\":\"gAAAAABqmi1gUBHBOIn4qFQ_0tseesBny51MAr9KyvewieHCTY3aVIM9CO-JcQKqNBegWKOKrdJGmiutihoY_3Y1tBF_XXop0SuTDHoWS1DHFViz9aS6WXgwF1htJeWE6vzhq9HPvpX0Rs7vkKEM8wzJqYSvPrjRGkw9yMbcahq5z7ucJ7CQBL2Z3PDkwUdtsnmdXlDrUIp24Gu5geJebG2Jc72v0x3JGqiJciGKozK1lXXUgmbKuaJyQ11c5-QMYRAesg-q35yJRl_5-9UBIq39WuqOIEQByTlionQR5T1RPIzQz7T8LO8sZY3b7W5q36Ul1Bj3UyFGmK38ekROSkkFlqU32HIsMV-kBO3oPlwbOo1tD7Pe80R7B94Rk35vKtZxp9cTb8bZMmNlf4SV7NVPv7fAkVZUTN9u88hh23OwMy3dlNFPzqeJL0w6AUsMtXOvsYoEHz6EG12WWp7Qkr2DFpBt0c8ONEyzb_v9qI2fRrl_pd_vq3239hEwE1nomPSIRuXpzQw0hm3aAtjoWe-kOeQiRYQS4LLz-oNYNSKhqQUqZsLt2ruYWEicKgWpHRjIp_N-mc2lEFI5Q-XEboIvzq_uHyT-ogFhUThsnDtbX22eGHdThJj54lFmL5XEBr-JrqVU_pxouQDvZlHcFrQdErYwwUnIW-831KfpnL1ApBHgtEFSv_W0L-8KpdA7lYZu0_DTynMg1MFZ7jR_EorfeQXDrj5oiYQ6l3U_TpbPfOpoMtB7E_jSq9DwVFneo1qTK-X_SuZkkcwijgooGg1poEY...",
+      "{\"timestamp\":\"2026-09-04T02:31:16.732Z\",\"ordinal\":368,\"type\":\"response_item\",\"payload\":{\"type\":\"custom_tool_call\",\"id\":\"ctc_0b052b5e97b4f800016a9a2d6070dc87d0b74219d3d99bca18\",\"status\":\"completed\",\"call_id\":\"call_2U4WTyGcAGMEGfVmZXwKhmo9\",\"name\":\"exec\",\"input\":\"const patch = \\\"*** Begin Patch\\\\n*** Update File: /home/caoruixin/projects/skillForge/src/skillforge/router/evaluation.py\\\\n@@\\\\n     ok_at_1 = 0\\\\n     ok_at_3 = 0\\\\n+    retrieval_ok_at_1 = 0\\\\n@@\\\\n         if expected is None:\\\\n             r1 = chosen is None\\\\n             r3 = chosen is None\\\\n+            retrieval_r1 = r1\\\\n         else:\\\\n             r1 = chosen == expected\\\\n             r3 = expected in top_names\\\\n+            retrieval_r1 = bool(top_names) and top_names[0] == expected\\\\n \\\\n         ok_at_1 += int(r1)\\\\n         ok_at_3 += int(r3)\\\\n+        retrieval_ok_at_1 += int(retrieval_r1)\\\\n@@\\\\n                 \\\\\\\"r1\\\\\\\": r1,\\\\n                 \\\\\\\"r3\\\\\\\": r3,\\\\n+                \\\\\\\"retrieval_r1\\\\\\...",
+      "{\"timestamp\":\"2026-09-04T02:31:16.751Z\",\"ordinal\":369,\"type\":\"token_usage_record\",\"payload\":{\"thread_id\":\"01a06a36-45f2-7a33-afdd-063f5bff862d\",\"turn_id\":\"01a06a36-463a-7b40-a58a-cd8a354d7427\",\"session_id\":\"01a06a36-45f2-7a33-afdd-063f5bff862d\",\"root_turn_id\":\"01a06a36-463a-7b40-a58a-cd8a354d7427\",\"response_id\":\"resp_0b052b5e97b4f800016a9a2d57dc7c87d0a53467771daeb5e6\",\"usage\":{\"input_tokens\":121512,\"cached_input_tokens\":120576,\"cache_write_input_tokens\":0,\"output_tokens\":1435,\"reasoning_output_tokens\":309,\"total_tokens\":122947},\"turn_token_usage\":{\"input_tokens\":3325939,\"cached_input_tokens\":3217920,\"cache_write_input_tokens\":0,\"output_tokens\":28609,\"reasoning_output_tokens\":10116,\"total_tokens\":3354548},\"thread_token_usage\":{\"input_tokens\":3325939,\"cached_input_tokens\":3217920,\"cache_write_input_tokens\":0,\"output_tokens\":28609,\"reasoning_output_tokens\":10116,\"total_tokens\":3354548}}}",
+      "{\"timestamp\":\"2026-09-04T02:31:16.871Z\",\"ordinal\":370,\"type\":\"response_item\",\"payload\":{\"type\":\"custom_tool_call_output\",\"id\":\"ctco_01a06a41-9087-7223-b3f5-7dd8457ddafd\",\"call_id\":\"call_2U4WTyGcAGMEGfVmZXwKhmo9\",\"output\":[{\"type\":\"input_text\",\"text\":\"Script failed\\nWall time 0.1 seconds\\nOutput:\\n\"},{\"type\":\"input_text\",\"text\":\"Script error:\\napply_patch verification failed: invalid patch: multiple operations target /home/caoruixin/projects/skillForge/src/skillforge/evaluator/validators.py\"}],\"internal_chat_message_metadata_passthrough\":{\"turn_id\":\"01a06a36-463a-7b40-a58a-cd8a354d7427\",\"create_time\":1788489076.871164}}}",
+      "{\"timestamp\":\"2026-09-04T02:31:16.871Z\",\"ordinal\":371,\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":3325939,\"cached_input_tokens\":3217920,\"cache_write_input_tokens\":0,\"output_tokens\":28609,\"reasoning_output_tokens\":10116,\"total_tokens\":3354548},\"last_token_usage\":{\"input_tokens\":121512,\"cached_input_tokens\":120576,\"cache_write_input_tokens\":0,\"output_tokens\":1435,\"reasoning_output_tokens\":309,\"total_tokens\":122947},\"model_context_window\":258400},\"rate_limits\":{\"limit_id\":\"codex\",\"limit_name\":null,\"primary\":{\"used_percent\":93.0,\"window_minutes\":300,\"resets_at\":1788496331},\"secondary\":{\"used_percent\":56.0,\"window_minutes\":10080,\"resets_at\":1788959607},\"credits\":{\"has_credits\":false,\"unlimited\":false,\"balance\":\"0\"},\"individual_limit\":null,\"spend_control_reached\":null,\"plan_type\":\"plus\",\"rate_limit_reached_type\":null}}}",
+      "{\"timestamp\":\"2026-09-04T02:31:19.030Z\",\"ordinal\":372,\"type\":\"event_msg\",\"payload\":{\"type\":\"item_completed\",\"thread_id\":\"01a06a36-45f2-7a33-afdd-063f5bff862d\",\"turn_id\":\"01a06a36-463a-7b40-a58a-cd8a354d7427\",\"item\":{\"type\":\"Reasoning\",\"id\":\"rs_0b052b5e97b4f800016a9a2d7676e087d088cae9a01faa256f\",\"summary_text\":[],\"raw_content\":[]},\"started_at_ms\":1788489078569,\"completed_at_ms\":1788489079030}}",
+      "{\"timestamp\":\"2026-09-04T02:31:19.030Z\",\"ordinal\":373,\"type\":\"response_item\",\"payload\":{\"type\":\"reasoning\",\"id\":\"rs_0b052b5e97b4f800016a9a2d7676e087d088cae9a01faa256f\",\"summary\":[],\"encrypted_content\":\"gAAAAABqmi12shCnFhabyMa3PmN_8cXJ8DCd529tlsflLNNC59n8B8KD5PP4SZ7cF93Vctes3n9qz-aSLuGVQZCDVDxV8GJ_ZatqrzKuF66kyDXKhNjc2Ny0d5CMW1q7KZLOIXjB_Ta_yetPLOvlG6J9k-ydAR5sSPq-dGh54GGXjal81fTP6QnGR06FH4eGsm0Mfg0Mn_6wiWtt2xumi9gCN1YYrYbuHAQ2Zm5KhvEUCM8h555YD9221gkpdCQv6gOFCuXUm0c3yhw5XzrBrpYHUVc-5PUdh7O1A9tQQZ2g1MeTpqqe_CVHKJK9a_x0bL1-8AIw-85fl67d7XCfWe43qPjuAbpv24wAdS5BLGrojhCzb3vcNmrgnkhlEmDMtl4FkJFN1oMAA8Uirile22MkzyRlIPzgJw23BgX5q05vC9XAoKE8qJrBGXgpfF0df3IX4SCDlK2B8a7E4YNw1MvUCchWLKdMKbRDPGhK8peXXjxdZVf5kQFyXMMEYjFqgeu-RzUrgpE6pGDtkSDTbnVKyhxY8RVJJtfMHBEj56fh_v4Pq9EjM-d-Lf5fWAgMbHvpuCF9qWR9mKbcyEBjiQcqCKakneMTPs3tK6M59JDg9cL6wlICkJiL1UqFxut8KIb8V-29oWBVvOFnbJdJfzKcwQ0sLA9vtO7Av9XC1__4gMXUmUG_Aj12vb6LQsgkG2zGeDvMZykSOKMLBRBoG9ZdPetm_o7z01KYKJlFpOMzTCaKg0eOK09OYzQV2vGolh772f2PWLz0j4Ld9DzxKR_uwyf...",
+      "{\"timestamp\":\"2026-09-04T02:31:28.129Z\",\"ordinal\":374,\"type\":\"response_item\",\"payload\":{\"type\":\"custom_tool_call\",\"id\":\"ctc_0b052b5e97b4f800016a9a2d76e3b087d0b5598c229495932d\",\"status\":\"completed\",\"call_id\":\"call_f6Zqq5IBKzWb5zN9nhww4zWP\",\"name\":\"exec\",\"input\":\"const patch = \\\"*** Begin Patch\\\\n*** Update File: /home/caoruixin/projects/skillForge/src/skillforge/router/evaluation.py\\\\n@@\\\\n     ok_at_1 = 0\\\\n     ok_at_3 = 0\\\\n+    retrieval_ok_at_1 = 0\\\\n@@\\\\n         if expected is None:\\\\n             r1 = chosen is None\\\\n             r3 = chosen is None\\\\n+            retrieval_r1 = r1\\\\n         else:\\\\n             r1 = chosen == expected\\\\n             r3 = expected in top_names\\\\n+            retrieval_r1 = bool(top_names) and top_names[0] == expected\\\\n \\\\n         ok_at_1 += int(r1)\\\\n         ok_at_3 += int(r3)\\\\n+        retrieval_ok_at_1 += int(retrieval_r1)\\\\n@@\\\\n                 \\\\\\\"r1\\\\\\\": r1,\\\\n                 \\\\\\\"r3\\\\\\\": r3,\\\\n+                \\\\\\\"retrieval_r1\\\\\\...",
+      "{\"timestamp\":\"2026-09-04T02:31:28.235Z\",\"ordinal\":375,\"type\":\"token_usage_record\",\"payload\":{\"thread_id\":\"01a06a36-45f2-7a33-afdd-063f5bff862d\",\"turn_id\":\"01a06a36-463a-7b40-a58a-cd8a354d7427\",\"session_id\":\"01a06a36-45f2-7a33-afdd-063f5bff862d\",\"root_turn_id\":\"01a06a36-463a-7b40-a58a-cd8a354d7427\",\"response_id\":\"resp_0b052b5e97b4f800016a9a2d75785087d0bd369881d0d3595e\",\"usage\":{\"input_tokens\":123003,\"cached_input_tokens\":121344,\"cache_write_input_tokens\":0,\"output_tokens\":527,\"reasoning_output_tokens\":16,\"total_tokens\":123530},\"turn_token_usage\":{\"input_tokens\":3448942,\"cached_input_tokens\":3339264,\"cache_write_input_tokens\":0,\"output_tokens\":29136,\"reasoning_output_tokens\":10132,\"total_tokens\":3478078},\"thread_token_usage\":{\"input_tokens\":3448942,\"cached_input_tokens\":3339264,\"cache_write_input_tokens\":0,\"output_tokens\":29136,\"reasoning_output_tokens\":10132,\"total_tokens\":3478078}}}",
+      "{\"timestamp\":\"2026-09-04T02:31:28.279Z\",\"ordinal\":376,\"type\":\"event_msg\",\"payload\":{\"type\":\"item_completed\",\"thread_id\":\"01a06a36-45f2-7a33-afdd-063f5bff862d\",\"turn_id\":\"01a06a36-463a-7b40-a58a-cd8a354d7427\",\"item\":{\"type\":\"FileChange\",\"id\":\"exec-2586ac5c-ce93-4136-a626-66dadb068ee9\",\"changes\":{\"/home/caoruixin/projects/skillForge/src/skillforge/evaluator/fixtures.py\":{\"type\":\"update\",\"unified_diff\":\"@@ -146,3 +146,24 @@\\n \\n-        response = factory().run_with_timing(parameters)\\n+        try:\\n+            response = factory().run_with_timing(parameters)\\n+        except Exception as exc:\\n+            summary = f\\\"fixture 初始化或执行异常: {type(exc).__name__}: {exc}\\\"\\n+            provenances.append(\\n+                _provenance(\\n+                    dependency,\\n+                    fixture_case.case_id,\\n+                    True,\\n+                    True,\\n+                    False,\\n+                    False,\\n+                    False,\\n+                    parameters,\\n+...",
+      "{\"timestamp\":\"2026-09-04T02:31:28.415Z\",\"ordinal\":377,\"type\":\"response_item\",\"payload\":{\"type\":\"custom_tool_call_output\",\"id\":\"ctco_01a06a41-bd9f-7d42-b078-3c35d205703e\",\"call_id\":\"call_f6Zqq5IBKzWb5zN9nhww4zWP\",\"output\":[{\"type\":\"input_text\",\"text\":\"Script completed\\nWall time 0.3 seconds\\nOutput:\\n\"},{\"type\":\"input_text\",\"text\":\"{}\"}],\"internal_chat_message_metadata_passthrough\":{\"turn_id\":\"01a06a36-463a-7b40-a58a-cd8a354d7427\",\"create_time\":1788489088.4154904}}}",
+      "{\"timestamp\":\"2026-09-04T02:31:28.415Z\",\"ordinal\":378,\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":3448942,\"cached_input_tokens\":3339264,\"cache_write_input_tokens\":0,\"output_tokens\":29136,\"reasoning_output_tokens\":10132,\"total_tokens\":3478078},\"last_token_usage\":{\"input_tokens\":123003,\"cached_input_tokens\":121344,\"cache_write_input_tokens\":0,\"output_tokens\":527,\"reasoning_output_tokens\":16,\"total_tokens\":123530},\"model_context_window\":258400},\"rate_limits\":{\"limit_id\":\"codex\",\"limit_name\":null,\"primary\":{\"used_percent\":94.0,\"window_minutes\":300,\"resets_at\":1788496331},\"secondary\":{\"used_percent\":56.0,\"window_minutes\":10080,\"resets_at\":1788959607},\"credits\":{\"has_credits\":false,\"unlimited\":false,\"balance\":\"0\"},\"individual_limit\":null,\"spend_control_reached\":null,\"plan_type\":\"plus\",\"rate_limit_reached_type\":null}}}",
+      "{\"timestamp\":\"2026-09-04T02:31:30.449Z\",\"ordinal\":379,\"type\":\"event_msg\",\"payload\":{\"type\":\"item_completed\",\"thread_id\":\"01a06a36-45f2-7a33-afdd-063f5bff862d\",\"turn_id\":\"01a06a36-463a-7b40-a58a-cd8a354d7427\",\"item\":{\"type\":\"SubAgentActivity\",\"id\":\"subagent-completed-01a06a3d-351f-7a82-94f1-553616234552\",\"kind\":\"completed\",\"agent_thread_id\":\"01a06a3d-3506-75c1-a826-f8078c8cdddd\",\"agent_path\":\"/root/provenance_review\"},\"started_at_ms\":1788489090449,\"completed_at_ms\":1788489090449}}",
+      "{\"timestamp\":\"2026-09-04T02:31:41.175Z\",\"ordinal\":380,\"type\":\"response_item\",\"payload\":{\"type\":\"custom_tool_call\",\"id\":\"ctc_0b052b5e97b4f800016a9a2d81e39887d0bde7d87a27aa1a0c\",\"status\":\"completed\",\"call_id\":\"call_e3UugUweSHR960A3AI6g5Uy1\",\"name\":\"exec\",\"input\":\"const patch = \\\"*** Begin Patch\\\\n*** Update File: /home/caoruixin/projects/skillForge/src/skillforge/evaluator/validators.py\\\\n@@\\\\n-        if candidate[\\\\\\\"recall_at_1\\\\\\\"] < r1_target:\\\\n+        if candidate[\\\\\\\"retrieval_at_1\\\\\\\"] < r1_target:\\\\n             reasons.append(\\\\n-                f\\\\\\\"Router 全量 R@1={candidate['recall_at_1']:.2%} \\\\\\\"\\\\n+                f\\\\\\\"Router 全量 retrieval@1={candidate['retrieval_at_1']:.2%} \\\\\\\"\\\\n                 f\\\\\\\"低于门槛 {r1_target:.2%}\\\\\\\"\\\\n             )\\\\n@@\\\\n-        and base_by_id[item[\\\\\\\"id\\\\\\\"]][\\\\\\\"r1\\\\\\\"]\\\\n-        and not item[\\\\\\\"r1\\\\\\\"]\\\\n+        and base_by_id[item[\\\\\\\"id\\\\\\\"]][\\\\\\\"retrieval_r1\\\\\\\"]\\\\n+        and not item[\\\\\\\"retrieval_r1\\\\\\\"]\\\\n@@\\\\n-        and ...",
+      "{\"timestamp\":\"2026-09-04T02:31:41.324Z\",\"ordinal\":381,\"type\":\"event_msg\",\"payload\":{\"type\":\"item_completed\",\"thread_id\":\"01a06a36-45f2-7a33-afdd-063f5bff862d\",\"turn_id\":\"01a06a36-463a-7b40-a58a-cd8a354d7427\",\"item\":{\"type\":\"FileChange\",\"id\":\"exec-80196219-83fe-4dd0-b389-319dbb02df94\",\"changes\":{\"/home/caoruixin/projects/skillForge/src/skillforge/evaluator/validators.py\":{\"type\":\"update\",\"unified_diff\":\"@@ -43,5 +43,5 @@\\n         r3_target = float(targets.get(\\\"recall_at_3\\\", 1.0))\\n-        if candidate[\\\"recall_at_1\\\"] < r1_target:\\n+        if candidate[\\\"retrieval_at_1\\\"] < r1_target:\\n             reasons.append(\\n-                f\\\"Router 全量 R@1={candidate['recall_at_1']:.2%} \\\"\\n+                f\\\"Router 全量 retrieval@1={candidate['retrieval_at_1']:.2%} \\\"\\n                 f\\\"低于门槛 {r1_target:.2%}\\\"\\n@@ -57,4 +57,4 @@\\n         if item[\\\"expected\\\"] == skill_name\\n-        and base_by_id[item[\\\"id\\\"]][\\\"r1\\\"]\\n-        and not item[\\\"r1\\\"]\\n+        and base_by_id[item[\\\"id\\...",
+      "{\"timestamp\":\"2026-09-04T02:31:41.332Z\",\"ordinal\":382,\"type\":\"token_usage_record\",\"payload\":{\"thread_id\":\"01a06a36-45f2-7a33-afdd-063f5bff862d\",\"turn_id\":\"01a06a36-463a-7b40-a58a-cd8a354d7427\",\"session_id\":\"01a06a36-45f2-7a33-afdd-063f5bff862d\",\"root_turn_id\":\"01a06a36-463a-7b40-a58a-cd8a354d7427\",\"response_id\":\"resp_0b052b5e97b4f800016a9a2d810c1c87d099d181fd81d80134\",\"usage\":{\"input_tokens\":123554,\"cached_input_tokens\":122880,\"cache_write_input_tokens\":0,\"output_tokens\":627,\"reasoning_output_tokens\":0,\"total_tokens\":124181},\"turn_token_usage\":{\"input_tokens\":3572496,\"cached_input_tokens\":3462144,\"cache_write_input_tokens\":0,\"output_tokens\":29763,\"reasoning_output_tokens\":10132,\"total_tokens\":3602259},\"thread_token_usage\":{\"input_tokens\":3572496,\"cached_input_tokens\":3462144,\"cache_write_input_tokens\":0,\"output_tokens\":29763,\"reasoning_output_tokens\":10132,\"total_tokens\":3602259}}}"
+    ],
+    "transcriptPath": "/home/caoruixin/.codex/sessions/2026/09/04/rollout-2026-09-04T10-18-56-01a06a36-45f2-7a33-afdd-063f5bff862d.jsonl",
+    "turnId": "01a06a36-463a-7b40-a58a-cd8a354d7427"
+  },
+  "schemaVersion": 1,
+  "stateHash": "cee50a56396f646cb5593876691ceeaf2114ff108e0924ebcc970542a08239ed",
+  "workspaceRoot": "/home/caoruixin/projects/skillForge"
+}

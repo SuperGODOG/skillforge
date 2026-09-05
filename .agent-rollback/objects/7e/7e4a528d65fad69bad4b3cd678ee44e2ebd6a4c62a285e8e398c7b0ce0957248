@@ -1,0 +1,270 @@
+"""P0-A: deterministic semantic diff and anti-downgrade policy."""
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from skillforge.diff import compute_semantic_diff, split_markdown_sections
+from skillforge.evolver import _publish_patch
+from skillforge.models import EvalResult, Patch, RatchetVerdict
+
+
+_BASE_FRONTMATTER = r"""---
+name: explain_regex
+version: 1.0.0
+description: 讲解正则表达式的原理与匹配过程（不是帮用户写正则）
+use_when: 用户想理解正则表达式的语法、匹配机制、回溯原理，或看懂别人写的正则
+not_for:
+  - 用户要求"写一个正则匹配 XX"（那是代码生成任务）
+  - 正则性能调优（超出教学范围）
+  - 特定正则库（re / regex / PCRE）的 API 差异
+dependencies: []
+trigger:
+  keywords:
+    - 正则
+    - regex
+    - 讲解
+    - 匹配过程
+    - 回溯
+examples:
+  - 讲一下 (a|b)*c 是怎么匹配的
+  - 为什么 .* 会回溯这么慢
+  - 这个正则 \d{4}-\d{2}-\d{2} 什么意思
+evaluation:
+  last_score: null
+  last_release_id: null
+---"""
+
+_HISTORICAL_FRONTMATTER = r"""---
+name: explain_regex
+version: 1.0.1
+description: {description}
+use_when: 用户想理解正则表达式的语法、匹配机制、回溯原理，或看懂别人写的正则
+not_for:
+- 用户要求"写一个正则匹配 XX"（那是代码生成任务）
+- 正则性能调优（超出教学范围）
+- 特定正则库（re / regex / PCRE）的 API 差异
+dependencies: []
+trigger:
+  keywords:
+  - 正则
+  - regex
+  - 讲解
+  - 匹配过程
+  - 回溯
+examples:
+- 讲一下 (a|b)*c 是怎么匹配的
+- 为什么 .* 会回溯这么慢
+- 这个正则 \d{{4}}-\d{{2}}-\d{{2}} 什么意思{extra_example}
+---"""
+
+_BODY = """## Overview
+
+从原理层面讲解正则表达式：**字符类 / 量词 / 分组 / 锚点 / 回溯**。目标是让用户读得懂、说得清，而不是写出可用的正则。
+
+**能力边界**：只讲原理，不生产代码。
+
+## Instructions
+
+1. 识别用户问的是：
+   - **具体某个正则的含义**（"这个 X 是什么意思"）
+   - **某个概念的原理**（"回溯怎么工作"、"贪婪 vs 非贪婪"）
+   - **两个用法的区别**（"?: 和 ? 有什么不同"）
+2. 按识别到的类型走对应讲解模板：
+   - **具体正则** → 从左往右逐字符/逐组解释，画出匹配步骤
+   - **概念原理** → 一句话定义 + 一个小例子 + 一句陷阱提示
+   - **区别** → 用同一个测试字符串对比两种写法的行为
+3. 优先用小例子（5-15 字符的字符串）演示，别拿超长真实场景。
+
+## Examples
+
+**Q**：讲一下 `.*?` 是什么意思？
+
+**A**：
+> `.*?` 是 **非贪婪匹配**：`.*` 尽量少匹配。
+>
+> 对比：字符串 `<b>hi</b>foo`
+> - `<.*>` 会匹配 `<b>hi</b>`（贪婪，能吃多少吃多少）
+> - `<.*?>` 会匹配 `<b>`（非贪婪，够用即止）
+>
+> 陷阱：非贪婪不是"最快"，只是"最短匹配"，回溯次数不一定少。
+
+## Constraints
+
+- 用户说"帮我写一个正则匹配 XX"，直接告知"这是代码生成任务，我这里只讲原理；你可以让我讲你想到的写法为什么行/不行"。
+- 不给出可以直接跑的正则字符串作为主结果（避免被当成正则生成器用）。
+- 遇到复杂的实际正则（>100 字符），先拆解为几段再讲。"""
+
+_BASE = f"{_BASE_FRONTMATTER}\n\n{_BODY}"
+_CANDIDATE_1 = (
+    _HISTORICAL_FRONTMATTER.format(
+        description="讲解正则表达式的原理与匹配过程，提供完整、逐步的结构化解释（不是帮用户写正则）",
+        extra_example="",
+    )
+    + f"\n\n{_BODY}"
+)
+_CANDIDATE_2 = (
+    _HISTORICAL_FRONTMATTER.format(
+        description="讲解正则表达式的原理与匹配过程（不是帮用户写正则）",
+        extra_example="\n- 用例子讲解反向引用 \\1 的匹配逻辑",
+    )
+    + f"\n\n{_BODY}"
+)
+_CANDIDATE_3 = (
+    _HISTORICAL_FRONTMATTER.format(
+        description="讲解正则表达式的原理与匹配过程（不是帮用户写正则）",
+        extra_example="",
+    )
+    + "\n\n"
+    + _BODY.replace(
+        "3. 优先用小例子（5-15 字符的字符串）演示，别拿超长真实场景。",
+        "3. 优先用小例子（5-15 字符的字符串）演示，别拿超长真实场景。\n"
+        "4. 完整性：无论哪种类型，回答必须完整，不得因长度而省略关键部分。若解释内容较多，应使用编号列表、分节或小标题来组织，确保每一步都清晰呈现。",
+    )
+)
+
+
+def test_historical_candidate_1_computed_as_l1() -> None:
+    result = compute_semantic_diff(_BASE, _CANDIDATE_1, "L1")
+
+    assert result.is_valid is True
+    assert result.computed_level == "L1"
+    assert result.changed_frontmatter == ["description"]
+    assert result.changed_body_sections == []
+    assert result.downgrade_attempt is False
+
+
+def test_historical_candidate_2_computed_as_l1() -> None:
+    result = compute_semantic_diff(_BASE, _CANDIDATE_2, "L1")
+
+    assert result.is_valid is True
+    assert result.computed_level == "L1"
+    assert result.changed_frontmatter == ["examples"]
+    assert result.changed_body_sections == []
+
+
+def test_historical_candidate_3_computed_as_l2() -> None:
+    result = compute_semantic_diff(_BASE, _CANDIDATE_3, "L2")
+
+    assert result.is_valid is True
+    assert result.computed_level == "L2"
+    assert result.changed_frontmatter == []
+    assert result.changed_body_sections == ["Instructions"]
+
+
+def test_downgrade_attack_blocked(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    result = compute_semantic_diff(_BASE, _CANDIDATE_3, "L1")
+    called = False
+
+    def unexpected_publish(*args, **kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("downgrade attack reached automatic publishing")
+
+    monkeypatch.setattr("skillforge.evolver._apply_and_publish_L1", unexpected_publish)
+    patch = Patch(
+        skill_name="explain_regex",
+        level="L1",
+        diff=_CANDIDATE_3,
+        rationale="pretend this is low risk",
+        computed_level=result.computed_level,
+        unified_diff=result.unified_diff,
+        downgrade_attempt=result.downgrade_attempt,
+    )
+    eval_result = EvalResult(
+        release_id="candidate",
+        structure_score={},
+        effect_score={},
+        objective_metrics={},
+        p0_pass=True,
+    )
+
+    outcome = _publish_patch(
+        tmp_path,
+        registry=object(),
+        state_machine=object(),
+        skill_name="explain_regex",
+        patch=patch,
+        verdict=RatchetVerdict(decision="PASS"),
+        new_result=eval_result,
+    )
+
+    assert result.computed_level == "L2"
+    assert result.downgrade_attempt is True
+    assert called is False
+    assert outcome["status"] in {"REVIEW", "SUGGESTION"}
+
+
+def test_invariants_name_tampered_invalid() -> None:
+    candidate = _CANDIDATE_1.replace(
+        "name: explain_regex", "name: explain_regex_v2", 1
+    )
+
+    result = compute_semantic_diff(_BASE, candidate, "L1")
+
+    assert result.is_valid is False
+    assert result.computed_level == "INVALID"
+    assert "name 不变量被破坏" in (result.invalid_reason or "")
+
+
+@pytest.mark.parametrize("version", ["2.0.0", "1.1.0", "0.9.0"])
+def test_invariants_illegal_version_bump_invalid(version: str) -> None:
+    candidate = _CANDIDATE_1.replace("version: 1.0.1", f"version: {version}", 1)
+
+    result = compute_semantic_diff(_BASE, candidate, "L1")
+
+    assert result.is_valid is False
+    assert result.computed_level == "INVALID"
+    assert "version" in (result.invalid_reason or "")
+
+
+def test_risk_matrix_bubbles_to_highest_level() -> None:
+    candidate = _CANDIDATE_1.replace("dependencies: []", "dependencies: [python]", 1)
+
+    result = compute_semantic_diff(_BASE, candidate, "L1")
+
+    assert result.computed_level == "L3"
+    assert result.downgrade_attempt is True
+    assert result.changed_frontmatter == ["dependencies", "description"]
+
+
+def test_constraints_change_is_l3() -> None:
+    candidate = _CANDIDATE_3.replace(
+        "## Constraints\n", "## Constraints\n\n- 禁止泄露秘密。\n", 1
+    )
+
+    result = compute_semantic_diff(_BASE, candidate, "L2")
+
+    assert result.computed_level == "L3"
+    assert "Constraints" in result.changed_body_sections
+    assert result.downgrade_attempt is True
+
+
+def test_unknown_section_change_fails_closed_to_l2() -> None:
+    candidate = _CANDIDATE_1 + "\n\n## Notes\n\nnew runtime guidance"
+
+    result = compute_semantic_diff(_BASE, candidate, "L1")
+
+    assert result.computed_level == "L2"
+    assert result.changed_body_sections == ["Notes"]
+    assert result.downgrade_attempt is True
+
+
+def test_split_markdown_sections_preserves_duplicate_headings() -> None:
+    sections = split_markdown_sections(
+        "intro\n\n## Constraints\nfirst\n\n## Constraints\nsecond"
+    )
+
+    assert sections["__preamble__"] == "intro"
+    assert sections["Constraints"] == "first"
+    assert sections["Constraints#2"] == "second"
+
+
+def test_split_markdown_sections_ignores_headings_inside_fences() -> None:
+    sections = split_markdown_sections(
+        "## Examples\n```markdown\n## Not a real section\n```\n\n## Constraints\nsafe"
+    )
+
+    assert list(sections) == ["Examples", "Constraints"]
+    assert "## Not a real section" in sections["Examples"]

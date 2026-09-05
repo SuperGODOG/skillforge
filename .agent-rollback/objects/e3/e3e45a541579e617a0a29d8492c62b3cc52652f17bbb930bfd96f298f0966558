@@ -1,0 +1,655 @@
+"\"\"Tests for P1-E: A4 Prompt Bloat Guardrail."""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from types import SimpleNamespace
+import pytest
+
+from skillforge.models import (
+    BodySectionStats,
+    EvolveBudget,
+    EvolveContext,
+    EvolveRecord,
+    EvalResult,
+    Patch,
+    RatchetVerdict,
+    SkillMeta,
+    Trigger,
+)
+from skillforge.registry import SkillRegistry
+from skillforge.evaluator.p0_gate import P0GateResult
+from skillforge.evaluator.prompt_bloat import (
+    canonical_section_name,
+    compute_body_section_stats,
+    check_prompt_bloat,
+    PromptBloatResult,
+)
+from skillforge.evolver import (
+    SkillEvolver,
+    _generate_patches,
+    _validate_patch,
+    _publish_patch,
+    _archive_suggestion,
+)
+
+
+def _mk_sample_body(
+    overview: str = "这是天气查询 Skill 的概述信息。",
+    instructions: str = "1. 提取城市与日期。\n2. 调用气象接口获取数据。\n3. 格式化输出天气、气温、风向。",
+    examples: str = "Q: 北京明天天气？\nA: 明天白天晴，最高 28°C。",
+    constraints: str = "- 只支持未来 3 天天气。\n- 城市无效时提醒用户确认。",
+) -> str:
+    return (
+        f"## Overview\n\n{overview}\n\n"
+        f"## Instructions\n\n{instructions}\n\n"
+        f"## Examples\n\n{examples}\n\n"
+        f"## Constraints\n\n{constraints}\n"
+    )
+
+
+def _mk_skill_md(
+    name: str = "weather_query",
+    version: str = "1.0.0",
+    body: str = "",
+    description: str = "查询天气",
+    examples: list[str] = None,
+) -> str:
+    ex_lines = "\n".join(f"  - {e}" for e in (examples or ["北京天气"]))
+    return (
+        f"---\n"
+        f"name: {name}\n"
+        f"version: {version}\n"
+        f"description: {description}\n"
+        f"use_when: 用户查询天气\n"
+        f"not_for: []\n"
+        f"dependencies: []\n"
+        f"trigger:\n"
+        f"  keywords: [天气, 气温]\n"
+        f"examples:\n"
+        f"{ex_lines}\n"
+        f"evaluation:\n"
+        f"  last_score: null\n"
+        f"  last_release_id: null\n"
+        f"---\n\n"
+        f"{body}"
+    )
+
+
+class MockLLM:
+    def __init__(self, contents: list[str]):
+        self.contents = list(contents)
+
+    def invoke(self, messages, **kw):
+        c = self.contents.pop(0) if self.contents else ""
+        return SimpleNamespace(content=c, usage={"total_tokens": 100})
+
+
+# ============================================================================
+# 1. Body 分段字符统计测试
+# ============================================================================
+
+
+def test_compute_body_section_stats_standard_four_sections():
+    body = _mk_sample_body()
+    stats = compute_body_section_stats(body)
+
+    assert "Overview" in stats
+    assert "Instructions" in stats
+    assert "Examples" in stats
+    assert "Constraints" in stats
+    assert "total" in stats
+
+    assert stats["Overview"] == len("这是天气查询 Skill 的概述信息。")
+    assert stats["Instructions"] > 0
+    assert stats["Examples"] > 0
+    assert stats["Constraints"] > 0
+    assert stats["total"] == len(body.strip())
+
+
+def test_compute_body_section_stats_canonical_alias():
+    body = (
+        "## 概述\n系统概述介绍。\n\n"
+        "## 指令步骤\n第一步第二步第三步。\n\n"
+        "## 示例演示\nQ: 问\nA: 答\n\n"
+        "## 安全约束\n严禁越权。"
+    )
+    stats = compute_body_section_stats(body)
+    assert stats["Overview"] == len("系统概述介绍。")
+    assert stats["Instructions"] == len("第一步第二步第三步。")
+    assert stats["Examples"] == len("Q: 问\nA: 答")
+    assert stats["Constraints"] == len("严禁越权。")
+
+
+def test_compute_body_section_stats_duplicate_sections_accumulate():
+    body = (
+        "## Instructions\n第一部分操作步骤。\n\n"
+        "## 补充说明\n第二部分操作步骤。"
+    )
+    stats = compute_body_section_stats(body)
+    part1_len = len("第一部分操作步骤。")
+    part2_len = len("第二部分操作步骤。")
+    assert stats["Instructions"] == part1_len + part2_len
+
+
+def test_compute_body_section_stats_empty_or_whitespace():
+    assert compute_body_section_stats("")["total"] == 0
+    assert compute_body_section_stats("   \n  ")["total"] == 0
+
+
+def test_body_section_stats_model():
+    bss = BodySectionStats(overview=50, instructions=120, examples=80, constraints=60, total=310)
+    d = bss.to_dict()
+    assert d["Overview"] == 50
+    assert d["Instructions"] == 120
+    assert d["total"] == 310
+
+
+# ============================================================================
+# 2. 软门槛：单段 > 25% 且 > 100 字符
+# ============================================================================
+
+
+def test_soft_threshold_triggers_review_with_distillation():
+    old_body = _mk_sample_body()
+    old_stats = compute_body_section_stats(old_body)
+    old_inst_len = old_stats["Instructions"]
+
+    bloat_text = "\n" + ("请务必详细检查每一个字段，确保每一条输出均经过严格的自检流程，避免任何轻微的格式缺陷。" * 3)
+    new_instructions = "1. 提取城市与日期。\n2. 调用气象接口获取数据。\n3. 格式化输出天气。" + bloat_text
+    new_body = _mk_sample_body(instructions=new_instructions)
+    new_stats = compute_body_section_stats(new_body)
+
+    assert new_stats["Instructions"] - old_inst_len > 100
+    assert (new_stats["Instructions"] - old_inst_len) / old_inst_len > 0.25
+
+    res = check_prompt_bloat(old_body, new_body, changed_sections=["Instructions"])
+
+    assert res.passed is False
+    assert res.decision == "REVIEW"
+    assert any("PROMPT_BLOAT" in r and "Instructions" in r for r in res.reasons)
+    assert res.distillation_prompt is not None
+    assert "精简收敛" in res.distillation_prompt and "Instructions" in res.distillation_prompt
+    assert f"+{new_stats['Instructions'] - old_inst_len}" in res.distillation_prompt
+    assert f"{(new_stats['Instructions'] - old_inst_len) / old_inst_len:.1%}" in res.distillation_prompt
+    assert "软门槛" in res.distillation_prompt
+
+
+def test_soft_threshold_not_triggered_if_growth_under_25_percent():
+    long_inst = "步骤说明：" + ("严格按规范执行每一项操作。" * 60)
+    old_body = _mk_sample_body(instructions=long_inst)
+    old_stats = compute_body_section_stats(old_body)
+
+    add_text = "附加说明：" + ("补充测试要求。" * 18)
+    new_body = _mk_sample_body(instructions=long_inst + add_text)
+    new_stats = compute_body_section_stats(new_body)
+
+    delta = new_stats["Instructions"] - old_stats["Instructions"]
+    ratio = delta / old_stats["Instructions"]
+    assert delta > 100
+    assert ratio <= 0.25
+
+    res = check_prompt_bloat(old_body, new_body, changed_sections=["Instructions"])
+    assert res.passed is True
+    assert res.decision == "PASS"
+
+
+def test_soft_threshold_not_triggered_if_delta_under_100_chars():
+    short_inst = "第一步分析用户问题。第二步组织回答。"
+    old_body = _mk_sample_body(instructions=short_inst)
+    old_stats = compute_body_section_stats(old_body)
+
+    add_text = "第三步输出简洁结论。"
+    new_body = _mk_sample_body(instructions=short_inst + add_text)
+    new_stats = compute_body_section_stats(new_body)
+
+    delta = new_stats["Instructions"] - old_stats["Instructions"]
+    assert delta <= 100
+
+    res = check_prompt_bloat(old_body, new_body, changed_sections=["Instructions"])
+    assert res.passed is True
+    assert res.decision == "PASS"
+
+
+def test_soft_threshold_exact_25_percent_passes():
+    old_body = "a" * 400
+    new_body = "a" * 500
+
+    res = check_prompt_bloat(old_body, new_body)
+
+    assert res.section_deltas["__full_body__"]["ratio"] == 0.25
+    assert res.section_deltas["__full_body__"]["delta"] == 100
+    assert res.decision == "PASS"
+
+
+def test_soft_threshold_exact_100_chars_passes_even_when_ratio_exceeds():
+    old_body = "a" * 10
+    new_body = "a" * 110
+
+    res = check_prompt_bloat(old_body, new_body)
+
+    assert res.section_deltas["__full_body__"]["delta"] == 100
+    assert res.section_deltas["__full_body__"]["ratio"] == 10.0
+    assert res.decision == "PASS"
+
+
+# ============================================================================
+# 3. 全 Body 倍数门（防塞字绕检）测试
+# ============================================================================
+
+
+def test_whole_body_multiplier_catches_spread_bloat():
+    unit = "一二三四五六七八九十"  # 10 字符
+    base_ov = "概述：" + (unit * 29) + "四字"  # 300 字符
+    base_in = "说明：" + (unit * 29) + "四字"  # 300 字符
+    base_ex = "示例：" + (unit * 29) + "四字"  # 300 字符
+    base_co = "约束：" + (unit * 29) + "四字"  # 300 字符
+    old_body = _mk_sample_body(overview=base_ov, instructions=base_in, examples=base_ex, constraints=base_co)
+    old_stats = compute_body_section_stats(old_body)
+
+    add_unit = unit * 6 + "一二三四五六"  # 66 字符 (66 / 300 = 22% <= 25%, 且 66 <= 100)
+
+    new_body = _mk_sample_body(
+        overview=base_ov + add_unit,
+        instructions=base_in + add_unit,
+        examples=base_ex + add_unit,
+        constraints=base_co + add_unit,
+    )
+    new_stats = compute_body_section_stats(new_body)
+
+    for s in ["Overview", "Instructions", "Examples", "Constraints"]:
+        delta_s = new_stats[s] - old_stats[s]
+        ratio_s = delta_s / old_stats[s]
+        assert delta_s <= 100
+        assert ratio_s <= 0.25
+
+    total_ratio = new_stats["total"] / old_stats["total"]
+    assert total_ratio > 1.20
+    assert new_stats["total"] - old_stats["total"] > 100
+
+    res = check_prompt_bloat(old_body, new_body, budget=EvolveBudget(max_body_multiplier=1.20))
+    assert res.passed is False
+    assert res.decision == "REVIEW"
+    assert any("全 Body 膨胀门控" in r for r in res.reasons)
+    assert "整体 Body 文本膨胀超限" in res.distillation_prompt
+    assert f"+{new_stats['total'] - old_stats['total']}" in res.distillation_prompt
+    assert f"{new_stats['total'] / old_stats['total']:.2f}x" in res.distillation_prompt
+    assert "全 Body 倍数门" in res.distillation_prompt
+
+
+def test_whole_body_absolute_cap():
+    old_body = _mk_sample_body()
+    new_body = _mk_sample_body(instructions="1. 提取。\n2. " + ("长内容说明。" * 100))
+
+    budget = EvolveBudget(max_body_chars=300)
+    res = check_prompt_bloat(old_body, new_body, budget=budget)
+
+    assert res.passed is False
+    assert res.decision == "REVIEW"
+    assert any("超过设定绝对上限 300 字符" in r for r in res.reasons)
+    assert "max_body_chars" in res.distillation_prompt
+    assert "300" in res.distillation_prompt
+
+
+def test_whole_body_exact_1_20x_passes():
+    old_body = "a" * 1000
+    new_body = "a" * 1200
+
+    res = check_prompt_bloat(old_body, new_body)
+
+    assert res.section_deltas["total"]["multiplier"] == 1.20
+    assert res.decision == "PASS"
+
+
+def test_absolute_body_cap_exact_limit_passes():
+    old_body = "a" * 1000
+    new_body = "a" * 1200
+
+    res = check_prompt_bloat(
+        old_body, new_body, budget=EvolveBudget(max_body_chars=1200)
+    )
+
+    assert res.candidate_stats["total"] == 1200
+    assert res.decision == "PASS"
+
+
+def test_empty_baseline_spread_uses_absolute_fallback():
+    new_body = (
+        "## Overview\n\n" + "o" * 80 + "\n\n"
+        "## Instructions\n\n" + "i" * 80 + "\n\n"
+        "## Examples\n\n" + "e" * 80 + "\n\n"
+        "## Constraints\n\n" + "c" * 80
+    )
+
+    res = check_prompt_bloat("", new_body)
+
+    assert res.candidate_stats["total"] > 100
+    assert res.decision == "REVIEW"
+    assert any("基线 Body 为空" in reason for reason in res.reasons)
+    assert "替代绝对门" in res.distillation_prompt
+    assert "+" in res.distillation_prompt
+
+
+# ============================================================================
+# 4. 反例证据验收测试 (Single section & Multi-section in evolver pipeline)
+# ============================================================================
+
+
+def test_acceptance_counterexample_a_single_section_bloat_blocks_auto_publish(tmp_path: Path):
+    base_body = _mk_sample_body()
+
+    bloat_text = "\n" + ("必须仔细核对每个输入词汇，绝不遗漏任何标点符号与特殊编码。" * 5)
+    new_body = _mk_sample_body(instructions="1. 提取城市与日期。\n2. 格式化。" + bloat_text)
+    new_skill_md = _mk_skill_md(version="1.0.1", body=new_body)
+
+    patch = Patch(
+        skill_name="weather_query",
+        level="L1",
+        diff=new_skill_md,
+        rationale="尝试优化 Instructions",
+        computed_level="L1",
+        downgrade_attempt=False,
+        changed_body_sections=["Instructions"],
+    )
+
+    bloat_res = check_prompt_bloat(base_body, new_body, changed_sections=patch.changed_body_sections)
+    assert bloat_res.decision == "REVIEW"
+    assert any("Instructions" in r and "PROMPT_BLOAT" in r for r in bloat_res.reasons)
+
+    patch.bloat_verdict = bloat_res.decision
+    patch.bloat_reasons = bloat_res.reasons
+    patch.distillation_prompt = bloat_res.distillation_prompt
+    patch.baseline_body_stats = bloat_res.baseline_stats
+    patch.candidate_body_stats = bloat_res.candidate_stats
+
+    dummy_eval_result = EvalResult(
+        release_id="c-test",
+        structure_score={"schema": 20.0},
+        effect_score={"task": 40.0},
+        objective_metrics={},
+        p0_pass=True,
+    )
+    pass_verdict = RatchetVerdict(decision="PASS", reasons=[])
+
+    outc = _publish_patch(
+        repo_root=tmp_path,
+        registry=None,
+        state_machine=None,
+        skill_name="weather_query",
+        patch=patch,
+        verdict=pass_verdict,
+        new_result=dummy_eval_result,
+    )
+
+    assert outc["status"] == "REVIEW"
+    sug_path = Path(outc["path"])
+    assert sug_path.exists()
+    content = sug_path.read_text(encoding="utf-8")
+    assert "[REVIEW / PROMPT_BLOAT / L1]" in content
+    assert "distillation_prompt:" in content
+    assert "baseline_body_stats:" in content
+    assert "candidate_body_stats:" in content
+
+
+def test_acceptance_counterexample_b_spread_bloat_triggers_review(tmp_path: Path):
+    unit = "一二三四五六七八九十"  # 10 字符
+    base_ov = "概述：" + (unit * 29) + "四字"  # 300 字符
+    base_in = "说明：" + (unit * 29) + "四字"  # 300 字符
+    base_ex = "示例：" + (unit * 29) + "四字"  # 300 字符
+    base_co = "约束：" + (unit * 29) + "四字"  # 300 字符
+    old_body = _mk_sample_body(overview=base_ov, instructions=base_in, examples=base_ex, constraints=base_co)
+    old_stats = compute_body_section_stats(old_body)
+
+    add_unit = unit * 6 + "一二三四五六"  # 66 字符 (66 / 300 = 22% <= 25%, 且 66 <= 100)
+
+    new_body = _mk_sample_body(
+        overview=base_ov + add_unit,
+        instructions=base_in + add_unit,
+        examples=base_ex + add_unit,
+        constraints=base_co + add_unit,
+    )
+    new_skill_md = _mk_skill_md(version="1.0.1", body=new_body)
+
+    patch = Patch(
+        skill_name="weather_query",
+        level="L2",
+        diff=new_skill_md,
+        rationale="四段小幅润色",
+        computed_level="L2",
+        downgrade_attempt=False,
+        changed_body_sections=["Overview", "Instructions", "Examples", "Constraints"],
+    )
+
+    budget = EvolveBudget(max_body_multiplier=1.20)
+    bloat_res = check_prompt_bloat(old_body, new_body, budget=budget, changed_sections=patch.changed_body_sections)
+    assert bloat_res.decision == "REVIEW"
+    assert any("全 Body 膨胀门控" in r for r in bloat_res.reasons)
+
+    # 验证四个段落单独均未超 25% 且未超 100 字符
+    for s in ["Overview", "Instructions", "Examples", "Constraints"]:
+        delta_s = bloat_res.candidate_stats[s] - bloat_res.baseline_stats[s]
+        ratio_s = delta_s / bloat_res.baseline_stats[s]
+        assert delta_s <= 100
+        assert ratio_s <= 0.25
+
+    patch.bloat_verdict = bloat_res.decision
+    patch.bloat_reasons = bloat_res.reasons
+    patch.distillation_prompt = bloat_res.distillation_prompt
+    patch.baseline_body_stats = bloat_res.baseline_stats
+    patch.candidate_body_stats = bloat_res.candidate_stats
+
+    dummy_eval_result = EvalResult(
+        release_id="c-test",
+        structure_score={"schema": 20.0},
+        effect_score={"task": 40.0},
+        objective_metrics={},
+        p0_pass=True,
+    )
+
+    outc = _publish_patch(
+        repo_root=tmp_path,
+        registry=None,
+        state_machine=None,
+        skill_name="weather_query",
+        patch=patch,
+        verdict=RatchetVerdict(decision="REVIEW", reasons=bloat_res.reasons),
+        new_result=dummy_eval_result,
+        budget=budget,
+    )
+
+    assert outc["status"] == "REVIEW"
+    sug_path = Path(outc["path"])
+    assert sug_path.exists()
+    content = sug_path.read_text(encoding="utf-8")
+    assert "[REVIEW / PROMPT_BLOAT / L2]" in content
+    assert "整体 Body 文本膨胀超限" in content
+    assert "baseline_body_stats:" in content
+    assert "candidate_body_stats:" in content
+
+
+# ============================================================================
+# 5. 行为不得破坏与正常小幅修改测试
+# ============================================================================
+
+
+def test_normal_small_change_passes():
+    base_body = _mk_sample_body()
+    modified_body = base_body.replace("这是天气查询 Skill", "这是专业天气查询 Skill")
+
+    bloat_res = check_prompt_bloat(base_body, modified_body)
+    assert bloat_res.decision == "PASS"
+    assert bloat_res.passed is True
+    assert len(bloat_res.reasons) == 0
+
+
+def test_generate_patches_attaches_body_stats_and_bloat_verdict():
+    base_body = _mk_sample_body()
+    meta = SkillMeta(
+        name="weather_query",
+        version="1.0.0",
+        description="查询天气",
+        use_when="查天气",
+        not_for=[],
+        dependencies=[],
+        trigger=Trigger(keywords=["天气"]),
+        examples=["北京天气"],
+    )
+
+    clean_md = _mk_skill_md(version="1.0.1", body=base_body, description="查询全国实时天气与预报")
+    bloated_md = _mk_skill_md(
+        version="1.0.1",
+        body=_mk_sample_body(instructions="1. 提取。\n" + ("详细冗余步骤说明文字。" * 20)),
+    )
+
+    llm = MockLLM([json.dumps([
+        {"level": "L1", "rationale": "微调描述", "new_skill_md": clean_md},
+        {"level": "L2", "rationale": "大幅扩充说明", "new_skill_md": bloated_md},
+    ])])
+
+    patches = _generate_patches(llm, meta, base_body, [], [], max_candidates=2)
+    assert len(patches) == 2
+
+    p1 = patches[0]
+    assert p1.bloat_verdict == "PASS"
+    assert "Overview" in p1.baseline_body_stats
+    assert "Instructions" in p1.candidate_body_stats
+
+    p2 = patches[1]
+    assert p2.bloat_verdict == "REVIEW"
+    assert any("Instructions" in r for r in p2.bloat_reasons)
+    assert p2.distillation_prompt is not None
+
+
+def test_evolve_full_fake_llm_bloat_review_never_auto_publishes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    base_body = _mk_sample_body()
+    candidate_body = _mk_sample_body(
+        instructions="1. 提取。\n" + ("详细冗余步骤说明文字。" * 20)
+    )
+    old_md = _mk_skill_md(body=base_body)
+    candidate_md = _mk_skill_md(version="1.0.1", body=candidate_body)
+    skills_dir = tmp_path / "skills" / "weather_query"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "SKILL.md").write_text(old_md, encoding="utf-8")
+
+    registry = SkillRegistry(
+        db_path=tmp_path / "state.db", skills_dir=tmp_path / "skills", repo_root=tmp_path
+    )
+    registry.load_skills_from_dir()
+
+    old_result = EvalResult(
+        release_id="baseline",
+        structure_score={"schema": 20.0},
+        effect_score={"task": 40.0},
+        objective_metrics={},
+        p0_pass=True,
+        case_verdicts=[{"case_id": "c1", "task_completion": "B_better"}],
+        case_outputs=[
+            {
+                "case_id": "c1",
+                "query": "天气",
+                "output_skill": "s",
+                "output_baseline": "b",
+            }
+        ],
+    )
+
+    class FakeEval:
+        def __init__(self, *args, **kwargs):
+            self.llm = kwargs.get("llm")
+            self.judge = SimpleNamespace(llm=kwargs.get("judge_llm"))
+
+        def _load_cases(self, eval_set, skill_name):
+            return [{"id": "fake-p0", "query": "天气", "skill": skill_name}]
+
+        def evaluate_skill(self, *args, **kwargs):
+            return EvalResult(
+                release_id="candidate",
+                structure_score={"schema": 20.0},
+                effect_score={"task": 40.0},
+                objective_metrics={},
+                p0_pass=True,
+                valid=True,
+            )
+
+    p0_pass = P0GateResult(
+        valid=True,
+        p0_pass=True,
+        executed_count=1,
+        expected_count=1,
+        case_verdicts=[{"case_id": "fake-p0"}],
+    )
+    monkeypatch.setattr("skillforge.evaluator.SkillEvaluator", FakeEval)
+    monkeypatch.setattr(
+        "skillforge.evaluator.p0_gate.evaluate_p0_gate",
+        lambda *args, **kwargs: p0_pass,
+    )
+    publish_calls: list[object] = []
+    monkeypatch.setattr(
+        "skillforge.evolver._apply_and_publish_L1",
+        lambda *args, **kwargs: publish_calls.append(args) or "unexpected-release",
+    )
+
+    llm = MockLLM(
+        [
+            '{"prompt_vague": {"prob": 1.0, "why": "需要精简"}}',
+            json.dumps(
+                [
+                    {
+                        "level": "L2",
+                        "rationale": "扩充 Instructions",
+                        "new_skill_md": candidate_md,
+                    }
+                ]
+            ),
+        ]
+    )
+    llm.model = "test-model"
+    evaluator = SimpleNamespace(
+        evaluate_skill=lambda *args, **kwargs: old_result,
+        output_cache=None,
+        llm=MockLLM([]),
+        judge=SimpleNamespace(llm=MockLLM([])),
+    )
+    evolver = SkillEvolver(
+        registry=registry,
+        evaluator=evaluator,
+        llm=llm,
+        state_machine=object(),
+    )
+
+    try:
+        outcome = evolver.evolve_full("weather_query", max_candidates=1, verbose=False)
+    finally:
+        registry.close()
+
+    assert outcome.patches_generated == 1
+    assert outcome.patches_review
+    assert outcome.records[0].bloat_verdict == "REVIEW"
+    assert publish_calls == []
+
+
+def test_evolve_context_and_record_dataclasses():
+    meta = SkillMeta(
+        name="s1", version="1.0.0", description="d",
+        use_when="u", not_for=[], dependencies=[],
+        trigger=Trigger(keywords=["k"]), examples=["e"],
+    )
+    ctx = EvolveContext(
+        skill_name="s1",
+        baseline_meta=meta,
+        baseline_body="## Overview\ntest",
+        baseline_body_stats={"Overview": 4, "total": 15},
+    )
+    assert ctx.skill_name == "s1"
+    assert ctx.baseline_body_stats["Overview"] == 4
+
+    rec = EvolveRecord(
+        skill_name="s1",
+        bloat_verdict="REVIEW",
+        distillation_prompt="建议精简",
+        status="REVIEW",
+    )
+    assert rec.bloat_verdict == "REVIEW"
+    assert rec.status == "REVIEW"

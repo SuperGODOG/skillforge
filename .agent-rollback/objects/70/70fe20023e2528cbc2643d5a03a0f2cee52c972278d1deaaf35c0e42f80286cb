@@ -1,0 +1,233 @@
+"""Prompt Bloat 护栏（P1-E / A4）
+
+门控规则（ARCHITECTURE §4-E / codex2 定稿 §7）：
+1. Body 分段字符统计：
+   - 记录完整 Body 各段（Instructions / Constraints / Examples / Overview）字符数
+   - 对照 original baseline Body 的对应段，记录增量与增幅
+2. 软门槛：
+   - 任一 changed_section 相对 baseline > 25% 字符增长 AND 绝对增长 > 100 chars
+   - 触发 REVIEW 状态，附带 distillation 单行精简提示语（不 DECLINED，不自动发布）
+3. 全 Body 倍数门（防塞字绕检）：
+   - 整 Body 字符数超过 baseline 的设定倍数（默认 1.20x，即增长 > 20% 且绝对增长 > 100 字符）或绝对上限 max_body_chars
+   - 强制 REVIEW/DECLINED（默认 REVIEW），防将膨胀文本均摊拆塞多段绕过单段门槛
+4. 正常小幅修改放行：
+   - < 25% 或 <= 100 chars 的改动不触发 REVIEW
+   - 既有 PatchStatus 流转语义不变
+"""
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from typing import Any, Literal, Optional
+
+from ..diff import split_markdown_sections
+from ..models import EvolveBudget, RatchetVerdict
+
+STANDARD_SECTIONS = ("Overview", "Instructions", "Examples", "Constraints")
+
+
+def canonical_section_name(name: str) -> str:
+    """归一化段落名称，匹配四段式 Instructions / Constraints / Examples / Overview"""
+    raw = re.sub(r"#\d+$", "", name).strip()
+    raw_lower = raw.casefold()
+    if "instruction" in raw_lower or "说明" in raw or "指令" in raw or "步骤" in raw:
+        return "Instructions"
+    if "constraint" in raw_lower or "约束" in raw or "限制" in raw or "边界" in raw:
+        return "Constraints"
+    if "example" in raw_lower or "示例" in raw or "例子" in raw:
+        return "Examples"
+    if "overview" in raw_lower or "概述" in raw:
+        return "Overview"
+    return raw
+
+
+def compute_body_section_stats(body: str) -> dict[str, int]:
+    """统计 Body 各段字符数及整体字符数。
+
+    返回字典结构：
+    {
+        "Overview": int,
+        "Instructions": int,
+        "Examples": int,
+        "Constraints": int,
+        "total": int,
+        ... 其他非标准段（如有）
+    }
+    """
+    cleaned_body = (body or "").strip()
+    if not cleaned_body:
+        return {
+            "Overview": 0,
+            "Instructions": 0,
+            "Examples": 0,
+            "Constraints": 0,
+            "total": 0,
+        }
+
+    sections = split_markdown_sections(cleaned_body)
+    stats: dict[str, int] = {
+        "Overview": 0,
+        "Instructions": 0,
+        "Examples": 0,
+        "Constraints": 0,
+        "total": len(cleaned_body),
+    }
+
+    for raw_name, content in sections.items():
+        if raw_name in ("__preamble__", "__full_body__"):
+            stats[raw_name] = len(content.strip())
+            continue
+        cname = canonical_section_name(raw_name)
+        char_count = len(content.strip())
+        stats[cname] = stats.get(cname, 0) + char_count
+        if cname != raw_name:
+            stats[raw_name] = stats.get(raw_name, 0) + char_count
+
+    return stats
+
+
+@dataclass
+class PromptBloatResult:
+    passed: bool
+    decision: Literal["PASS", "REVIEW", "DECLINED"]
+    reasons: list[str] = field(default_factory=list)
+    distillation_prompt: Optional[str] = None
+    baseline_stats: dict[str, int] = field(default_factory=dict)
+    candidate_stats: dict[str, int] = field(default_factory=dict)
+    section_deltas: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+    def to_ratchet_verdict(self) -> RatchetVerdict:
+        return RatchetVerdict(decision=self.decision, reasons=list(self.reasons))
+
+
+def check_prompt_bloat(
+    old_body: str,
+    new_body: str,
+    budget: Optional[EvolveBudget] = None,
+    changed_sections: Optional[list[str]] = None,
+) -> PromptBloatResult:
+    """执行 Prompt Bloat 门控检查（单段软门槛 + 全 Body 倍数门）。"""
+    budget = budget or EvolveBudget()
+    section_growth_ratio = getattr(budget, "section_growth_ratio", 0.25)
+    section_growth_chars = getattr(budget, "section_growth_chars", 100)
+    max_body_multiplier = getattr(budget, "max_body_multiplier", 1.20)
+    max_body_chars = getattr(budget, "max_body_chars", None)
+    on_body_bloat = getattr(budget, "on_body_bloat", "REVIEW")
+
+    baseline_stats = compute_body_section_stats(old_body)
+    candidate_stats = compute_body_section_stats(new_body)
+
+    old_cleaned = (old_body or "").strip()
+    new_cleaned = (new_body or "").strip()
+
+    # 无任何改动直接放行
+    if old_cleaned == new_cleaned:
+        return PromptBloatResult(
+            passed=True,
+            decision="PASS",
+            reasons=[],
+            distillation_prompt=None,
+            baseline_stats=baseline_stats,
+            candidate_stats=candidate_stats,
+            section_deltas={},
+        )
+
+    old_raw_sections = split_markdown_sections(old_cleaned)
+    new_raw_sections = split_markdown_sections(new_cleaned)
+
+    # 确定哪些段落发生了变更
+    detected_changed: set[str] = set()
+    if changed_sections is not None and len(changed_sections) > 0:
+        for s in changed_sections:
+            if s not in ("__full_body__", "__preamble__", "__body_order_or_whitespace__"):
+                detected_changed.add(canonical_section_name(s))
+
+    # 兜底比对段落实际文本内容
+    all_keys = set(old_raw_sections) | set(new_raw_sections)
+    for k in all_keys:
+        if old_raw_sections.get(k, "").strip() != new_raw_sections.get(k, "").strip():
+            detected_changed.add(canonical_section_name(k))
+
+    reasons: list[str] = []
+    distillation_prompts: list[str] = []
+    section_deltas: dict[str, dict[str, Any]] = {}
+    decision: Literal["PASS", "REVIEW", "DECLINED"] = "PASS"
+
+    # 1. 软门槛：任一 changed_section > 25% 增长 AND > 100 字符
+    for sec in sorted(detected_changed):
+        old_cnt = baseline_stats.get(sec, 0)
+        new_cnt = candidate_stats.get(sec, 0)
+        delta = new_cnt - old_cnt
+        ratio = (delta / old_cnt) if old_cnt > 0 else (1.0 if delta > 0 else 0.0)
+        section_deltas[sec] = {
+            "old": old_cnt,
+            "new": new_cnt,
+            "delta": delta,
+            "ratio": ratio,
+        }
+
+        if ratio > section_growth_ratio and delta > section_growth_chars:
+            decision = "REVIEW"
+            pct_str = f"{ratio * 100:.1f}%"
+            reason_msg = (
+                f"PROMPT_BLOAT: 段落 '{sec}' 相对基线增长 {pct_str} (+{delta} 字符)，"
+                f"超过软门槛（增长 > {section_growth_ratio * 100:.0f}% 且绝对增长 > {section_growth_chars} 字符）。"
+                f"distillation 提示: 建议精简收敛 '{sec}' 段，去除冗余描述并保持核心语义。"
+            )
+            reasons.append(reason_msg)
+            distillation_prompts.append(
+                f"建议精简收敛 '{sec}' 段，去除冗余说明并保持核心语义约束。"
+            )
+
+    # 2. 全 Body 倍数门（防塞字绕检）与绝对上限
+    old_total = baseline_stats.get("total", 0)
+    new_total = candidate_stats.get("total", 0)
+    total_delta = new_total - old_total
+    total_multiplier = (new_total / old_total) if old_total > 0 else (1.0 if new_total > 0 else 0.0)
+
+    section_deltas["total"] = {
+        "old": old_total,
+        "new": new_total,
+        "delta": total_delta,
+        "multiplier": total_multiplier,
+    }
+
+    # 仅当总增长超过最小基线改动（> 100 字符，防微小改动误触）且超过倍数门限时触发
+    if old_total > 0 and (new_total > old_total * max_body_multiplier) and total_delta > section_growth_chars:
+        if decision != "DECLINED":
+            decision = on_body_bloat  # 默认 "REVIEW"
+        mult_str = f"{total_multiplier:.2f}x"
+        limit_str = f"{max_body_multiplier:.2f}x"
+        reason_msg = (
+            f"PROMPT_BLOAT: 整 Body 字符数由 {old_total} 增至 {new_total}（倍数 {mult_str} > 设定倍数 {limit_str}，净增 {total_delta} 字符），"
+            f"触发全 Body 膨胀门控（防多段均摊绕检）。"
+            f"distillation 提示: 整体 Body 文本膨胀超限，建议跨段落综合精简压缩。"
+        )
+        reasons.append(reason_msg)
+        distillation_prompts.append("整体 Body 文本膨胀超限，建议跨段落综合精简压缩。")
+
+    # 绝对上限检查
+    if max_body_chars is not None and new_total > max_body_chars:
+        if decision != "DECLINED":
+            decision = on_body_bloat
+        reason_msg = (
+            f"PROMPT_BLOAT: 整 Body 字符数 {new_total} 超过设定绝对上限 {max_body_chars} 字符。"
+            f"distillation 提示: 整体 Body 文本超过绝对上限，建议综合精简压缩。"
+        )
+        reasons.append(reason_msg)
+        distillation_prompts.append(
+            f"整体 Body 文本超过绝对上限（{max_body_chars} 字符），建议综合精简压缩。"
+        )
+
+    passed = len(reasons) == 0
+    final_distillation = "; ".join(distillation_prompts) if distillation_prompts else None
+
+    return PromptBloatResult(
+        passed=passed,
+        decision=decision,
+        reasons=reasons,
+        distillation_prompt=final_distillation,
+        baseline_stats=baseline_stats,
+        candidate_stats=candidate_stats,
+        section_deltas=section_deltas,
+    )

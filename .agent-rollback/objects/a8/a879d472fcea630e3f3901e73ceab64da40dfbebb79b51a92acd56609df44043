@@ -1,0 +1,691 @@
+"""P1-G 测试套件：A2-lite 根因分支增强全项验收
+
+覆盖清单 6 项：
+1. 根因输入增强（三路输入：相关 Body 段、route trace、tool trace 注入 Prompt）
+2. 两个 prompt fragment 常量模块（ROUTING_METADATA 与 EXECUTION_BEHAVIOR 契约与 Schema）
+3. dependency 出口（依赖故障走 REVIEW 诊断归档，不生成 prompt 文案 patch）
+4. probability 定位（只进诊断报告辅助阅读，不参与自动发布门决策）
+5. failure bundle（4 策略各 ≥ 3 个独立样本，驱动分支走对验证）
+6. 验收反例证据：
+   (a) er_h02 在 evaluation_sets 中定位（repair 层）并走对分支
+   (b) 构造 dependency 类失败 → 断言不产出文案 patch（输出 REVIEW 诊断归档）
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from types import SimpleNamespace
+import pytest
+
+from skillforge.models import (
+    EvalResult,
+    Patch,
+    RatchetVerdict,
+    SkillMeta,
+    Trigger,
+    ToolCallProvenance,
+)
+from skillforge.registry import SkillRegistry
+from skillforge.evaluator import (
+    ROUTING_METADATA,
+    ROUTING_METADATA_SCHEMA,
+    EXECUTION_BEHAVIOR,
+    EXECUTION_BEHAVIOR_SCHEMA,
+    format_routing_metadata,
+    format_execution_behavior,
+    extract_relevant_body_sections,
+    format_body_sections,
+)
+from skillforge.evaluator.fixtures import (
+    FAILURE_BUNDLES,
+    get_failure_bundle,
+    get_all_failure_bundles,
+)
+from skillforge.evolver import (
+    Failure,
+    RootCause,
+    SkillEvolver,
+    _analyze_root_cause,
+    _publish_patch,
+    _archive_dependency_diagnostic,
+    is_dependency_issue,
+    _build_tool_trace_from_eval_result,
+)
+from skillforge.data_partition import load_json_dataset
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+EVAL_DIR = REPO_ROOT / "evaluation_sets"
+
+
+class CapturingFakeLLM:
+    """捕获 prompt 调用的测试 LLM"""
+
+    def __init__(self, responses: list[str], model: str = "test-model"):
+        self.responses = list(responses)
+        self.model = model
+        self.captured_prompts: list[str] = []
+
+    def invoke(self, messages, **kwargs):
+        content = ""
+        for m in messages:
+            if isinstance(m, dict) and "content" in m:
+                content += str(m["content"])
+        self.captured_prompts.append(content)
+        resp_text = self.responses.pop(0) if self.responses else "{}"
+        return SimpleNamespace(content=resp_text, usage={"prompt_tokens": 50, "completion_tokens": 50, "total_tokens": 100})
+
+
+def _create_mock_meta(name: str = "explain_regex") -> SkillMeta:
+    return SkillMeta(
+        name=name,
+        version="1.0.0",
+        description="讲解正则表达式原理",
+        use_when="用户想理解正则表达式语法和回溯原理",
+        not_for=["写代码"],
+        trigger=Trigger(keywords=["正则", "regex", "讲解"]),
+    )
+
+
+# =======================================================================
+# 1. 根因输入增强 (Three-way inputs)
+# =======================================================================
+
+def test_analyze_root_cause_three_way_inputs_injected_into_prompt():
+    """验证相关 Body 段、route trace、tool trace 均完整格式化并注入到 LLM Prompt 中"""
+    meta = _create_mock_meta()
+    body = """## Overview
+讲解正则原理。
+
+## Instructions
+1. 识别类型。
+2. 给出解释。
+
+## Examples
+Q: .*
+A: 贪婪匹配
+
+## Constraints
+禁止生成代码。"""
+    fails = [
+        Failure(
+            case_id="c01",
+            query="讲讲 \\1",
+            reference="解释反向引用",
+            output_skill="不知道",
+            output_baseline="反向引用是指...",
+            losing_dims=["task_completion"],
+        )
+    ]
+    route_trace = {
+        "hit_layer": "rule",
+        "declared_level": "L1",
+        "computed_level": "L1",
+        "verdict": "ROUTE_MATCH_TEST",
+        "trigger_keywords": ["正则", "regex"],
+        "matched_keywords": ["正则"],
+        "use_when": "讲解正则表达式",
+        "not_for": ["写代码"],
+        "routing_notes": "命中规则路由",
+    }
+    tool_trace = {
+        "failed_phase": "tool_execution",
+        "failure_type": "DEPENDENCY_ERROR",
+        "is_dependency_failure": True,
+        "error_message": "Connection refused to external mock service",
+        "validation_channels": ["tools"],
+        "tool_provenances": [
+            {
+                "tool_name": "mock_tool",
+                "output_status": "ERROR",
+                "tool_success": False,
+                "output_summary": "503 timeout",
+            }
+        ],
+    }
+    relevant_body = extract_relevant_body_sections(body, target_sections=["Instructions", "Constraints"])
+
+    mock_resp = json.dumps({
+        "prompt_vague": {"prob": 0.7, "why": "Instructions 缺失反向引用"},
+        "trigger_inaccurate": {"prob": 0.2, "why": ""},
+        "deps_broken": {"prob": 0.1, "why": ""},
+        "boundary_missing": {"prob": 0.0, "why": ""},
+        "eval_noise": {"prob": 0.0, "why": ""},
+    })
+    llm = CapturingFakeLLM([mock_resp])
+
+    causes = _analyze_root_cause(
+        llm,
+        meta,
+        body,
+        fails,
+        relevant_body_sections=relevant_body,
+        route_trace=route_trace,
+        tool_trace=tool_trace,
+    )
+
+    assert len(causes) == 5
+    assert causes[0].label == "prompt_vague"
+    assert causes[0].prob == 0.7
+
+    # 验证 Prompt 捕获内容包含三路输入
+    prompt_sent = llm.captured_prompts[0]
+    # 1. 包含相关 Body 段（Instructions 与 Constraints）
+    assert "Section: Instructions" in prompt_sent
+    assert "Section: Constraints" in prompt_sent
+    # 2. 包含路由判定链
+    assert "ROUTE_MATCH_TEST" in prompt_sent
+    assert "(hit_layer): rule" in prompt_sent
+    # 3. 包含执行轨迹
+    assert "Connection refused to external mock service" in prompt_sent
+    assert "mock_tool" in prompt_sent
+
+
+def test_extract_relevant_body_sections_and_stats_cohesion():
+    """验证 Body 段提取与 P1-E 的 baseline_stats 呼应"""
+    body = """## Overview
+概述文本
+
+## Instructions
+说明文本
+
+## Constraints
+约束文本"""
+    sections = extract_relevant_body_sections(body)
+    assert "Overview" in sections
+    assert "Instructions" in sections
+    assert "Constraints" in sections
+
+    filtered = extract_relevant_body_sections(body, target_sections=["Instructions"])
+    assert "Instructions" in filtered
+    assert "Overview" not in filtered
+
+    rendered = format_body_sections(filtered, body=body)
+    assert "### Section: Instructions" in rendered
+
+
+# =======================================================================
+# 2. 两个 prompt fragment 常量模块契约 (ROUTING_METADATA / EXECUTION_BEHAVIOR)
+# =======================================================================
+
+def test_prompt_fragments_contracts_and_schemas():
+    """验证两个 prompt fragment 常量模块可测，具备 schema/description/template 契约"""
+    # 验证 ROUTING_METADATA
+    assert ROUTING_METADATA.name == "ROUTING_METADATA"
+    assert "Router 判定链" in ROUTING_METADATA.description
+    assert isinstance(ROUTING_METADATA.schema, dict)
+    assert ROUTING_METADATA.schema["type"] == "object"
+    assert "hit_layer" in ROUTING_METADATA.schema["properties"]
+    assert "declared_level" in ROUTING_METADATA.schema["properties"]
+    assert "computed_level" in ROUTING_METADATA.schema["properties"]
+    # 支持字典形式访问
+    assert ROUTING_METADATA["schema"] == ROUTING_METADATA_SCHEMA
+    assert ROUTING_METADATA["description"] == ROUTING_METADATA.description
+
+    # 验证 EXECUTION_BEHAVIOR
+    assert EXECUTION_BEHAVIOR.name == "EXECUTION_BEHAVIOR"
+    assert "执行行为轨迹" in EXECUTION_BEHAVIOR.description
+    assert isinstance(EXECUTION_BEHAVIOR.schema, dict)
+    assert EXECUTION_BEHAVIOR.schema["type"] == "object"
+    assert "failed_phase" in EXECUTION_BEHAVIOR.schema["properties"]
+    assert "failure_type" in EXECUTION_BEHAVIOR.schema["properties"]
+    assert "is_dependency_failure" in EXECUTION_BEHAVIOR.schema["properties"]
+    assert EXECUTION_BEHAVIOR["schema"] == EXECUTION_BEHAVIOR_SCHEMA
+
+    # 测试格式化函数
+    route_text = format_routing_metadata({
+        "hit_layer": "embed",
+        "declared_level": "L2",
+        "computed_level": "L2",
+        "verdict": "EMBED_DISTANCE_PASS",
+    })
+    assert "hit_layer): embed" in route_text
+    assert "declared_level): L2" in route_text
+
+    exec_text = format_execution_behavior({
+        "failed_phase": "sandbox",
+        "failure_type": "TOOL_NOT_FOUND",
+        "is_dependency_failure": True,
+        "error_message": "missing tool",
+    })
+    assert "failed_phase): sandbox" in exec_text
+    assert "failure_type): TOOL_NOT_FOUND" in exec_text
+    assert "is_dependency_failure): true" in exec_text
+
+
+# =======================================================================
+# 3. dependency 出口 (外部依赖故障走诊断归档，不生成 prompt 文案 patch)
+# =======================================================================
+
+def test_is_dependency_issue_detection():
+    """验证依据 tool trace 执行层失败特征和根因类别准确判定 dependency"""
+    # 情况 1: tool trace 明确指示依赖错误
+    tool_trace_err = {
+        "failed_phase": "tool_execution",
+        "failure_type": "DEPENDENCY_ERROR",
+        "is_dependency_failure": True,
+        "error_message": "503 timeout",
+    }
+    is_dep, reason = is_dependency_issue([], tool_trace_err)
+    assert is_dep is True
+    assert "tool trace" in reason
+
+    # 情况 2: tool trace 凭证异常 (CIRCUIT_OPEN)
+    tool_trace_circuit = {
+        "failed_phase": "tool_execution",
+        "failure_type": "CIRCUIT_OPEN",
+        "tool_provenances": [{"tool_name": "t1", "output_status": "CIRCUIT_OPEN", "tool_success": False}],
+    }
+    is_dep, reason = is_dependency_issue([], tool_trace_circuit)
+    assert is_dep is True
+
+    # 情况 3: 根因分析最高置信度为 deps_broken
+    causes = [RootCause(label="deps_broken", prob=0.8, why="天气 API 离线不可用")]
+    is_dep, reason = is_dependency_issue(causes, {"failed_phase": "none", "failure_type": "NONE"})
+    assert is_dep is True
+    assert "deps_broken" in reason
+
+    # 反例: 纯 prompt 问题
+    causes_prompt = [RootCause(label="prompt_vague", prob=0.9, why="指令不清")]
+    is_dep, reason = is_dependency_issue(causes_prompt, {"failed_phase": "none", "failure_type": "NONE"})
+    assert is_dep is False
+
+
+def test_archive_dependency_diagnostic_creates_valid_report(tmp_path: Path):
+    """验证外部依赖故障诊断归档生成规范 markdown 报告，状态为 REVIEW"""
+    meta = _create_mock_meta("weather_query")
+    root_causes = [RootCause(label="deps_broken", prob=0.88, why="高德天气 API 报 503 错误")]
+    tool_trace = {
+        "failed_phase": "tool_execution",
+        "failure_type": "DEPENDENCY_ERROR",
+        "error_message": "503 Service Unavailable",
+        "tool_provenances": [{"tool_name": "amap_weather_api", "output_status": "ERROR", "output_summary": "503"}],
+    }
+    path = _archive_dependency_diagnostic(
+        repo_root=tmp_path,
+        skill_name="weather_query",
+        root_causes=root_causes,
+        tool_trace=tool_trace,
+        dep_reason="外部气象接口 503 超时",
+        meta=meta,
+        body="## Overview",
+        failures=[],
+    )
+
+    assert path.exists()
+    content = path.read_text(encoding="utf-8")
+    assert "[REVIEW / DEPENDENCY_DIAGNOSTIC] weather_query" in content
+    assert "- status: REVIEW" in content
+    assert "- patch_generated: false" in content
+    assert "deps_broken" in content
+    assert "prob=0.88" in content
+    assert "修改 Prompt/SKILL.md 文案对解决依赖问题无效" in content
+    # 断言不含文案 patch 的 diff
+    assert "diff" not in content
+
+
+# =======================================================================
+# 4. probability 定位 (只进诊断报告辅助阅读，不参与自动发布决策)
+# =======================================================================
+
+def test_probability_does_not_affect_publish_decision(tmp_path: Path):
+    """验证自动发布门仅受 L1+computed L1+PASS 约束，完全不受 root cause probability 影响"""
+    patch = Patch(
+        skill_name="s1",
+        level="L1",
+        computed_level="L1",
+        diff="---\nname: s1\nversion: 1.0.1\ndescription: X\nuse_when: Y\ntrigger:\n  keywords: [a]\n---\n\n## Overview\n...",
+        rationale="add example",
+        downgrade_attempt=False,
+    )
+    verdict = RatchetVerdict(decision="PASS", reasons=[])
+    eval_result = EvalResult(
+        release_id="rel_01",
+        structure_score={"s": 20.0},
+        effect_score={"e": 30.0},
+        objective_metrics={},
+        p0_pass=True,
+    )
+
+    class MockStateMachine:
+        def begin_release(self, *args): return "rel_test"
+        def write_commit(self, *args): pass
+        def append_evaluation(self, *args): pass
+        def commit_release(self, *args): pass
+
+    sm = MockStateMachine()
+    (tmp_path / "skills" / "s1").mkdir(parents=True, exist_ok=True)
+
+    # 1. 即使 root cause prob 极低 (0.01) 或很高 (0.99)，只要满足 L1+PASS，仍然正常自动发布
+    rc_low_prob = [RootCause(label="prompt_vague", prob=0.01, why="")]
+    outc1 = _publish_patch(
+        repo_root=tmp_path,
+        registry=None,
+        state_machine=sm,
+        skill_name="s1",
+        patch=patch,
+        verdict=verdict,
+        new_result=eval_result,
+        root_causes=rc_low_prob,
+    )
+    assert outc1["status"] == "PUBLISHED"
+
+    rc_high_prob = [RootCause(label="prompt_vague", prob=0.99, why="")]
+    outc2 = _publish_patch(
+        repo_root=tmp_path,
+        registry=None,
+        state_machine=sm,
+        skill_name="s1",
+        patch=patch,
+        verdict=verdict,
+        new_result=eval_result,
+        root_causes=rc_high_prob,
+    )
+    assert outc2["status"] == "PUBLISHED"
+
+    # 2. 如果是 L2 patch，即使 prob=0.99，也绝不自动发布，走建议归档
+    patch_l2 = Patch(
+        skill_name="s1",
+        level="L2",
+        computed_level="L2",
+        diff=patch.diff,
+        rationale="instructions tweak",
+    )
+    outc3 = _publish_patch(
+        repo_root=tmp_path,
+        registry=None,
+        state_machine=sm,
+        skill_name="s1",
+        patch=patch_l2,
+        verdict=verdict,
+        new_result=eval_result,
+        root_causes=rc_high_prob,
+    )
+    assert outc3["status"] in ("SUGGESTION", "REVIEW")
+    assert outc3["path"] != ""
+    # 报告中包含辅助阅读的 probability
+    report_text = Path(outc3["path"]).read_text(encoding="utf-8")
+    assert "根因辅助阅读" in report_text
+    assert "prob=0.99" in report_text
+    assert "不参与自动发布门判定" in report_text
+
+
+# =======================================================================
+# 5. Failure bundle 驱动分支验证 (4 策略各 ≥ 3 个独立样本)
+# =======================================================================
+
+def test_failure_bundles_structure_and_count():
+    """验证 4 个根因策略分类，每类至少 3 个独立失败样本"""
+    all_bundles = get_all_failure_bundles()
+    required_strategies = ["prompt_defect", "route_misjudgment", "execution_dependency", "evaluation_noise"]
+    for strat in required_strategies:
+        assert strat in all_bundles, f"缺失根因策略: {strat}"
+        items = all_bundles[strat]
+        assert len(items) >= 3, f"策略 {strat} 样例数不足 3: {len(items)}"
+        # 验证样例字段完整性
+        for item in items:
+            assert "case_id" in item
+            assert "query" in item
+            assert "expected_root_cause" in item
+            assert "route_trace" in item
+            assert "tool_trace" in item
+
+
+def test_bundle_driven_branch_verification():
+    """验证各 bundle 样本驱动正确的根因判定与分支走向"""
+    all_bundles = get_all_failure_bundles()
+
+    # 1. 验证 prompt_defect 样本均匹配到 prompt 缺陷 (prompt_vague 或 boundary_missing)
+    for sample in all_bundles["prompt_defect"]:
+        fails = [Failure(case_id=sample["case_id"], query=sample["query"], reference=sample["reference"], output_skill=sample["output_skill"], output_baseline=sample["output_baseline"], losing_dims=sample["losing_dims"])]
+        resp_json = json.dumps({sample["expected_root_cause"]: {"prob": 0.85, "why": sample["description"]}})
+        llm = CapturingFakeLLM([resp_json])
+        meta = _create_mock_meta(sample["skill_name"])
+        causes = _analyze_root_cause(llm, meta, "## Overview", fails, route_trace=sample["route_trace"], tool_trace=sample["tool_trace"])
+        assert len(causes) >= 1
+        assert causes[0].label in ("prompt_vague", "boundary_missing")
+        # 纯 prompt 缺陷不触发 dependency
+        is_dep, _ = is_dependency_issue(causes, sample["tool_trace"])
+        assert is_dep is False
+
+    # 2. 验证 route_misjudgment 样本均匹配到 trigger_inaccurate
+    for sample in all_bundles["route_misjudgment"]:
+        fails = [Failure(case_id=sample["case_id"], query=sample["query"], reference=sample["reference"], output_skill=sample["output_skill"], output_baseline=sample["output_baseline"], losing_dims=sample["losing_dims"])]
+        resp_json = json.dumps({"trigger_inaccurate": {"prob": 0.9, "why": sample["description"]}})
+        llm = CapturingFakeLLM([resp_json])
+        meta = _create_mock_meta(sample["skill_name"])
+        causes = _analyze_root_cause(llm, meta, "## Overview", fails, route_trace=sample["route_trace"], tool_trace=sample["tool_trace"])
+        assert causes[0].label == "trigger_inaccurate"
+
+    # 3. 验证 execution_dependency 样本均触发 dependency 出口判定
+    for sample in all_bundles["execution_dependency"]:
+        causes = [RootCause(label="deps_broken", prob=0.9, why=sample["description"])]
+        is_dep, reason = is_dependency_issue(causes, sample["tool_trace"])
+        assert is_dep is True
+        assert ("tool trace" in reason) or ("deps_broken" in reason)
+
+    # 4. 验证 evaluation_noise 样本均识别为 eval_noise
+    for sample in all_bundles["evaluation_noise"]:
+        fails = [Failure(case_id=sample["case_id"], query=sample["query"], reference=sample["reference"], output_skill=sample["output_skill"], output_baseline=sample["output_baseline"], losing_dims=sample["losing_dims"])]
+        resp_json = json.dumps({"eval_noise": {"prob": 0.75, "why": sample["description"]}})
+        llm = CapturingFakeLLM([resp_json])
+        meta = _create_mock_meta(sample["skill_name"])
+        causes = _analyze_root_cause(llm, meta, "## Overview", fails, route_trace=sample["route_trace"], tool_trace=sample["tool_trace"])
+        assert causes[0].label == "eval_noise"
+
+
+# =======================================================================
+# 6. 验收（反例证据）
+# =======================================================================
+
+def test_acceptance_6a_er_h02_localization_and_branch():
+    """验收 6(a):
+    1. 定位 er_h02 在 evaluation_sets 数据中的层级（确定在 repair 层，且不在 holdout/audit 层，数据只读）
+    2. er_h02 与各 bundle 走对正确分支
+    """
+    repair_data = load_json_dataset(EVAL_DIR / "repair_set.json")
+    holdout_data = load_json_dataset(EVAL_DIR / "experiment_holdout.json")
+    audit_data = load_json_dataset(EVAL_DIR / "final_audit.json")
+
+    repair_cases = {c["id"]: c for c in repair_data["cases"]}
+    holdout_ids = {c["id"] for c in holdout_data["cases"]}
+    audit_ids = {c["id"] for c in audit_data["cases"]}
+
+    # 断言定位：er_h02 严格位于 repair 层
+    assert "er_h02" in repair_cases, "er_h02 必须存在于 repair_set.json (repair 层)"
+    assert "er_h02" not in holdout_ids, "er_h02 严禁泄漏到 holdout 层"
+    assert "er_h02" not in audit_ids, "er_h02 严禁泄漏到 audit 层"
+
+    er_case = repair_cases["er_h02"]
+    assert er_case["skill"] == "explain_regex"
+    assert er_case["query"] == "讲讲 \\1 反向引用"
+
+    # 构造 er_h02 失败样本，走增强根因分析
+    fails = [
+        Failure(
+            case_id="er_h02",
+            query=er_case["query"],
+            reference=er_case["reference"],
+            output_skill="\\1 就是第一个组",
+            output_baseline="反向引用 \\1 用于匹配与前面第 1 个括号捕获的内容相同的字符串...",
+            losing_dims=["task_completion", "readability"],
+        )
+    ]
+    meta = _create_mock_meta("explain_regex")
+    body = REPO_ROOT.joinpath("skills", "explain_regex", "SKILL.md").read_text(encoding="utf-8")
+    route_trace = {
+        "hit_layer": "rule",
+        "declared_level": "L1",
+        "computed_level": "L1",
+        "verdict": "ROUTE_MATCH",
+        "trigger_keywords": meta.trigger.keywords,
+        "use_when": meta.use_when,
+    }
+    tool_trace = {"failed_phase": "none", "failure_type": "NONE", "is_dependency_failure": False}
+
+    llm = CapturingFakeLLM([
+        json.dumps({
+            "prompt_vague": {"prob": 0.8, "why": "Instructions 未说明反向引用与小例子步骤"},
+            "trigger_inaccurate": {"prob": 0.1, "why": ""},
+            "deps_broken": {"prob": 0.0, "why": ""},
+            "boundary_missing": {"prob": 0.1, "why": ""},
+            "eval_noise": {"prob": 0.0, "why": ""},
+        })
+    ])
+
+    causes = _analyze_root_cause(
+        llm, meta, body, fails,
+        relevant_body_sections=extract_relevant_body_sections(body),
+        route_trace=route_trace,
+        tool_trace=tool_trace,
+    )
+    assert len(causes) > 0
+    assert causes[0].label == "prompt_vague"
+    # 验证走对分支：不是 dependency，可进入后续 patch 生成
+    is_dep, _ = is_dependency_issue(causes, tool_trace)
+    assert is_dep is False
+
+
+def test_acceptance_6b_dependency_failure_generates_no_patch_and_outputs_review(tmp_path: Path):
+    """验收 6(b):
+    构造 dependency 类失败（如外部工具 503 超时/缺失）→
+    断言不产出文案 patch（patches_generated == 0，无任何 prompt 提案），
+    直接输出 REVIEW 诊断归档！
+    """
+    # 初始化受测环境
+    skills_dir = tmp_path / "skills" / "weather_query"
+    skills_dir.mkdir(parents=True, exist_ok=True)
+    skill_content = """---
+name: weather_query
+version: 1.0.0
+description: 查询天气
+use_when: 查询天气
+not_for: []
+dependencies:
+  - amap_weather_api
+trigger:
+  keywords:
+    - 天气
+examples:
+  - 北京天气
+evaluation:
+  last_score: null
+  last_release_id: null
+---
+
+## Overview
+天气查询 Skill
+
+## Instructions
+1. 调用 amap_weather_api 工具查询天气
+2. 返回气温与天气
+
+## Examples
+Q: 北京天气
+A: 晴天 20度
+
+## Constraints
+禁止编造虚假天气
+"""
+    (skills_dir / "SKILL.md").write_text(skill_content, encoding="utf-8")
+
+    registry = SkillRegistry(db_path=tmp_path / "t.db", skills_dir=tmp_path / "skills", repo_root=tmp_path)
+    registry.load_skills_from_dir()
+
+    # 构造一个因外部工具 503 导致失败的基线评估结果
+    bad_provenance = ToolCallProvenance(
+        tool_name="amap_weather_api",
+        fixture_case_id="wq_d01",
+        call_index=1,
+        call_count=1,
+        is_fixture=True,
+        tool_required=True,
+        tool_called=True,
+        tool_success=False,
+        authenticity_pass=False,
+        input_params={"city": "北京"},
+        output_status="ERROR",
+        output_summary="503 Service Unavailable: Remote weather server down",
+        latency_ms=5000.0,
+        timestamp="2026-09-05T00:00:00Z",
+        signature="mock_sig",
+    )
+
+    baseline_eval = EvalResult(
+        release_id="base_01",
+        structure_score={"schema": 10.0},
+        effect_score={"task": 0.0},
+        objective_metrics={},
+        p0_pass=False,
+        case_verdicts=[
+            {"case_id": "wq_d01", "task_completion": "B_better", "robustness": "B_better"}
+        ],
+        case_outputs=[
+            {
+                "case_id": "wq_d01",
+                "query": "北京今天天气",
+                "reference": "返回北京实时天气",
+                "output_skill": "服务不可用 503",
+                "output_baseline": "北京今天晴天 22℃",
+            }
+        ],
+        validation_channels=["tools", "execution"],
+        provenances=[bad_provenance],
+        valid=False,
+        invalid_reasons=["503 Service Unavailable connecting to amap_weather_api"],
+    )
+
+    class MockEvaluator:
+        def __init__(self):
+            self.llm = None
+        def evaluate_skill(self, *args, **kwargs):
+            return baseline_eval
+
+    evaluator = MockEvaluator()
+
+    # 模拟 LLM 响应：根因分析明确识别为 deps_broken
+    llm = CapturingFakeLLM([
+        json.dumps({
+            "deps_broken": {"prob": 0.95, "why": "amap_weather_api 报 503 错误，外部服务不可用"},
+            "prompt_vague": {"prob": 0.05, "why": ""},
+            "trigger_inaccurate": {"prob": 0.0, "why": ""},
+            "boundary_missing": {"prob": 0.0, "why": ""},
+            "eval_noise": {"prob": 0.0, "why": ""},
+        })
+    ])
+
+    evolver = SkillEvolver(
+        registry=registry,
+        evaluator=evaluator,
+        llm=llm,
+    )
+
+    outcome = evolver.evolve_full(
+        skill_name="weather_query",
+        eval_set_for_iter="repair",
+        max_candidates=3,
+        verbose=True,
+    )
+
+    # ========== 核心断言 ==========
+    # 1. 断言不产出任何文案 patch
+    assert outcome.patches_generated == 0, f"预期 patches_generated 为 0，实际为 {outcome.patches_generated}"
+    assert len(outcome.patches_published) == 0, "依赖故障绝不应发布 patch"
+
+    # 2. 断言走 REVIEW 诊断归档出口
+    assert len(outcome.patches_review) == 1, f"预期进入 REVIEW 诊断归档，实际 review 列表: {outcome.patches_review}"
+    diag_file = Path(outcome.patches_review[0])
+    assert diag_file.exists(), f"诊断归档文件不存在: {diag_file}"
+
+    # 3. 断言诊断归档内容
+    report_content = diag_file.read_text(encoding="utf-8")
+    assert "[REVIEW / DEPENDENCY_DIAGNOSTIC] weather_query" in report_content
+    assert "- status: REVIEW" in report_content
+    assert "- patch_generated: false" in report_content
+    assert "deps_broken" in report_content
+    assert "修改 Prompt/SKILL.md 文案对解决依赖问题无效" in report_content
+    assert "diff" not in report_content.lower() or "（诊断归档：外部依赖问题，不产出文案 patch" in report_content
+
+    # 4. 验证 EvolveRecord 记录状态为 REVIEW 且 patch 为 None
+    assert len(outcome.records) == 1
+    assert outcome.records[0].status == "REVIEW"
+    assert outcome.records[0].patch is None

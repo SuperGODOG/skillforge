@@ -1,0 +1,162 @@
+"""Controlled dependency fixtures and provenance generation for validation."""
+from __future__ import annotations
+
+import hashlib
+import json
+from datetime import date, datetime, timezone
+from typing import Any
+
+from hello_agents.tools import Tool, ToolParameter, ToolResponse
+
+from ..models import ToolCallProvenance
+
+
+class AmapWeatherFixture(Tool):
+    """Offline adapter for the ``amap_weather_api`` dependency contract."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            name="amap_weather_api",
+            description="受控的高德天气 API 验证 fixture",
+        )
+        self.call_history: list[dict[str, Any]] = []
+
+    def get_parameters(self) -> list[ToolParameter]:
+        return [
+            ToolParameter(
+                name="city", type="string", description="标准城市行政区名称", required=True
+            ),
+            ToolParameter(
+                name="extensions",
+                type="string",
+                description="all 返回预报",
+                required=False,
+                default="all",
+            ),
+        ]
+
+    def run(self, parameters: dict[str, Any]) -> ToolResponse:
+        city = parameters.get("city")
+        extensions = parameters.get("extensions", "all")
+        if not isinstance(city, str) or not city.strip():
+            return ToolResponse.error("INVALID_ARGUMENT", "city 必须是非空字符串")
+        if extensions != "all":
+            return ToolResponse.error("INVALID_ARGUMENT", "extensions 必须为 all")
+
+        normalized_city = city.strip()
+        self.call_history.append({"city": normalized_city, "extensions": extensions})
+        seed = int(hashlib.sha256(normalized_city.encode("utf-8")).hexdigest()[:4], 16)
+        high = 20 + seed % 13
+        low = high - (5 + seed % 4)
+        payload = {
+            "status": "1",
+            "forecasts": [
+                {
+                    "city": normalized_city,
+                    "casts": [
+                        {
+                            "date": date.today().isoformat(),
+                            "dayweather": "晴",
+                            "nightweather": "多云",
+                            "daytemp": str(high),
+                            "nighttemp": str(low),
+                            "daywind": "南风",
+                            "daypower": "3-4",
+                        }
+                    ],
+                }
+            ],
+        }
+        return ToolResponse.success(
+            json.dumps(payload, ensure_ascii=False),
+            data=payload,
+        )
+
+
+_FIXTURE_FACTORIES = {"amap_weather_api": AmapWeatherFixture}
+_FIXTURE_INPUTS: dict[str, dict[str, Any]] = {
+    "amap_weather_api": {"city": "北京市", "extensions": "all"},
+}
+
+
+def execute_dependency_fixtures(
+    dependencies: list[str],
+) -> tuple[bool, list[ToolCallProvenance], list[str]]:
+    """Execute every declared dependency through a known controlled adapter."""
+    provenances: list[ToolCallProvenance] = []
+    reasons: list[str] = []
+
+    for dependency in dependencies:
+        timestamp = datetime.now(timezone.utc).isoformat()
+        factory = _FIXTURE_FACTORIES.get(dependency)
+        parameters = dict(_FIXTURE_INPUTS.get(dependency, {}))
+        if factory is None:
+            summary = "没有注册可执行 fixture"
+            provenances.append(
+                _provenance(
+                    dependency,
+                    False,
+                    parameters,
+                    "ERROR",
+                    summary,
+                    0.0,
+                    timestamp,
+                )
+            )
+            reasons.append(f"dependency {dependency}: {summary}")
+            continue
+
+        response = factory().run_with_timing(parameters)
+        raw_status = getattr(response.status, "value", str(response.status)).upper()
+        status = "SUCCESS" if raw_status == "SUCCESS" else "ERROR"
+        summary = response.text[:240]
+        latency_ms = float((response.stats or {}).get("time_ms", 0.0))
+        provenances.append(
+            _provenance(
+                dependency,
+                True,
+                parameters,
+                status,
+                summary,
+                latency_ms,
+                timestamp,
+            )
+        )
+        if status != "SUCCESS":
+            reasons.append(f"dependency {dependency}: fixture 调用失败（{summary}）")
+
+    return not reasons, provenances, reasons
+
+
+def _provenance(
+    tool_name: str,
+    is_fixture: bool,
+    input_params: dict[str, Any],
+    output_status: str,
+    output_summary: str,
+    latency_ms: float,
+    timestamp: str,
+) -> ToolCallProvenance:
+    canonical = json.dumps(
+        {
+            "tool_name": tool_name,
+            "input_params": input_params,
+            "output_status": output_status,
+            "output_summary": output_summary,
+            "timestamp": timestamp,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    signature = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return ToolCallProvenance(
+        tool_name=tool_name,
+        is_fixture=is_fixture,
+        input_params=input_params,
+        output_status=output_status,  # type: ignore[arg-type]
+        output_summary=output_summary,
+        latency_ms=latency_ms,
+        timestamp=timestamp,
+        signature=signature,
+    )

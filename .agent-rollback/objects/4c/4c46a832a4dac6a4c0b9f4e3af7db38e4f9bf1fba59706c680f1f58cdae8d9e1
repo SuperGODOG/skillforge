@@ -1,0 +1,419 @@
+"""Controlled dependency fixtures and provenance generation for validation."""
+from __future__ import annotations
+
+import hashlib
+import json
+import time
+from dataclasses import dataclass
+from datetime import date, datetime, timezone
+from typing import Any, Callable
+
+from hello_agents import SimpleAgent
+from hello_agents.core.config import Config
+from hello_agents.tools import Tool, ToolParameter, ToolRegistry, ToolResponse
+
+from ..models import BudgetExceededError, ToolCallProvenance
+
+
+class AmapWeatherFixture(Tool):
+    """Offline adapter for the ``amap_weather_api`` dependency contract."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            name="amap_weather_api",
+            description="受控的高德天气 API 验证 fixture",
+        )
+        self.call_history: list[dict[str, Any]] = []
+
+    def get_parameters(self) -> list[ToolParameter]:
+        return [
+            ToolParameter(
+                name="city", type="string", description="标准城市行政区名称", required=True
+            ),
+            ToolParameter(
+                name="extensions",
+                type="string",
+                description="all 返回预报",
+                required=False,
+                default="all",
+            ),
+        ]
+
+    def run(self, parameters: dict[str, Any]) -> ToolResponse:
+        city = parameters.get("city")
+        extensions = parameters.get("extensions", "all")
+        if not isinstance(city, str) or not city.strip():
+            return ToolResponse.error("INVALID_ARGUMENT", "city 必须是非空字符串")
+        if extensions != "all":
+            return ToolResponse.error("INVALID_ARGUMENT", "extensions 必须为 all")
+
+        normalized_city = city.strip()
+        seed = int(hashlib.sha256(normalized_city.encode("utf-8")).hexdigest()[:4], 16)
+        high = 20 + seed % 13
+        low = high - (5 + seed % 4)
+        payload = {
+            "status": "1",
+            "forecasts": [
+                {
+                    "city": normalized_city,
+                    "casts": [
+                        {
+                            "date": date.today().isoformat(),
+                            "dayweather": "晴",
+                            "nightweather": "多云",
+                            "daytemp": str(high),
+                            "nighttemp": str(low),
+                            "daywind": "南风",
+                            "daypower": "3-4",
+                        }
+                    ],
+                }
+            ],
+        }
+        return ToolResponse.success(
+            json.dumps(payload, ensure_ascii=False),
+            data=payload,
+        )
+
+    def run_with_timing(self, parameters: dict[str, Any]) -> ToolResponse:
+        response = super().run_with_timing(parameters)
+        self.call_history.append(
+            {"parameters": dict(parameters), "response": response}
+        )
+        return response
+
+
+_FIXTURE_FACTORIES = {"amap_weather_api": AmapWeatherFixture}
+
+
+@dataclass(frozen=True)
+class DependencyFixtureCase:
+    case_id: str
+    build_input: Callable[[], dict[str, Any]]
+    build_query: Callable[[dict[str, Any]], str]
+    verify_output: Callable[[dict[str, Any], ToolResponse], bool]
+    verify_agent_output: Callable[[str, ToolResponse], bool]
+
+
+def _weather_input() -> dict[str, Any]:
+    cities = ("北京市", "上海市", "广州市", "深圳市")
+    return {"city": cities[time.time_ns() % len(cities)], "extensions": "all"}
+
+
+def _weather_output_matches(parameters: dict[str, Any], response: ToolResponse) -> bool:
+    try:
+        cast = response.data["forecasts"][0]["casts"][0]
+        return (
+            response.data.get("status") == "1"
+            and response.data["forecasts"][0]["city"] == parameters["city"]
+            and parameters.get("extensions") == "all"
+            and all(
+                isinstance(cast.get(field), str) and bool(cast[field])
+                for field in (
+                    "date",
+                    "dayweather",
+                    "nightweather",
+                    "daytemp",
+                    "nighttemp",
+                    "daywind",
+                    "daypower",
+                )
+            )
+            and cast["daytemp"].isdigit()
+            and cast["nighttemp"].isdigit()
+        )
+    except (KeyError, IndexError, TypeError):
+        return False
+
+
+def _weather_query(parameters: dict[str, Any]) -> str:
+    return (
+        f"请查询{parameters['city']}今天的天气，并给出日期、白天天气、夜间天气、"
+        "最高温、最低温、风向和风力。"
+    )
+
+
+def _weather_agent_output_matches(output: str, response: ToolResponse) -> bool:
+    try:
+        forecast = response.data["forecasts"][0]
+        cast = forecast["casts"][0]
+        grounded_values = (
+            forecast["city"],
+            cast["date"],
+            cast["dayweather"],
+            cast["nightweather"],
+            cast["daytemp"],
+            cast["nighttemp"],
+            cast["daywind"],
+            cast["daypower"],
+        )
+        return all(str(value) in output for value in grounded_values)
+    except (KeyError, IndexError, TypeError):
+        return False
+
+
+_FIXTURE_CASES = {
+    "amap_weather_api": DependencyFixtureCase(
+        case_id="amap_weather_api.smoke.v1",
+        build_input=_weather_input,
+        build_query=_weather_query,
+        verify_output=_weather_output_matches,
+        verify_agent_output=_weather_agent_output_matches,
+    )
+}
+
+
+def execute_dependency_fixtures(
+    dependencies: list[str],
+    removed_dependencies: list[str] | None = None,
+    *,
+    llm=None,
+    skill_body: str = "",
+) -> tuple[bool, list[ToolCallProvenance], list[str]]:
+    """Run dependency cases through a tool-capable Agent and capture execution facts."""
+    provenances: list[ToolCallProvenance] = []
+    reasons: list[str] = []
+
+    for dependency in dependencies:
+        timestamp = datetime.now(timezone.utc).isoformat()
+        factory = _FIXTURE_FACTORIES.get(dependency)
+        fixture_case = _FIXTURE_CASES.get(dependency)
+        parameters: dict[str, Any] = {}
+        if factory is None or fixture_case is None:
+            summary = "没有注册可执行 fixture"
+            provenances.append(
+                _provenance(
+                    dependency,
+                    "unregistered",
+                    0,
+                    0,
+                    False,
+                    True,
+                    False,
+                    False,
+                    False,
+                    parameters,
+                    "ERROR",
+                    summary,
+                    0.0,
+                    timestamp,
+                )
+            )
+            reasons.append(f"dependency {dependency}: {summary}")
+            continue
+
+        try:
+            parameters = fixture_case.build_input()
+            fixture = factory()
+            if llm is None or not hasattr(llm, "invoke_with_tools"):
+                raise RuntimeError("dependency harness 缺少支持 function calling 的 LLM")
+            tool_registry = ToolRegistry()
+            tool_registry.register_tool(fixture)
+            agent = SimpleAgent(
+                name=f"dependency_validator_{dependency}",
+                llm=llm,
+                system_prompt=(
+                    "你是一个 Agent。以下是你要遵守的 Skill 说明书；请严格按 "
+                    "Instructions 执行、按 Constraints 拒绝越界请求：\n\n"
+                    + skill_body
+                ),
+                config=Config(
+                    trace_enabled=False,
+                    skills_enabled=False,
+                    session_enabled=False,
+                    subagent_enabled=False,
+                    todowrite_enabled=False,
+                    devlog_enabled=False,
+                ),
+                tool_registry=tool_registry,
+                enable_tool_calling=True,
+                max_tool_iterations=3,
+            )
+            agent_output = agent.run(fixture_case.build_query(parameters))
+            calls = list(fixture.call_history)
+            ledger = getattr(llm, "ledger", None)
+            if ledger is not None:
+                if getattr(ledger, "last_budget_error", None) is not None:
+                    raise ledger.last_budget_error
+                ledger.check_budget(role="agent")
+        except BudgetExceededError:
+            raise
+        except Exception as exc:
+            summary = f"fixture 初始化或执行异常: {type(exc).__name__}: {exc}"
+            provenances.append(
+                _provenance(
+                    dependency,
+                    fixture_case.case_id,
+                    0,
+                    0,
+                    True,
+                    True,
+                    False,
+                    False,
+                    False,
+                    parameters,
+                    "ERROR",
+                    summary,
+                    0.0,
+                    timestamp,
+                )
+            )
+            reasons.append(f"dependency {dependency}: {summary}")
+            continue
+
+        if not calls:
+            summary = "Agent 未调用必需工具"
+            provenances.append(
+                _provenance(
+                    dependency,
+                    fixture_case.case_id,
+                    0,
+                    0,
+                    True,
+                    True,
+                    False,
+                    False,
+                    False,
+                    {},
+                    "ERROR",
+                    summary,
+                    0.0,
+                    timestamp,
+                )
+            )
+            reasons.append(f"dependency {dependency}: {summary}")
+            continue
+
+        call_count = len(calls)
+        for call_index, call in enumerate(calls, start=1):
+            actual_parameters = call["parameters"]
+            response = call["response"]
+            try:
+                raw_status = getattr(
+                    response.status, "value", str(response.status)
+                ).upper()
+                tool_success = raw_status == "SUCCESS"
+                contract_pass = (
+                    actual_parameters == parameters
+                    and tool_success
+                    and fixture_case.verify_output(actual_parameters, response)
+                )
+                authenticity_pass = (
+                    contract_pass
+                    and fixture_case.verify_agent_output(agent_output, response)
+                )
+                status = "SUCCESS" if authenticity_pass else "ERROR"
+                summary = f"tool={response.text[:150]} | agent={agent_output[:150]}"
+                latency_ms = float((response.stats or {}).get("time_ms", 0.0))
+            except Exception as exc:
+                tool_success = False
+                authenticity_pass = False
+                status = "ERROR"
+                summary = (
+                    "fixture 响应解析或真实性校验异常: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+                latency_ms = 0.0
+            provenances.append(
+                _provenance(
+                    dependency,
+                    fixture_case.case_id,
+                    call_index,
+                    call_count,
+                    True,
+                    True,
+                    True,
+                    tool_success,
+                    authenticity_pass,
+                    actual_parameters,
+                    status,
+                    summary,
+                    latency_ms,
+                    timestamp,
+                )
+            )
+            if status != "SUCCESS":
+                reasons.append(
+                    f"dependency {dependency} call {call_index}/{call_count}: "
+                    f"Agent 工具调用或真实性校验失败（{summary}）"
+                )
+
+    for dependency in removed_dependencies or []:
+        timestamp = datetime.now(timezone.utc).isoformat()
+        provenances.append(
+            _provenance(
+                dependency,
+                "dependency-removal.v1",
+                0,
+                0,
+                dependency in _FIXTURE_FACTORIES,
+                False,
+                False,
+                False,
+                True,
+                {},
+                "SUCCESS",
+                "候选已移除此依赖；无需工具调用",
+                0.0,
+                timestamp,
+            )
+        )
+
+    return not reasons, provenances, reasons
+
+
+def _provenance(
+    tool_name: str,
+    fixture_case_id: str,
+    call_index: int,
+    call_count: int,
+    is_fixture: bool,
+    tool_required: bool,
+    tool_called: bool,
+    tool_success: bool,
+    authenticity_pass: bool,
+    input_params: dict[str, Any],
+    output_status: str,
+    output_summary: str,
+    latency_ms: float,
+    timestamp: str,
+) -> ToolCallProvenance:
+    canonical = json.dumps(
+        {
+            "tool_name": tool_name,
+            "fixture_case_id": fixture_case_id,
+            "call_index": call_index,
+            "call_count": call_count,
+            "is_fixture": is_fixture,
+            "tool_required": tool_required,
+            "tool_called": tool_called,
+            "tool_success": tool_success,
+            "authenticity_pass": authenticity_pass,
+            "input_params": input_params,
+            "output_status": output_status,
+            "output_summary": output_summary,
+            "timestamp": timestamp,
+            "latency_ms": latency_ms,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    signature = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return ToolCallProvenance(
+        tool_name=tool_name,
+        fixture_case_id=fixture_case_id,
+        call_index=call_index,
+        call_count=call_count,
+        is_fixture=is_fixture,
+        tool_required=tool_required,
+        tool_called=tool_called,
+        tool_success=tool_success,
+        authenticity_pass=authenticity_pass,
+        input_params=input_params,
+        output_status=output_status,  # type: ignore[arg-type]
+        output_summary=output_summary,
+        latency_ms=latency_ms,
+        timestamp=timestamp,
+        signature=signature,
+    )

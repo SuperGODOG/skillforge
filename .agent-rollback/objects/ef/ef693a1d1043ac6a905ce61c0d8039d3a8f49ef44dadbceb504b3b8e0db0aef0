@@ -1,0 +1,67 @@
+{
+  "meta": {
+    "created": "2026-09-04",
+    "layer": "experiment_holdout",
+    "purpose": "实验留出集，专用于候选补丁间的相对比选与排序，禁止向模型回传具体 query/output 明细",
+    "visibility": "black_box_ranking_only",
+    "allow_in_reflection": false,
+    "total": 9,
+    "rule": "禁止将用例详情/失败样本反馈到 Prompt 反思或生成上下文"
+  },
+  "cases": [
+    {
+      "id": "er_d03",
+      "skill": "explain_regex",
+      "query": "讲讲正则的贪婪和非贪婪",
+      "reference": "定义 + 小例子对比（如 <.*> vs <.*?>）+ 陷阱提示"
+    },
+    {
+      "id": "er_d05",
+      "skill": "explain_regex",
+      "query": "什么是正则的锚点",
+      "reference": "定义 ^ $ \\b \\B；给小例子"
+    },
+    {
+      "id": "er_d06",
+      "skill": "explain_regex",
+      "query": "讲一下 lookahead",
+      "reference": "定义（?= ?!）；小例子；提示 lookbehind"
+    },
+    {
+      "id": "wq_d02",
+      "skill": "weather_query",
+      "query": "上海明天会下雨吗",
+      "reference": "识别城市=上海、时间=明天；查询后明确是否有降雨（不模糊）"
+    },
+    {
+      "id": "wq_d03",
+      "skill": "weather_query",
+      "query": "广州这周末温度多少",
+      "reference": "解析时间='本周六日'；返回两天的温度区间"
+    },
+    {
+      "id": "wq_d04",
+      "skill": "weather_query",
+      "query": "深圳的降水情况怎么样",
+      "reference": "识别为深圳未来 3 天预报；如果'降水情况'指代不明可反问"
+    },
+    {
+      "id": "wr_d02",
+      "skill": "write_weekly_report",
+      "query": "我这周做的事有点多：周一二做项目 A 开发，周三上线，周四查一个用户反馈的 bug，周五和产品对齐 Q3 方向。帮我整理成周报。",
+      "reference": "按项目/主题聚类；每项一句话；下周计划留空或标'待补'"
+    },
+    {
+      "id": "wr_d05",
+      "skill": "write_weekly_report",
+      "query": "帮我把这些点整理，语气正式：改 bug 3 个、加 feature X、onboard 新人小李",
+      "reference": "正式语气；数字保留（3 个 bug）；结构化四段"
+    },
+    {
+      "id": "wr_d06",
+      "skill": "write_weekly_report",
+      "query": "我要写给 CEO 的周报，重点突出成果",
+      "reference": "受众 CEO；成果放最前面；简明"
+    }
+  ]
+}

@@ -1,0 +1,285 @@
+"""
+P0 门控机制 (P0 Gate Enforcement - P0-D)
+
+遵循 codex2 架构决策 F-5:
+1. P0 单独加载：独立于迭代评测集（eval_set_for_iter），针对目标 Skill 单独加载对应的 P0 用例。
+2. 堵塞失效路径：
+   - 空集 / 零用例 -> INVALID (DECLINED)
+   - 未执行 / 部分执行 -> INVALID (DECLINED)
+   - 基础设施异常 (LLM崩溃/网络异常/Judge INVALID) -> INVALID (DECLINED)
+3. 绝对通过要求：候选者自动发布必须满足 valid=True 且 p0_pass=True，不得仅依赖 relative old vs new。
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Optional
+
+from ..models import EvalResult, RatchetVerdict
+
+
+class P0GateError(Exception):
+    """P0 门控基础异常"""
+    pass
+
+
+class P0LoadError(P0GateError):
+    """P0 用例集配置或定义加载失败"""
+    pass
+
+
+class P0EmptyCasesError(P0GateError):
+    """P0 用例集为空或未找到匹配用例"""
+    pass
+
+
+@dataclass
+class P0GateResult:
+    """P0 门执行与判定结果"""
+    valid: bool
+    p0_pass: bool
+    executed_count: int
+    expected_count: int
+    invalid_reasons: list[str] = field(default_factory=list)
+    failure_reasons: list[str] = field(default_factory=list)
+    case_verdicts: list[dict[str, Any]] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "valid": self.valid,
+            "p0_pass": self.p0_pass,
+            "executed_count": self.executed_count,
+            "expected_count": self.expected_count,
+            "invalid_reasons": list(self.invalid_reasons),
+            "failure_reasons": list(self.failure_reasons),
+        }
+
+
+def load_p0_cases(repo_root: Path, skill_name: Optional[str] = None) -> list[dict[str, Any]]:
+    """
+    单独从 evaluation_sets/p0_cases.json 加载 P0 用例。
+    若内嵌 cases 字段，则直接读取；
+    若只有 p0_ids，则自动从 repair_set.json 或 baseline_dev.json 中解析完整定义。
+    """
+    p0_file = repo_root / "evaluation_sets" / "p0_cases.json"
+    if not p0_file.exists():
+        raise P0LoadError(f"P0 配置文件不存在: {p0_file}")
+
+    try:
+        data = json.loads(p0_file.read_text(encoding="utf-8"))
+    except Exception as e:
+        raise P0LoadError(f"解析 P0 配置文件失败 {p0_file}: {e}") from e
+
+    # 优先使用内嵌完整定义
+    cases: list[dict[str, Any]] = data.get("cases", [])
+    if not cases:
+        p0_ids = data.get("p0_ids", [])
+        if not p0_ids:
+            raise P0LoadError(f"P0 配置文件中无 cases 且 p0_ids 为空: {p0_file}")
+
+        # 回退去 repair_set 或 baseline_dev 查完整定义
+        source_file = repo_root / "evaluation_sets" / "repair_set.json"
+        if not source_file.exists():
+            source_file = repo_root / "evaluation_sets" / "baseline_dev.json"
+        if not source_file.exists():
+            raise P0LoadError(f"无法找到解析 P0 定义的源数据集 (repair_set.json 或 baseline_dev.json)")
+
+        try:
+            source_data = json.loads(source_file.read_text(encoding="utf-8"))
+            source_cases = {c["id"]: c for c in source_data.get("cases", [])}
+        except Exception as e:
+            raise P0LoadError(f"加载源数据集失败 {source_file}: {e}") from e
+
+        for pid in p0_ids:
+            if pid not in source_cases:
+                raise P0LoadError(f"P0 用例 ID {pid} 在 {source_file.name} 中未找到完整定义")
+            cases.append(source_cases[pid])
+
+    if skill_name:
+        cases = [c for c in cases if c.get("skill") == skill_name]
+        if not cases:
+            raise P0EmptyCasesError(f"Skill '{skill_name}' 未配置任何 P0 用例")
+    elif not cases:
+        raise P0EmptyCasesError("P0 用例集为空")
+
+    return cases
+
+
+def evaluate_p0_gate(
+    evaluator: Any,
+    skill_name: str,
+    p0_cases: Optional[list[dict[str, Any]]] = None,
+    repo_root: Optional[Path] = None,
+    verbose: bool = False,
+) -> P0GateResult:
+    """
+    执行目标 Skill 的独立 P0 门评测。
+    堵塞所有失效路径：
+    1. 空集/加载失败 -> INVALID
+    2. 评测执行异常 (基础设施故障) -> INVALID
+    3. 未执行或执行不完整 (漏跑 case) -> INVALID
+    4. Judge 返回 INVALID -> INVALID
+    5. task_completion 维度被判 B_better -> P0 FAIL (valid=True, p0_pass=False)
+    """
+    root = repo_root or getattr(getattr(evaluator, "registry", None), "repo_root", None)
+    if root is None:
+        root = Path(".")
+
+    # 1. 尝试单独加载 P0 用例
+    if p0_cases is None:
+        try:
+            p0_cases = load_p0_cases(root, skill_name=skill_name)
+        except (P0LoadError, P0EmptyCasesError, FileNotFoundError) as e:
+            return P0GateResult(
+                valid=False,
+                p0_pass=False,
+                executed_count=0,
+                expected_count=0,
+                invalid_reasons=[f"P0 用例加载失败: {e}"],
+            )
+        except Exception as e:
+            return P0GateResult(
+                valid=False,
+                p0_pass=False,
+                executed_count=0,
+                expected_count=0,
+                invalid_reasons=[f"P0 加载遭遇未知异常: {e}"],
+            )
+
+    if not p0_cases:
+        return P0GateResult(
+            valid=False,
+            p0_pass=False,
+            executed_count=0,
+            expected_count=0,
+            invalid_reasons=[f"Skill '{skill_name}' 的 P0 用例集为空"],
+        )
+
+    expected_ids = {c["id"] for c in p0_cases}
+    expected_count = len(expected_ids)
+
+    # 2. 执行评测（捕获基础设施异常）
+    try:
+        p0_ids_list = sorted(list(expected_ids))
+        eval_result = evaluator.evaluate_skill(
+            skill_name,
+            eval_set="p0_cases",
+            cases=p0_cases,
+            p0_ids=p0_ids_list,
+            verbose=verbose,
+        )
+    except Exception as e:
+        return P0GateResult(
+            valid=False,
+            p0_pass=False,
+            executed_count=0,
+            expected_count=expected_count,
+            invalid_reasons=[f"P0 评估基础设施异常 (网络/模型/工具调用崩溃): {e}"],
+        )
+
+    # 3. 校验执行完整性（未执行/漏跑判定为 INVALID）
+    case_verdicts = eval_result.case_verdicts or []
+    executed_ids = {c.get("case_id") for c in case_verdicts if c.get("case_id")}
+    executed_count = len(executed_ids)
+
+    if executed_ids != expected_ids or executed_count < expected_count:
+        missing = sorted(list(expected_ids - executed_ids))
+        return P0GateResult(
+            valid=False,
+            p0_pass=False,
+            executed_count=executed_count,
+            expected_count=expected_count,
+            invalid_reasons=[f"P0 用例执行不完整: 预期 {expected_count} 条，实际完成 {executed_count} 条，缺失: {missing}"],
+            case_verdicts=case_verdicts,
+        )
+
+    # 4. 校验 Judge 有效性
+    if not getattr(eval_result, "valid", True) or getattr(eval_result, "invalid_reasons", []):
+        return P0GateResult(
+            valid=False,
+            p0_pass=False,
+            executed_count=executed_count,
+            expected_count=expected_count,
+            invalid_reasons=list(eval_result.invalid_reasons) or ["P0 评估结果被标记为无效 (INVALID)"],
+            case_verdicts=case_verdicts,
+        )
+
+    judge_invalids: list[str] = []
+    for cv in case_verdicts:
+        cid = cv.get("case_id", "unknown")
+        for dim, verdict_val in cv.items():
+            if dim in ("task_completion", "robustness", "readability") and verdict_val == "INVALID":
+                judge_invalids.append(f"{cid}/{dim}: Judge 返回 INVALID")
+
+    if judge_invalids:
+        return P0GateResult(
+            valid=False,
+            p0_pass=False,
+            executed_count=executed_count,
+            expected_count=expected_count,
+            invalid_reasons=judge_invalids,
+            case_verdicts=case_verdicts,
+        )
+
+    # 5. 校验 task_completion 维度核心表现
+    failures: list[str] = []
+    for cv in case_verdicts:
+        cid = cv.get("case_id", "unknown")
+        task_v = cv.get("task_completion")
+        if task_v == "B_better":
+            failures.append(f"P0 用例 {cid} 在核心任务完成度维度表现劣于基线 (B_better)")
+
+    if failures:
+        return P0GateResult(
+            valid=True,
+            p0_pass=False,
+            executed_count=executed_count,
+            expected_count=expected_count,
+            failure_reasons=failures,
+            case_verdicts=case_verdicts,
+        )
+
+    # 6. 全部顺利通过
+    return P0GateResult(
+        valid=True,
+        p0_pass=True,
+        executed_count=executed_count,
+        expected_count=expected_count,
+        case_verdicts=case_verdicts,
+    )
+
+
+def check_p0_ratchet_verdict(p0_result: Optional[P0GateResult]) -> RatchetVerdict:
+    """
+    根据 P0 独立门结果生成棘轮决策：
+    - 未执行 / None -> DECLINED (INVALID)
+    - valid=False -> DECLINED (INVALID fail-closed)
+    - p0_pass=False -> DECLINED
+    - 满足条件 -> PASS
+    """
+    if p0_result is None:
+        return RatchetVerdict(
+            decision="DECLINED",
+            reasons=["P0 门未执行，按 fail-closed 判为 INVALID 并拒绝发布"],
+        )
+
+    if not p0_result.valid:
+        reasons = ["P0 评估无效 (INVALID)，按 fail-closed 拒绝"] + p0_result.invalid_reasons
+        return RatchetVerdict(decision="DECLINED", reasons=reasons)
+
+    if not p0_result.p0_pass:
+        reasons = ["P0 核心用例存在回退或未通过"] + p0_result.failure_reasons
+        return RatchetVerdict(decision="DECLINED", reasons=reasons)
+
+    return RatchetVerdict(decision="PASS", reasons=["P0 核心用例全部通过"])
+
+
+def merge_p0_into_eval_result(eval_result: EvalResult, p0_result: P0GateResult) -> EvalResult:
+    """将 P0 独立评测结果融合进候选者的 EvalResult 结构中"""
+    eval_result.p0_pass = p0_result.p0_pass and p0_result.valid
+    if not p0_result.valid:
+        eval_result.valid = False
+        eval_result.invalid_reasons.extend(p0_result.invalid_reasons)
+    return eval_result

@@ -1,0 +1,317 @@
+"""Skill / Route / Evaluation / Release 数据模型
+
+- SkillMeta 系列：Pydantic BaseModel（需要 YAML frontmatter 解析 + 校验）
+- Route/Eval/Ratchet/Patch/Release：dataclass（组件间内部传递够用）
+
+参见 ARCHITECTURE §5。
+"""
+from __future__ import annotations
+from dataclasses import dataclass, field
+from typing import Any, Literal, Optional
+from pydantic import BaseModel, Field
+
+
+class Trigger(BaseModel):
+    keywords: list[str] = Field(default_factory=list)
+
+
+class Evaluation(BaseModel):
+    last_score: Optional[float] = None
+    last_release_id: Optional[str] = None
+
+
+class SkillMeta(BaseModel):
+    """SKILL.md 的 YAML frontmatter 结构"""
+    name: str
+    version: str
+    description: str
+    use_when: str
+    not_for: list[str] = Field(default_factory=list)
+    dependencies: list[str] = Field(default_factory=list)
+    trigger: Trigger = Field(default_factory=Trigger)
+    examples: list[str] = Field(default_factory=list)
+    evaluation: Evaluation = Field(default_factory=Evaluation)
+
+
+@dataclass
+class RouteResult:
+    chosen: Optional[str]
+    hit_layer: Literal["rule", "embed", "llm"]
+    scores: dict
+    latency_ms: float
+    matched_keywords: list[str] = field(default_factory=list)
+    routing_notes: str = ""
+
+
+@dataclass(frozen=True)
+class ToolCallProvenance:
+    """Canonical SHA-256 integrity record of a dependency fixture invocation."""
+
+    tool_name: str
+    fixture_case_id: str
+    call_index: int
+    call_count: int
+    is_fixture: bool
+    tool_required: bool
+    tool_called: bool
+    tool_success: bool
+    authenticity_pass: bool
+    input_params: dict[str, Any]
+    output_status: Literal["SUCCESS", "ERROR", "CIRCUIT_OPEN"]
+    output_summary: str
+    latency_ms: float
+    timestamp: str
+    signature: str
+
+
+@dataclass
+class EvalResult:
+    release_id: str
+    structure_score: dict[str, float]
+    effect_score: dict[str, float]
+    objective_metrics: dict[str, float]
+    p0_pass: bool
+    # Phase 4 元 Agent 需要每 case 明细定位失败样本
+    case_verdicts: list[dict] = field(default_factory=list)
+    # 保留 skill/baseline 输出对，供元 Agent 归因（可选，大数据量）
+    case_outputs: list[dict] = field(default_factory=list)
+    # P0-B: 实际执行过的验证通道及工具调用凭证。
+    validation_channels: list[str] = field(default_factory=list)
+    provenances: list[ToolCallProvenance] = field(default_factory=list)
+    # P0-C: Judge/infrastructure invalidity must never masquerade as a score.
+    valid: bool = True
+    invalid_reasons: list[str] = field(default_factory=list)
+    p0_gate_result: Optional[Any] = None
+    # P0-1 路由判定链真实字段；等级字段属于 Patch/diff，不属于 Router。
+    hit_layer: Optional[str] = None
+    verdict: Optional[str] = None
+    matched_keywords: list[str] = field(default_factory=list)
+    routing_notes: Optional[str] = None
+    route_result: Optional[RouteResult] = None
+    route_error: Optional[str] = None
+
+
+@dataclass
+class RatchetVerdict:
+    decision: Literal["PASS", "REVIEW", "DECLINED"]
+    reasons: list[str] = field(default_factory=list)
+
+
+PatchStatus = Literal["PUBLISHED", "REVIEW", "SUGGESTION", "DECLINED", "PASS"]
+
+
+@dataclass
+class BodySectionStats:
+    """Four-part body section character counts and total length."""
+
+    overview: int = 0
+    instructions: int = 0
+    examples: int = 0
+    constraints: int = 0
+    total: int = 0
+    by_section: dict[str, int] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, int]:
+        d = {
+            "Overview": self.overview,
+            "Instructions": self.instructions,
+            "Examples": self.examples,
+            "Constraints": self.constraints,
+            "total": self.total,
+        }
+        d.update(self.by_section)
+        return d
+
+
+@dataclass
+class Patch:
+    skill_name: str
+    level: Literal["L1", "L2", "L3"]
+    diff: str
+    rationale: str
+    # ``diff`` is the complete candidate SKILL.md for backward compatibility.
+    # These fields carry the independently computed audit decision.
+    computed_level: Literal["L1", "L2", "L3", "INVALID"] = "INVALID"
+    unified_diff: str = ""
+    downgrade_attempt: bool = False
+    changed_frontmatter: list[str] = field(default_factory=list)
+    changed_body_sections: list[str] = field(default_factory=list)
+    provenances: list[ToolCallProvenance] = field(default_factory=list)
+    # P1-E Prompt Bloat 护栏字段
+    baseline_body_stats: dict[str, int] = field(default_factory=dict)
+    candidate_body_stats: dict[str, int] = field(default_factory=dict)
+    bloat_verdict: Optional[str] = None
+    bloat_reasons: list[str] = field(default_factory=list)
+    distillation_prompt: Optional[str] = None
+    status: Optional[str] = None
+
+
+@dataclass
+class AttemptRecord:
+    """Record of an evolution candidate attempt in an evolution round."""
+
+    attempt_no: int
+    strategy: str
+    candidate_digest: str
+    computed_level: str
+    verdict: str
+    reason_codes: list[str] = field(default_factory=list)
+    calls: Optional[int] = None  # 接入 ledger 真实统计（未接入时明确标注为 None 预留字段，禁止默认 0 装真值）
+    tokens: Optional[int] = None # 接入 ledger 真实统计（未接入时明确标注为 None 预留字段，禁止默认 0 装真值）
+    round_no: int = 1
+    status: Optional[str] = None
+    patch: Optional[Patch] = None
+
+
+@dataclass
+class AttemptFeedback:
+    """Strongly-typed feedback object passed into reflection per codex2 §4.2."""
+
+    attempt_no: int
+    original_skill_digest: str
+    candidate_digest: str
+    declared_level: str
+    computed_level: str
+    strategy: str
+    candidate_diff: str
+    failed_cases: list[dict[str, Any]]
+    ratchet_reasons: list[str]
+    p0_status: Any
+    authenticity_status: Any
+    prompt_budget_status: Any
+    repeated_patch_fingerprints: list[str]
+    remaining_budget: Any
+
+
+@dataclass
+class EvolveContext:
+    """Runtime blackboard tracking evolution context and attempt history across rounds (P1-E / P1-H)."""
+
+    skill_name: str
+    original_digest: str = ""
+    repair_set: str = "repair_set"
+    baseline_result: Optional[EvalResult] = None
+    failures: list[Any] = field(default_factory=list)
+    attempts: list[AttemptRecord] = field(default_factory=list)
+    calls_used: int = 0
+    tokens_used: int = 0
+    stop_reason: Optional[str] = None
+    # P1-E fields
+    baseline_meta: Optional[SkillMeta] = None
+    baseline_body: str = ""
+    baseline_body_stats: dict[str, int] = field(default_factory=dict)
+    active_budget: Optional[EvolveBudget] = None
+    # P1-H fields
+    round_no: int = 1
+    seen_fingerprints: set[str] = field(default_factory=set)
+    shadow_mode: bool = True
+
+
+@dataclass
+class EvolveRecord:
+    """Record of a patch evolution attempt with prompt bloat and validation tracking."""
+
+    skill_name: str
+    patch: Optional[Patch] = None
+    baseline_body: str = ""
+    candidate_body: str = ""
+    baseline_body_stats: dict[str, int] = field(default_factory=dict)
+    candidate_body_stats: dict[str, int] = field(default_factory=dict)
+    bloat_verdict: Optional[str] = None
+    bloat_reasons: list[str] = field(default_factory=list)
+    distillation_prompt: Optional[str] = None
+    status: Optional[str] = None
+
+
+@dataclass
+class Release:
+    release_id: str
+    skill_name: str
+    version: str
+    commit_hash: Optional[str]
+    status: Literal["PREPARING", "PUBLISHED", "ABANDONED"]
+    level: Optional[str]
+
+
+@dataclass
+class EvolveBudget:
+    """Configurable budget and randomness guardrails (P1-F), prompt bloat guardrails (P1-E), and controlled rounds (P1-H)."""
+
+    max_candidates: Optional[int] = 3
+    max_calls: Optional[int] = None
+    max_tokens: Optional[int] = None
+    deadline_seconds: Optional[float] = None
+    on_candidate_overflow: Literal["truncate", "reject"] = "truncate"
+    max_llm_calls: Optional[int] = None
+    max_total_tokens: Optional[int] = None
+    max_candidates_first_round: Optional[int] = None
+    max_candidates_retry: Optional[int] = None
+    max_candidates_total: Optional[int] = None
+
+    # P1-H Controlled Reflection Loop Guardrails
+    max_rounds: int = 2
+    enable_reflection: bool = False
+    shadow_mode: bool = True
+    auto_publish_enabled: bool = False
+
+    # Prompt Bloat Guardrails (P1-E)
+    section_growth_ratio: float = 0.25      # 单段相对 baseline 字符增长门槛 (>25%)
+    section_growth_chars: int = 100        # 单段绝对字符增长门槛 (>100 chars)
+    max_body_multiplier: float = 1.20      # 整 Body 字符数倍数门限 (>1.20x)
+    max_body_chars: Optional[int] = None   # 整 Body 绝对字符数上限（可选）
+    on_body_bloat: Literal["REVIEW", "DECLINED"] = "REVIEW"  # 全 body 门控动作
+
+    def __post_init__(self) -> None:
+        if self.max_calls is None and self.max_llm_calls is not None:
+            self.max_calls = self.max_llm_calls
+        if self.max_tokens is None and self.max_total_tokens is not None:
+            self.max_tokens = self.max_total_tokens
+        if self.max_candidates_first_round is not None:
+            if self.max_candidates is None or self.max_candidates == 3:
+                self.max_candidates = self.max_candidates_first_round
+        elif self.max_candidates is not None and self.max_candidates_first_round is None:
+            self.max_candidates_first_round = self.max_candidates
+
+    def get_effective_candidate_limit(
+        self,
+        round_index: int = 0,
+        candidates_so_far: int = 0,
+    ) -> Optional[int]:
+        """Compute candidate clamp limit for a given round (0=first round, >0=retry/reflection),
+        respecting round limits (first_round/retry) and cumulative total limit (max_candidates_total)."""
+        if round_index == 0:
+            round_limit = (
+                self.max_candidates_first_round
+                if self.max_candidates_first_round is not None
+                else self.max_candidates
+            )
+        else:
+            round_limit = (
+                self.max_candidates_retry
+                if self.max_candidates_retry is not None
+                else self.max_candidates
+            )
+
+        if self.max_candidates_total is not None:
+            remaining = max(0, self.max_candidates_total - candidates_so_far)
+            if round_limit is not None:
+                return min(round_limit, remaining)
+            return remaining
+        return round_limit
+
+
+class BudgetExceededError(RuntimeError):
+    """Raised when any LLM budget hard cap (token, call, deadline, candidate) is exceeded."""
+
+    def __init__(
+        self,
+        reason: str,
+        cap_type: str,
+        limit: Any = None,
+        current: Any = None,
+    ) -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.cap_type = cap_type  # "call", "token", "deadline", "candidate"
+        self.limit = limit
+        self.current = current

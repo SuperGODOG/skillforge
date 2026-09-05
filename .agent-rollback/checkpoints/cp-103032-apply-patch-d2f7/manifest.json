@@ -1,0 +1,408 @@
+{
+  "createdAt": "2026-09-04T10:30:32.331Z",
+  "files": {
+    ".gitignore": {
+      "mode": 384,
+      "sha256": "6a2890524807c47407880f28f730105fc8ef9898fc770971bd26c06b88f301d7",
+      "size": 554,
+      "type": "file"
+    },
+    "ARCHITECTURE.md": {
+      "mode": 384,
+      "sha256": "1e969164515aa5f68fe0cc6adc8cbb174fe2049acae87891367c8e67a29b9ca9",
+      "size": 25746,
+      "type": "file"
+    },
+    "evaluation_sets/baseline_dev.json": {
+      "mode": 436,
+      "sha256": "ff454d3dab5865bf0d3ea094e338dd7e544787929956ccc417bee9e9ecb1ac48",
+      "size": 6457,
+      "type": "file"
+    },
+    "evaluation_sets/baseline_hidden.json": {
+      "mode": 436,
+      "sha256": "50e7551644ff9badc8b523dafbe2781e5290d2888d4b05700b484122bf644e8a",
+      "size": 2351,
+      "type": "file"
+    },
+    "evaluation_sets/baseline_seen_regression.json": {
+      "mode": 436,
+      "sha256": "ee5c03fa442e29321b9b42ac757961dd20d2cabe47ab228efb075ed73aaa5b78",
+      "size": 2205,
+      "type": "file"
+    },
+    "evaluation_sets/experiment_holdout.json": {
+      "mode": 436,
+      "sha256": "ef693a1d1043ac6a905ce61c0d8039d3a8f49ef44dadbceb504b3b8e0db0aef0",
+      "size": 2413,
+      "type": "file"
+    },
+    "evaluation_sets/final_audit.json": {
+      "mode": 436,
+      "sha256": "07c9b8d09909f38d3bbf235a8be6f24f161f009c138f0fe330d88603b7f4e9b1",
+      "size": 2322,
+      "type": "file"
+    },
+    "evaluation_sets/p0_cases.json": {
+      "mode": 436,
+      "sha256": "ef4c5f1be6fdb101636aed550456141a5eb369586a8b53c5229710520c795227",
+      "size": 3841,
+      "type": "file"
+    },
+    "evaluation_sets/repair_set.json": {
+      "mode": 436,
+      "sha256": "366fe06e1f3904a6d1d4110ad7356ee556a65fa41fe925f9e17ad3c1fa33f308",
+      "size": 5407,
+      "type": "file"
+    },
+    "evaluation_sets/router_negatives.json": {
+      "mode": 436,
+      "sha256": "e8f3a9d97764702e44a3e0db1973f204da44beba68caf3397606a1d0cd0b4a2b",
+      "size": 7535,
+      "type": "file"
+    },
+    "pyproject.toml": {
+      "mode": 436,
+      "sha256": "c229362055ac71d2270991db2713de70ddeac68a48cee300b16dbe43ec7289d7",
+      "size": 686,
+      "type": "file"
+    },
+    "README.md": {
+      "mode": 436,
+      "sha256": "2a6b9762afbf6c40d76b3b91c1d99f614bc46ba546fad370281cdb4b473fbdd2",
+      "size": 13973,
+      "type": "file"
+    },
+    "runs/blind_eval_samples.json": {
+      "mode": 436,
+      "sha256": "e52d5bb214692d86bb0efb34d02b87a8ba8acc8030866df1166a217da1ef83e2",
+      "size": 80867,
+      "type": "file"
+    },
+    "runs/failures/.gitkeep": {
+      "mode": 436,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "type": "file"
+    },
+    "scripts/blind_eval_report.py": {
+      "mode": 436,
+      "sha256": "32181ebf0cd34eef7a50d0498369139a4f47712bf0273beab749c993a4181d06",
+      "size": 4954,
+      "type": "file"
+    },
+    "scripts/blind_eval_run.py": {
+      "mode": 436,
+      "sha256": "963b61fb027b83a1f8eb2c4a072d0282cdf9c6e812233cecdfb424ed6ecddc62",
+      "size": 5646,
+      "type": "file"
+    },
+    "scripts/eval_router.py": {
+      "mode": 436,
+      "sha256": "5cee635cb00844ca4dc812194ec05ee78a666bf2d2fa8aa4f3d5b3a916c428dc",
+      "size": 5268,
+      "type": "file"
+    },
+    "scripts/partition_dataset.py": {
+      "mode": 436,
+      "sha256": "69c54b7df880c47f6a2188a8503c7fb3b61d25545d6d2201f4fc48e7f81d6639",
+      "size": 9167,
+      "type": "file"
+    },
+    "scripts/rejudge_frozen.py": {
+      "mode": 436,
+      "sha256": "b64919bff906450e8ff8eeb68e34d8e0484b609af785b26bf3dfa59bcf2b3a9b",
+      "size": 14896,
+      "type": "file"
+    },
+    "skills/explain_regex/SKILL.md": {
+      "mode": 436,
+      "sha256": "8e85d0cb3d61bf8bd148081b34bebfedcfde578fe123b3e2cdeeed8ef5f61e86",
+      "size": 2340,
+      "type": "file"
+    },
+    "skills/weather_query/SKILL.md": {
+      "mode": 436,
+      "sha256": "37d16aa5fca4d2d00a04c1d938eaa027d182bf8ddf0b5189b23f8c881803e953",
+      "size": 1805,
+      "type": "file"
+    },
+    "skills/write_weekly_report/SKILL.md": {
+      "mode": 436,
+      "sha256": "5cb3d1f4c91f2b9b1d5bc0f1275201b950457d380af0df2e1d590abfe49991f8",
+      "size": 2287,
+      "type": "file"
+    },
+    "src/skillforge/__init__.py": {
+      "mode": 436,
+      "sha256": "c6baa583c7fa358c8b0ed87a013f7adf691941369083abcf83f41329d087f258",
+      "size": 835,
+      "type": "file"
+    },
+    "src/skillforge/cli.py": {
+      "mode": 436,
+      "sha256": "2128c0b45517797d2fad3c3719c8478a49505392ff25671bddb338794eb5042b",
+      "size": 11520,
+      "type": "file"
+    },
+    "src/skillforge/data_partition.py": {
+      "mode": 436,
+      "sha256": "7895447a8c9b4c3b2965a3a55b0a31a143355bbcfa81d804da002b8be231a1ed",
+      "size": 8305,
+      "type": "file"
+    },
+    "src/skillforge/diff.py": {
+      "mode": 436,
+      "sha256": "0f10d5460c9aff134ba0339f70aae6a819998e134a40761647dc1426482a02e6",
+      "size": 14072,
+      "type": "file"
+    },
+    "src/skillforge/evaluator/__init__.py": {
+      "mode": 436,
+      "sha256": "30b369f7b2ce592fe59349e510344f80bbd614b0873fb2cc51e986eeb18ca8e4",
+      "size": 13857,
+      "type": "file"
+    },
+    "src/skillforge/evaluator/fixtures.py": {
+      "mode": 436,
+      "sha256": "39b3d162a4e20ed2bab8508b3b1240d5485e6475ba448a95e00ce409ee90a194",
+      "size": 13969,
+      "type": "file"
+    },
+    "src/skillforge/evaluator/judge.py": {
+      "mode": 436,
+      "sha256": "a06266ee76556b4c76b0321c45ee80436bd76a3f143e20ff5452ecc73e650b6d",
+      "size": 13468,
+      "type": "file"
+    },
+    "src/skillforge/evaluator/llm_factory.py": {
+      "mode": 436,
+      "sha256": "d6dbf5d2e757abe7b0cfba38b6acf8f7ce904831d6e2ee53ee1d49eab96205d0",
+      "size": 911,
+      "type": "file"
+    },
+    "src/skillforge/evaluator/metrics.py": {
+      "mode": 436,
+      "sha256": "672c5716c9fb575c734e6235cd4fc19f565ab2f3a6d0fbadfbb36fa8235c1be2",
+      "size": 1427,
+      "type": "file"
+    },
+    "src/skillforge/evaluator/p0_gate.py": {
+      "mode": 436,
+      "sha256": "3b5c58f96c66b4b9ddd8c20386513847386bb3ab81509e2468bb7f808e2924cc",
+      "size": 10236,
+      "type": "file"
+    },
+    "src/skillforge/evaluator/ratchet.py": {
+      "mode": 436,
+      "sha256": "6e72b6275958de83bffeb4644e0b83e827427fe630edff2aa0a1572cf8a1b54f",
+      "size": 4245,
+      "type": "file"
+    },
+    "src/skillforge/evaluator/structure.py": {
+      "mode": 436,
+      "sha256": "487e8c9efc4a06a2b4c4c6c2988c2ac4a3f466c7c39492f4de2f9fb2a0c3b746",
+      "size": 2097,
+      "type": "file"
+    },
+    "src/skillforge/evaluator/validators.py": {
+      "mode": 436,
+      "sha256": "4e6a014d884e1bb78b41022dd0b3258ef07c7a3910379d358c8e8caffde61c5b",
+      "size": 7886,
+      "type": "file"
+    },
+    "src/skillforge/evolver.py": {
+      "mode": 436,
+      "sha256": "08728f2aee44c6de4628d5856d7f32bed9654a9eaea63103260367af9d828487",
+      "size": 28990,
+      "type": "file"
+    },
+    "src/skillforge/models.py": {
+      "mode": 436,
+      "sha256": "420495d2019eef6fc919b12db33872117a2db812a1c5c1da2f9d1386f36ad386",
+      "size": 3446,
+      "type": "file"
+    },
+    "src/skillforge/registry.py": {
+      "mode": 436,
+      "sha256": "6c3a53a172d0a6c101dc3ed796099666169c1f8e98624bb23c1e825042318804",
+      "size": 7080,
+      "type": "file"
+    },
+    "src/skillforge/router/__init__.py": {
+      "mode": 436,
+      "sha256": "f2b25c358955d4727822d18bb38248bd722dcdec992452dd29154f3d4453639b",
+      "size": 128,
+      "type": "file"
+    },
+    "src/skillforge/router/cascade.py": {
+      "mode": 436,
+      "sha256": "4ae6ba30d4e78e9517c59b8cd43188da3f0ca3f2b061260d2588db4864c49c37",
+      "size": 5528,
+      "type": "file"
+    },
+    "src/skillforge/router/embed.py": {
+      "mode": 436,
+      "sha256": "a55ee6cfdadda8e6d85b1bebc15301a6da35062ee2cfec40f724bd735b244745",
+      "size": 3280,
+      "type": "file"
+    },
+    "src/skillforge/router/evaluation.py": {
+      "mode": 436,
+      "sha256": "0bf147ca20600f635ff90069ac466e5befe6fffbe3be13cf46ea0f750586eed6",
+      "size": 2550,
+      "type": "file"
+    },
+    "src/skillforge/router/llm.py": {
+      "mode": 436,
+      "sha256": "4878c7773cfe5d216884c5c7e129807a739c0dbc53d00f65d21858dcea3c2582",
+      "size": 3847,
+      "type": "file"
+    },
+    "src/skillforge/router/rule.py": {
+      "mode": 436,
+      "sha256": "9294dce75d44295c14f819f9c871b658fc8bca4271fc7848a04ccb25400eaece",
+      "size": 1036,
+      "type": "file"
+    },
+    "src/skillforge/state_machine.py": {
+      "mode": 436,
+      "sha256": "fc20c6cdd9aadf917629b01772cf077427591705d8f9c4a0cdaa81bb2ed222f0",
+      "size": 7073,
+      "type": "file"
+    },
+    "src/skillforge/storage/__init__.py": {
+      "mode": 436,
+      "sha256": "91b877bb4e02054713d537da72b9ccb32083149f07dab8df2c0a74dd0f447d8f",
+      "size": 150,
+      "type": "file"
+    },
+    "src/skillforge/storage/db.py": {
+      "mode": 436,
+      "sha256": "a69aa6eb2571ef10b2f8959aad34fab43bbcd9fd3a9687adcf0c2f8953b86159",
+      "size": 1541,
+      "type": "file"
+    },
+    "src/skillforge/storage/git_ops.py": {
+      "mode": 436,
+      "sha256": "24380148fe57aa3393893b9f9a4dbf356bdfc226e1e82c53149230a3533fa5eb",
+      "size": 1711,
+      "type": "file"
+    },
+    "src/skillforge/storage/jsonl.py": {
+      "mode": 436,
+      "sha256": "22d59db783c5b3fad7e2db9b603a1f6e1ec123d312ed486d2f352d7932ae30b0",
+      "size": 698,
+      "type": "file"
+    },
+    "tests/__init__.py": {
+      "mode": 436,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "type": "file"
+    },
+    "tests/test_data_partition.py": {
+      "mode": 436,
+      "sha256": "ecac8c533076081c291782b1326a18c523faf33e4c09ba6a96b0825b40840cd2",
+      "size": 5414,
+      "type": "file"
+    },
+    "tests/test_diff_and_levels.py": {
+      "mode": 436,
+      "sha256": "fd92f87aa8234d6c63ec3b76661fc5c38b351821750291758795d02bd84ce6d0",
+      "size": 12324,
+      "type": "file"
+    },
+    "tests/test_evaluator.py": {
+      "mode": 436,
+      "sha256": "9a7181ccd3989b23806d7590de92f864f5742a3ff1ec0248995c743a32daeca2",
+      "size": 9491,
+      "type": "file"
+    },
+    "tests/test_evolver.py": {
+      "mode": 436,
+      "sha256": "76e275cbc163f25c8cf9c03c70b6898fcf30d3a5613ce4fa623e2b3703400353",
+      "size": 8510,
+      "type": "file"
+    },
+    "tests/test_judge_trust.py": {
+      "mode": 436,
+      "sha256": "d394f04f51db91a731bb6b79e45c415e67a9838be395249a414ce76ed89a8836",
+      "size": 13483,
+      "type": "file"
+    },
+    "tests/test_p0_gate.py": {
+      "mode": 436,
+      "sha256": "cf6c88a17b39e3904c235e3a8d37215f31ce01fba5b44ff44fa568266f28eb5b",
+      "size": 7574,
+      "type": "file"
+    },
+    "tests/test_registry.py": {
+      "mode": 436,
+      "sha256": "db0251f839af1984b9e6377cf0f9c8ff65947b558afd6936ee81e24cf92f9e59",
+      "size": 8054,
+      "type": "file"
+    },
+    "tests/test_router.py": {
+      "mode": 436,
+      "sha256": "a495f9eee6912a4d7e684c32583fdb36cd715af3317b1cbd6866ac1cc26f8a01",
+      "size": 6874,
+      "type": "file"
+    },
+    "tests/test_state_machine.py": {
+      "mode": 436,
+      "sha256": "c5ab7be33053af67c035cab084062ef6220627f19ec02652338b9fa28831fbff",
+      "size": 4541,
+      "type": "file"
+    },
+    "tests/test_validator_coupling.py": {
+      "mode": 436,
+      "sha256": "7e125d65a4ac2554c45cab833f21f868eb4c8c43c689c5a5cf9b1167ef28377b",
+      "size": 15274,
+      "type": "file"
+    },
+    "uv.lock": {
+      "mode": 436,
+      "sha256": "87c2a0a7d12ce12767136ddd4d475a2d1ed34eae242d430654cea3bfab727f0e",
+      "size": 463995,
+      "type": "file"
+    }
+  },
+  "id": "cp-103032-apply-patch-d2f7",
+  "metadata": {
+    "hookEvent": "PostToolUse",
+    "permissionMode": "bypassPermissions",
+    "prompt": "",
+    "sessionId": "01a06ae9-8b6b-7081-8231-1a8058c62b5a",
+    "source": "codex-hook",
+    "toolName": "apply_patch",
+    "toolUseId": "exec-5d17e5c3-7be0-4ea0-bbe7-8bc1cc4190f5",
+    "transcriptTail": [
+      "{\"timestamp\":\"2026-09-04T10:28:59.839Z\",\"ordinal\":683,\"type\":\"response_item\",\"payload\":{\"type\":\"reasoning\",\"id\":\"rs_0d9d156fa8e62a41016a9a9d61b94887d2becc78a4d78c4912\",\"summary\":[],\"encrypted_content\":\"gAAAAABqmp1rGSBldfqXalMI-BbFfSG_ih6nI80eAFeTPfYKKZ5LYK43Njq67baGmZKjkZmx1Lvc61kLiIQJV6_W99STZzvhhxuItQWA5hbQouz9AACWMgr7GPaTdksXlTahdWZLYhaUT2TPjqjcvLf125a48Yu4UOp0LZtsv8N8e5FYLlE32cQqZDevVrRa5vqinSFgaMJvpOol4PyoNa00YeULPeth6Jo0Dg-pHvbL3XtsYV34-qlCtYiuR45jx9xXg8tQIz-FCE0KxSbQsrSybpQnDSg2J3phtmMCplQ48ZJvruroORzDbpOj9AjpxKEoLqh3WOJ6DDKKPmaHr8BkzzfpqC-8zFHxGf20jCR75icS6KejJJm4LB1c9Pz_Bu7xcLzQCvR-v29_GjKAmxxwKaKelZLzfDnldvmvumi6HTJYvKxp8I1dX6vi2tloiBSeFudSAzyRLk6OFPr-L6uZAdMcMvsDH3ocJLBWDairtUuSUMdVzAfuXETyvlmuoYKCqSpkY6bjcPQfFgJIJkiIK0QXOLo06r9zrzxm42spewnOzZr_1BftmzVM4v2lAB6kOswKZ0jYH8cYssg0phO62eOjK6dLJ_9-DrsrjpiUi6rtR7Vlg8rYYq0yEhy-wyzYpYfURQ_9veqREzM68BXLJ1OaEzlkfTrF-JSmDqDj572NxmlgATBB07snKZlvLfhEBlIihnI8qi6APTbaenahjZeWJoZLumVt9deyZPP6TOSey1p9yZ5e3f7pJFeCVUv-KVLZj1zr2Yg4kvWxLOVOQlr...",
+      "{\"timestamp\":\"2026-09-04T10:29:02.617Z\",\"ordinal\":684,\"type\":\"event_msg\",\"payload\":{\"type\":\"item_completed\",\"thread_id\":\"01a06ae9-8b6b-7081-8231-1a8058c62b5a\",\"turn_id\":\"01a06be7-1e3f-7670-90a4-027b8c829c61\",\"item\":{\"type\":\"Reasoning\",\"id\":\"rs_0d9d156fa8e62a41016a9a9d6b0fc487d2af397e8f9c8792f4\",\"summary_text\":[],\"raw_content\":[]},\"started_at_ms\":1788517739839,\"completed_at_ms\":1788517742617}}",
+      "{\"timestamp\":\"2026-09-04T10:29:02.618Z\",\"ordinal\":685,\"type\":\"response_item\",\"payload\":{\"type\":\"reasoning\",\"id\":\"rs_0d9d156fa8e62a41016a9a9d6b0fc487d2af397e8f9c8792f4\",\"summary\":[],\"encrypted_content\":\"gAAAAABqmp1tgOETdbpxnystWn5SiCMXroQtR4hQYSfYdG1ZFJPwJMMvqfQrl7po1FLMIDCiIot1KZE3i1UJVHB8pLIK6tMCFR5ggmFc-IKplX2eoTR21fYI8QvcHN5bZ96VvUdjV0n37wLPkfSqwtvXvNYJJn9G6jq6OJmwQILxeRog9eCJz8P0I69x2ZdAZixlPG-D2wBVHum8NbtdfR_ij2-BA6VkMKiSxxv1sfgV3yBKc0e007vGQoADUc5TxDdA8qz8rybsAfN56bsYzCcyaX9TgFcBMpZjZG8xDH7sxxQKje0_HJ9H1syJ2UqqxWadcZ391pgLLkTroDt2Zac3T4WJ41o9E6O3JJq4eYdAfjMTZmGNJvCkSHe9X59rfKBiJXlTcAzRMChMQ49G07-i6onUDvZ-2wyY5P00fz4A5yVQEG3WCvMxi7fNotWOMrx-aYFKd0EUtgN8aIwLAS-WeJvMRUp5JtvOd7Zrqeqa8l6Pqjin80_BpB0qAA0vtdXPcl2F0raKFBNK42QuE4oJXVurTw1OW6rgcgKYeoVcL4QT7cGiUPwkWzNNshWO0u9RlHdtmRXv7OMD3Fh461yTXZGPWcnIKN-CbNLMOQVqDmEfoUJUsalyPwmzDmM659G1BHq82yCHQws1UQJEvIL5XvjAo0FLkkuMvAUkVPcDqcuXQqgfwq95J7hL14TGHfMPrTZEfK0jNPJEi9zSmpIE-OawzomfeR8azCTlwRUben2Tre4BQUuZWN3mQ_zxlNfROH74lFQC3xWHYQP61kzLTY7...",
+      "{\"timestamp\":\"2026-09-04T10:29:19.990Z\",\"ordinal\":686,\"type\":\"response_item\",\"payload\":{\"type\":\"custom_tool_call\",\"id\":\"ctc_0d9d156fa8e62a41016a9a9d6d73d887d2ac13e4786a1fc23d\",\"status\":\"completed\",\"call_id\":\"call_uF7GjgwAQYA6LVE8EeCgMzgd\",\"name\":\"exec\",\"input\":\"const patch = \\\"*** Begin Patch\\\\n*** Update File: /home/caoruixin/projects/skillForge/src/skillforge/evaluator/judge.py\\\\n@@\\\\n import hashlib\\\\n+import hmac\\\\n import json\\\\n@@\\\\n _CURRENCY_FACT = re.compile(\\\\n@@\\\\n )\\\\n+_GENERIC_LIVE_FACT = re.compile(\\\\n+    r\\\\\\\"(?:当前|现在|今日|今天|最新)\\\\\\\\D{0,8}(?:是|为|达到|报|:|：)?\\\\\\\\s*[-+]?\\\\\\\\d[\\\\\\\\d,.]*\\\\\\\",\\\\n+    re.IGNORECASE,\\\\n+)\\\\n+_NUMERIC_TRANSFORM_REQUEST = re.compile(r\\\\\\\"换算|转换|计算|折算|convert|calculate\\\\\\\", re.IGNORECASE)\\\\n@@\\\\n-    if _has_authentic_tool_evidence(has_tool_evidence) or not output.strip():\\\\n+    if _has_authentic_tool_evidence(has_tool_evidence) or not output.strip():\\\\n         return False\\\\n+    if _NUMERIC_TRANSFORM_REQUEST.search(query) and re.search(r\\\\\\\"\\\\\\...",
+      "{\"timestamp\":\"2026-09-04T10:29:19.993Z\",\"ordinal\":687,\"type\":\"token_usage_record\",\"payload\":{\"thread_id\":\"01a06ae9-8b6b-7081-8231-1a8058c62b5a\",\"turn_id\":\"01a06be7-1e3f-7670-90a4-027b8c829c61\",\"session_id\":\"01a06ae9-8b6b-7081-8231-1a8058c62b5a\",\"root_turn_id\":\"01a06be7-1e3f-7670-90a4-027b8c829c61\",\"response_id\":\"resp_0d9d156fa8e62a41016a9a9d6065dc87d2a2c77755b39aa278\",\"usage\":{\"input_tokens\":180468,\"cached_input_tokens\":179584,\"cache_write_input_tokens\":0,\"output_tokens\":1569,\"reasoning_output_tokens\":636,\"total_tokens\":182037},\"turn_token_usage\":{\"input_tokens\":5629364,\"cached_input_tokens\":5318784,\"cache_write_input_tokens\":0,\"output_tokens\":14706,\"reasoning_output_tokens\":3952,\"total_tokens\":5644070},\"thread_token_usage\":{\"input_tokens\":9912253,\"cached_input_tokens\":9470208,\"cache_write_input_tokens\":0,\"output_tokens\":46824,\"reasoning_output_tokens\":12144,\"total_tokens\":9959077}}}",
+      "{\"timestamp\":\"2026-09-04T10:29:20.141Z\",\"ordinal\":688,\"type\":\"event_msg\",\"payload\":{\"type\":\"item_completed\",\"thread_id\":\"01a06ae9-8b6b-7081-8231-1a8058c62b5a\",\"turn_id\":\"01a06be7-1e3f-7670-90a4-027b8c829c61\",\"item\":{\"type\":\"FileChange\",\"id\":\"exec-9bcb338b-8229-4abe-a35a-6fd7e3a9733e\",\"changes\":{\"/home/caoruixin/projects/skillForge/src/skillforge/evaluator/judge.py\":{\"type\":\"update\",\"unified_diff\":\"@@ -4,2 +4,3 @@\\n import hashlib\\n+import hmac\\n import json\\n@@ -60,2 +61,7 @@\\n )\\n+_GENERIC_LIVE_FACT = re.compile(\\n+    r\\\"(?:当前|现在|今日|今天|最新)\\\\D{0,8}(?:是|为|达到|报|:|：)?\\\\s*[-+]?\\\\d[\\\\d,.]*\\\",\\n+    re.IGNORECASE,\\n+)\\n+_NUMERIC_TRANSFORM_REQUEST = re.compile(r\\\"换算|转换|计算|折算|convert|calculate\\\", re.IGNORECASE)\\n \\n@@ -115,2 +121,4 @@\\n         return False\\n+    if _NUMERIC_TRANSFORM_REQUEST.search(query) and re.search(r\\\"\\\\d\\\", query):\\n+        return False\\n     realtime_context = bool(\\n@@ -122,2 +130,3 @@\\n         or _CURRENCY_FACT.search(output)\\n+        or _GENERIC_LIVE_FACT.sear...",
+      "{\"timestamp\":\"2026-09-04T10:29:20.289Z\",\"ordinal\":689,\"type\":\"response_item\",\"payload\":{\"type\":\"custom_tool_call_output\",\"id\":\"ctco_01a06bf7-3d21-7c70-a0a0-3c8326904cf4\",\"call_id\":\"call_uF7GjgwAQYA6LVE8EeCgMzgd\",\"output\":[{\"type\":\"input_text\",\"text\":\"Script completed\\nWall time 0.3 seconds\\nOutput:\\n\"},{\"type\":\"input_text\",\"text\":\"{}\"}],\"internal_chat_message_metadata_passthrough\":{\"turn_id\":\"01a06be7-1e3f-7670-90a4-027b8c829c61\",\"create_time\":1788517760.289339}}}",
+      "{\"timestamp\":\"2026-09-04T10:29:20.289Z\",\"ordinal\":690,\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":9912253,\"cached_input_tokens\":9470208,\"cache_write_input_tokens\":0,\"output_tokens\":46824,\"reasoning_output_tokens\":12144,\"total_tokens\":9959077},\"last_token_usage\":{\"input_tokens\":180468,\"cached_input_tokens\":179584,\"cache_write_input_tokens\":0,\"output_tokens\":1569,\"reasoning_output_tokens\":636,\"total_tokens\":182037},\"model_context_window\":258400},\"rate_limits\":{\"limit_id\":\"codex\",\"limit_name\":null,\"primary\":{\"used_percent\":48.0,\"window_minutes\":300,\"resets_at\":1788534888},\"secondary\":{\"used_percent\":80.0,\"window_minutes\":10080,\"resets_at\":1788959607},\"credits\":{\"has_credits\":false,\"unlimited\":false,\"balance\":\"0\"},\"individual_limit\":null,\"spend_control_reached\":null,\"plan_type\":null,\"rate_limit_reached_type\":null}}}",
+      "{\"timestamp\":\"2026-09-04T10:30:00.291Z\",\"ordinal\":691,\"type\":\"event_msg\",\"payload\":{\"type\":\"item_completed\",\"thread_id\":\"01a06ae9-8b6b-7081-8231-1a8058c62b5a\",\"turn_id\":\"01a06be7-1e3f-7670-90a4-027b8c829c61\",\"item\":{\"type\":\"Reasoning\",\"id\":\"rs_0d9d156fa8e62a41016a9a9da04ae487d2b75020b002008f45\",\"summary_text\":[],\"raw_content\":[]},\"started_at_ms\":1788517794547,\"completed_at_ms\":1788517800291}}",
+      "{\"timestamp\":\"2026-09-04T10:30:00.293Z\",\"ordinal\":692,\"type\":\"response_item\",\"payload\":{\"type\":\"reasoning\",\"id\":\"rs_0d9d156fa8e62a41016a9a9da04ae487d2b75020b002008f45\",\"summary\":[],\"encrypted_content\":\"gAAAAABqmp2meWq5VkPhD5yoBViEsq8fT3AZmOkA4MGxltLivAmC6VJRaE4WEKt3YGuXlnSHynGrvDwvKxuPRBl9u2ZgZGguZIENsPvBw6pKY201BYhpqHdcIwGbMFKez3E5BfEy9Fq82bRljR5222yfQuvC5sI_2XRiBVetb6HC7KOaO9q6Bu-exgdCOsPTu_Is3zp8UtpsIHQkWxw4i1Mq4ckOp6GuBzxVbkN3dUbjpcEbHvE926CCCpJdqYsBh2jI8AvyJBGJd-aPu3Vl261xmiA3sFmFVX56-Wwyh9mh0miHP3romknBoTIzKc8-U7W526dsYr9SxUtGGh-00jMr_0hldCyYgiJH7YYNfuQOrWENkeCxM4nLn2TRoBoXwDsCPKj1omPaZkjeK57Arl0JP6PiLwoJjx70v5dui8KJ9Ch8S71Jog5JbvSoqtCJpHRd6p_9Z8xH_9IyhfcoZwN5YqCoz6_EpQKMkfHI0BneayOcPTXJ6gAB0rf_ouiZJD-poLU6hukTWMni9BSbU_9LyQSAe95lDVNXkB_1TogxV1z2obzALHYV-PHnSWnbfxJO3vBFsy39MymXTa0z2ieax8Y2QFyn4rAaDvH7i_UpwihqJbwNDg3ya2rxPCYIuZXHViqefx6PsvJ_V0Yjd_B5o1Ty7D7NUoZB2T_HT_CEdxNEFnUlbBmEqffI8AOuryN4Od-3nqh4prKzNGm3sykZMtslT_Dw1yWGw2RR9KIIj8BFtup-79OZH3vG5BFbJ3BR_ekdaUrQR0S8Pvmphq6Jy79...",
+      "{\"timestamp\":\"2026-09-04T10:30:11.293Z\",\"ordinal\":693,\"type\":\"response_item\",\"payload\":{\"type\":\"custom_tool_call\",\"id\":\"ctc_0d9d156fa8e62a41016a9a9da64fe887d28fabd2119c0aea2f\",\"status\":\"completed\",\"call_id\":\"call_AwmIC6RZGJMMeTJaad1sDM0M\",\"name\":\"exec\",\"input\":\"const patch = \\\"*** Begin Patch\\\\n*** Update File: /home/caoruixin/projects/skillForge/tests/test_judge_trust.py\\\\n@@\\\\n import importlib.util\\\\n import json\\\\n import copy\\\\n+import hashlib\\\\n import sys\\\\n+from dataclasses import replace\\\\n@@\\\\n def _provenance(*, authentic: bool = True) -> ToolCallProvenance:\\\\n-    return ToolCallProvenance(\\\\n+    item = ToolCallProvenance(\\\\n@@\\\\n-        signature=\\\\\\\"test\\\\\\\",\\\\n+        signature=\\\\\\\"\\\\\\\",\\\\n     )\\\\n+    canonical = json.dumps(\\\\n+        {key: value for key, value in vars(item).items() if key != \\\\\\\"signature\\\\\\\"},\\\\n+        ensure_ascii=False,\\\\n+        sort_keys=True,\\\\n+        separators=(\\\\\\\",\\\\\\\", \\\\\\\":\\\\\\\"),\\\\n+    )\\\\n+    return replace(item, signature=h...",
+      "{\"timestamp\":\"2026-09-04T10:30:11.441Z\",\"ordinal\":694,\"type\":\"event_msg\",\"payload\":{\"type\":\"item_completed\",\"thread_id\":\"01a06ae9-8b6b-7081-8231-1a8058c62b5a\",\"turn_id\":\"01a06be7-1e3f-7670-90a4-027b8c829c61\",\"item\":{\"type\":\"FileChange\",\"id\":\"exec-3ee4c4a1-992b-493c-8f77-84f177eb977e\",\"changes\":{\"/home/caoruixin/projects/skillForge/tests/test_judge_trust.py\":{\"type\":\"update\",\"unified_diff\":\"@@ -6,3 +6,5 @@\\n import copy\\n+import hashlib\\n import sys\\n+from dataclasses import replace\\n from pathlib import Path\\n@@ -31,3 +33,3 @@\\n def _provenance(*, authentic: bool = True) -> ToolCallProvenance:\\n-    return ToolCallProvenance(\\n+    item = ToolCallProvenance(\\n         tool_name=\\\"weather\\\",\\n@@ -46,4 +48,11 @@\\n         timestamp=\\\"2026-09-04T00:00:00+00:00\\\",\\n-        signature=\\\"test\\\",\\n+        signature=\\\"\\\",\\n     )\\n+    canonical = json.dumps(\\n+        {key: value for key, value in vars(item).items() if key != \\\"signature\\\"},\\n+        ensure_ascii=False,\\n+        sort_ke...",
+      "{\"timestamp\":\"2026-09-04T10:30:12.173Z\",\"ordinal\":695,\"type\":\"token_usage_record\",\"payload\":{\"thread_id\":\"01a06ae9-8b6b-7081-8231-1a8058c62b5a\",\"turn_id\":\"01a06be7-1e3f-7670-90a4-027b8c829c61\",\"session_id\":\"01a06ae9-8b6b-7081-8231-1a8058c62b5a\",\"root_turn_id\":\"01a06be7-1e3f-7670-90a4-027b8c829c61\",\"response_id\":\"resp_0d9d156fa8e62a41016a9a9d9d49b087d2ba894435498f3058\",\"usage\":{\"input_tokens\":182061,\"cached_input_tokens\":180352,\"cache_write_input_tokens\":0,\"output_tokens\":928,\"reasoning_output_tokens\":329,\"total_tokens\":182989},\"turn_token_usage\":{\"input_tokens\":5811425,\"cached_input_tokens\":5499136,\"cache_write_input_tokens\":0,\"output_tokens\":15634,\"reasoning_output_tokens\":4281,\"total_tokens\":5827059},\"thread_token_usage\":{\"input_tokens\":10094314,\"cached_input_tokens\":9650560,\"cache_write_input_tokens\":0,\"output_tokens\":47752,\"reasoning_output_tokens\":12473,\"total_tokens\":10142066}}}",
+      "{\"timestamp\":\"2026-09-04T10:30:12.174Z\",\"ordinal\":696,\"type\":\"response_item\",\"payload\":{\"type\":\"custom_tool_call_output\",\"id\":\"ctco_01a06bf8-07ce-7b83-96f8-22ddf60be9ab\",\"call_id\":\"call_AwmIC6RZGJMMeTJaad1sDM0M\",\"output\":[{\"type\":\"input_text\",\"text\":\"Script completed\\nWall time 0.3 seconds\\nOutput:\\n\"},{\"type\":\"input_text\",\"text\":\"{}\"}],\"internal_chat_message_metadata_passthrough\":{\"turn_id\":\"01a06be7-1e3f-7670-90a4-027b8c829c61\",\"create_time\":1788517812.1740005}}}",
+      "{\"timestamp\":\"2026-09-04T10:30:12.174Z\",\"ordinal\":697,\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":10094314,\"cached_input_tokens\":9650560,\"cache_write_input_tokens\":0,\"output_tokens\":47752,\"reasoning_output_tokens\":12473,\"total_tokens\":10142066},\"last_token_usage\":{\"input_tokens\":182061,\"cached_input_tokens\":180352,\"cache_write_input_tokens\":0,\"output_tokens\":928,\"reasoning_output_tokens\":329,\"total_tokens\":182989},\"model_context_window\":258400},\"rate_limits\":{\"limit_id\":\"codex\",\"limit_name\":null,\"primary\":{\"used_percent\":48.0,\"window_minutes\":300,\"resets_at\":1788534888},\"secondary\":{\"used_percent\":81.0,\"window_minutes\":10080,\"resets_at\":1788959607},\"credits\":{\"has_credits\":false,\"unlimited\":false,\"balance\":\"0\"},\"individual_limit\":null,\"spend_control_reached\":null,\"plan_type\":null,\"rate_limit_reached_type\":null}}}",
+      "{\"timestamp\":\"2026-09-04T10:30:27.022Z\",\"ordinal\":698,\"type\":\"event_msg\",\"payload\":{\"type\":\"item_completed\",\"thread_id\":\"01a06ae9-8b6b-7081-8231-1a8058c62b5a\",\"turn_id\":\"01a06be7-1e3f-7670-90a4-027b8c829c61\",\"item\":{\"type\":\"Reasoning\",\"id\":\"rs_0d9d156fa8e62a41016a9a9dbd8ea087d2916df2dd749fa6f6\",\"summary_text\":[],\"raw_content\":[]},\"started_at_ms\":1788517827022,\"completed_at_ms\":1788517827022}}",
+      "{\"timestamp\":\"2026-09-04T10:30:27.024Z\",\"ordinal\":699,\"type\":\"response_item\",\"payload\":{\"type\":\"reasoning\",\"id\":\"rs_0d9d156fa8e62a41016a9a9dbd8ea087d2916df2dd749fa6f6\",\"summary\":[],\"encrypted_content\":\"gAAAAABqmp3ALgmLa7mmyXNVEwsv3ht7_x2D301ND4WdFs4E5phdhHxedro2Bh9biVLc4DSvh-6c0EQkZgmgARNnEwScbJ-3fhGRgZAYLTofm-x-Pu10GyhKGBB1ol4LEkx0-7_5eijuZ_BrIszs5xMmluPTy9Ybs1KgWwFJX984M1edLGD6Nx3lx7jQ1l18DP9OODmw6JNxewaattX9yGVCZfl_0hL6fNHAA2TmhO1fLs5kP2CTVuA_N1FQsgwb6yabFg1AGjWZFwtEncazwR-xQtoM1VrozuYyzLjQRmw07wrho5SQfLQXR0ZWD4uDhK_DRtz2S-P8iXfMC8HRZ_00Lqkhbs5URlxU3A-VkJNOni2WH4hFvwgTz4fNWNwX5e_X05j4TZFB38A5Q8YHqcs59XLnodWknHyOuV9bBrT-OMIQCpk5XfCpalC9HeqhmTHGYJ-wkmTfCchA00XD-Ol66wJ-hCvOwHKGx9Jdhq_JTv1PNoyc_Gw7RGQmfaJBlduenJVimD4YjB0C3bYuwNYFkFAdbcmxmzvmXdKjX84NI_Fmq_b6Msf-h1VINAwgS91_D7-0SAZCvjnTyMMq5Yj70wE1aYsVWwEnN16rXWaJvr1vKEnsbv5cFBtTttPky6j1dCdUZlQQ0i7JIrrEHOxe56mOuKHg64wotNzzDussJlQJC2x5X_fAC5_6qWxZQOVQwPAvgX8uh9fbCkN5Eaur48ZpthWqwDeSjRiq6n30rPfqBNio9hLwZVh5DWCtCckmTlzoLhbpuwRObU96z9TnCwe...",
+      "{\"timestamp\":\"2026-09-04T10:30:32.050Z\",\"ordinal\":700,\"type\":\"response_item\",\"payload\":{\"type\":\"custom_tool_call\",\"id\":\"ctc_0d9d156fa8e62a41016a9a9dc0477887d2bf59cb1c20be58f1\",\"status\":\"completed\",\"call_id\":\"call_pz0zGKJJsffbwibolxLP5XNr\",\"name\":\"exec\",\"input\":\"const patch = \\\"*** Begin Patch\\\\n*** Update File: /home/caoruixin/projects/skillForge/tests/test_judge_trust.py\\\\n@@\\\\n from skillforge.evaluator.ratchet import check_ratchet\\\\n+from skillforge.evaluator.llm_factory import build_llm_pair\\\\n@@\\\\n def test_evaluator_requires_isolated_judge_client(tmp_path: Path):\\\\n@@\\\\n         SkillEvaluator(registry=object(), llm=execution, judge_llm=execution)\\\\n+\\\\n+\\\\n+def test_llm_factory_uses_separate_config_points(monkeypatch):\\\\n+    calls = []\\\\n+\\\\n+    class FakeClient:\\\\n+        def __init__(self, **kwargs):\\\\n+            calls.append(kwargs)\\\\n+\\\\n+    monkeypatch.setattr(\\\\\\\"hello_agents.HelloAgentsLLM\\\\\\\", FakeClient)\\\\n+    values = {\\\\n+        \\\\\\\"LLM_API_KEY\\\\\\\": \\\\\\\"exe...",
+      "{\"timestamp\":\"2026-09-04T10:30:32.061Z\",\"ordinal\":701,\"type\":\"token_usage_record\",\"payload\":{\"thread_id\":\"01a06ae9-8b6b-7081-8231-1a8058c62b5a\",\"turn_id\":\"01a06be7-1e3f-7670-90a4-027b8c829c61\",\"session_id\":\"01a06ae9-8b6b-7081-8231-1a8058c62b5a\",\"root_turn_id\":\"01a06be7-1e3f-7670-90a4-027b8c829c61\",\"response_id\":\"resp_0d9d156fa8e62a41016a9a9dbaa00887d2999cc000f8c06651\",\"usage\":{\"input_tokens\":183013,\"cached_input_tokens\":181888,\"cache_write_input_tokens\":0,\"output_tokens\":537,\"reasoning_output_tokens\":134,\"total_tokens\":183550},\"turn_token_usage\":{\"input_tokens\":5994438,\"cached_input_tokens\":5681024,\"cache_write_input_tokens\":0,\"output_tokens\":16171,\"reasoning_output_tokens\":4415,\"total_tokens\":6010609},\"thread_token_usage\":{\"input_tokens\":10277327,\"cached_input_tokens\":9832448,\"cache_write_input_tokens\":0,\"output_tokens\":48289,\"reasoning_output_tokens\":12607,\"total_tokens\":10325616}}}",
+      "{\"timestamp\":\"2026-09-04T10:30:32.201Z\",\"ordinal\":702,\"type\":\"event_msg\",\"payload\":{\"type\":\"item_completed\",\"thread_id\":\"01a06ae9-8b6b-7081-8231-1a8058c62b5a\",\"turn_id\":\"01a06be7-1e3f-7670-90a4-027b8c829c61\",\"item\":{\"type\":\"FileChange\",\"id\":\"exec-5d17e5c3-7be0-4ea0-bbe7-8bc1cc4190f5\",\"changes\":{\"/home/caoruixin/projects/skillForge/tests/test_judge_trust.py\":{\"type\":\"update\",\"unified_diff\":\"@@ -21,2 +21,3 @@\\n from skillforge.evaluator.ratchet import check_ratchet\\n+from skillforge.evaluator.llm_factory import build_llm_pair\\n from skillforge.models import ToolCallProvenance\\n@@ -219,2 +220,27 @@\\n \\n+def test_llm_factory_uses_separate_config_points(monkeypatch):\\n+    calls = []\\n+\\n+    class FakeClient:\\n+        def __init__(self, **kwargs):\\n+            calls.append(kwargs)\\n+\\n+    monkeypatch.setattr(\\\"hello_agents.HelloAgentsLLM\\\", FakeClient)\\n+    values = {\\n+        \\\"LLM_API_KEY\\\": \\\"exec-key\\\",\\n+        \\\"LLM_MODEL_ID\\\": \\\"exec-model\\\",\\n+        \\\"LLM_BASE_URL\\\": \\\"h..."
+    ],
+    "transcriptPath": "/home/caoruixin/.codex/sessions/2026/09/04/rollout-2026-09-04T13-34-45-01a06ae9-8b6b-7081-8231-1a8058c62b5a.jsonl",
+    "turnId": "01a06be7-1e3f-7670-90a4-027b8c829c61"
+  },
+  "schemaVersion": 1,
+  "stateHash": "2d9fab25ba6b06887084e9c8b428c95ecc66a9be94c44232ae8a9e4d32cd4028",
+  "workspaceRoot": "/home/caoruixin/projects/skillForge"
+}

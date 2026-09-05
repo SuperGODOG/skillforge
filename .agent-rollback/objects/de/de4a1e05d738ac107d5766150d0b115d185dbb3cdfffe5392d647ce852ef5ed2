@@ -1,0 +1,508 @@
+"""Tests for P1-F: Unified LLM Ledger, Hard Budget Caps, Candidate Clamp, and Output Caching."""
+from __future__ import annotations
+
+import json
+import time
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from skillforge.models import (
+    BudgetExceededError,
+    EvolveBudget,
+    EvalResult,
+    Patch,
+    SkillMeta,
+    Trigger,
+)
+from skillforge.registry import SkillRegistry
+from skillforge.evaluator import SkillEvaluator, EvaluatorOutputCache
+from skillforge.evaluator.llm_factory import (
+    LLMCallRecord,
+    LLMLedger,
+    TrackedLLM,
+    compute_evaluator_fingerprint,
+    wrap_with_ledger,
+)
+from skillforge.evolver import (
+    Failure,
+    RootCause,
+    SkillEvolver,
+    _generate_patches,
+    _reconstruct_skill_md,
+)
+
+
+class MockLLM:
+    """Deterministic mock LLM providing responses and configurable usage."""
+
+    def __init__(self, contents: list[str], token_per_call: int = 100, model: str = "test-model"):
+        self.contents = list(contents)
+        self.token_per_call = token_per_call
+        self.model = model
+        self.calls: list[dict] = []
+
+    def invoke(self, messages, **kwargs):
+        self.calls.append({"messages": messages, "kwargs": kwargs})
+        c = self.contents.pop(0) if self.contents else ""
+        return SimpleNamespace(
+            content=c,
+            usage={
+                "prompt_tokens": int(self.token_per_call * 0.6),
+                "completion_tokens": int(self.token_per_call * 0.4),
+                "total_tokens": self.token_per_call,
+            },
+        )
+
+
+def _mk_meta(name: str = "test_skill") -> SkillMeta:
+    return SkillMeta(
+        name=name,
+        version="1.0.0",
+        description="测试 Skill 说明",
+        use_when="测试场景",
+        not_for=["其他场景"],
+        dependencies=[],
+        trigger=Trigger(keywords=["test", "skill"]),
+        examples=["ex1"],
+    )
+
+
+# ============================================================================
+# 1. 统一 LLM Ledger 记账与多角色追踪
+# ============================================================================
+
+
+def test_ledger_tracks_all_roles_calls_and_tokens():
+    budget = EvolveBudget(max_calls=10, max_tokens=1000)
+    ledger = LLMLedger(budget=budget)
+
+    agent_llm = MockLLM(["agent response 1", "agent response 2"], token_per_call=80)
+    judge_llm = MockLLM(["judge response 1"], token_per_call=120)
+    evolver_llm = MockLLM(["evolver response 1"], token_per_call=200)
+
+    tracked_agent = wrap_with_ledger(agent_llm, ledger, role="agent")
+    tracked_judge = wrap_with_ledger(judge_llm, ledger, role="judge")
+    tracked_evolver = wrap_with_ledger(evolver_llm, ledger, role="evolver")
+
+    tracked_agent.invoke([{"role": "user", "content": "hello"}])
+    tracked_agent.invoke([{"role": "user", "content": "world"}])
+    tracked_judge.invoke([{"role": "user", "content": "evaluate"}])
+    tracked_evolver.invoke([{"role": "user", "content": "patch"}])
+
+    assert ledger.total_calls == 4
+    assert ledger.total_tokens == 80 + 80 + 120 + 200
+    assert ledger.prompt_tokens == int((80 + 80 + 120 + 200) * 0.6)
+    assert ledger.completion_tokens == int((80 + 80 + 120 + 200) * 0.4)
+
+    assert ledger.calls_by_role == {"agent": 2, "judge": 1, "evolver": 1}
+    assert ledger.tokens_by_role == {"agent": 160, "judge": 120, "evolver": 200}
+    assert len(ledger.records) == 4
+    assert all(isinstance(r, LLMCallRecord) for r in ledger.records)
+
+
+# ============================================================================
+# 2. 硬帽超限测试（超 call / 超 token / 超 deadline 分别硬停）
+# ============================================================================
+
+
+def test_ledger_call_cap_hard_stop():
+    budget = EvolveBudget(max_calls=2)
+    ledger = LLMLedger(budget=budget)
+    llm = MockLLM(["r1", "r2", "r3"], token_per_call=50)
+    tracked = wrap_with_ledger(llm, ledger, role="test")
+
+    # 前 2 次调用正常
+    tracked.invoke([{"role": "user", "content": "call 1"}])
+    tracked.invoke([{"role": "user", "content": "call 2"}])
+    assert ledger.total_calls == 2
+
+    # 第 3 次调用必须触发硬停，抛出 BudgetExceededError
+    with pytest.raises(BudgetExceededError) as exc_info:
+        tracked.invoke([{"role": "user", "content": "call 3"}])
+
+    assert exc_info.value.cap_type == "call"
+    assert "CALL_LIMIT_EXCEEDED" in exc_info.value.reason
+    assert exc_info.value.limit == 2
+
+
+def test_ledger_token_cap_hard_stop():
+    budget = EvolveBudget(max_tokens=150)
+    ledger = LLMLedger(budget=budget)
+    llm = MockLLM(["r1", "r2"], token_per_call=100)
+    tracked = wrap_with_ledger(llm, ledger, role="test")
+
+    # 第 1 次使用 100 token，在 150 上限内
+    tracked.invoke([{"role": "user", "content": "call 1"}])
+    assert ledger.total_tokens == 100
+
+    # 第 2 次再用 100 token，累计 200 > 150，必须触发硬停
+    with pytest.raises(BudgetExceededError) as exc_info:
+        tracked.invoke([{"role": "user", "content": "call 2"}])
+
+    assert exc_info.value.cap_type == "token"
+    assert "TOKEN_LIMIT_EXCEEDED" in exc_info.value.reason
+    assert exc_info.value.limit == 150
+
+
+def test_ledger_deadline_hard_stop():
+    budget = EvolveBudget(deadline_seconds=0.04)
+    ledger = LLMLedger(budget=budget)
+    llm = MockLLM(["r1", "r2"], token_per_call=50)
+    tracked = wrap_with_ledger(llm, ledger, role="test")
+
+    # 首次调用在 deadline 内
+    tracked.invoke([{"role": "user", "content": "call 1"}])
+
+    # 等待超过 deadline
+    time.sleep(0.06)
+
+    # 再次调用必须由于超时硬停
+    with pytest.raises(BudgetExceededError) as exc_info:
+        tracked.invoke([{"role": "user", "content": "call 2"}])
+
+    assert exc_info.value.cap_type == "deadline"
+    assert "DEADLINE_EXCEEDED" in exc_info.value.reason
+
+
+# ============================================================================
+# 3. 候选数 clamp 约束（截断与拒绝验证）
+# ============================================================================
+
+
+def test_candidate_clamp_truncation():
+    meta = _mk_meta()
+    valid_md = "---\nname: test_skill\nversion: 1.0.1\ndescription: X\nuse_when: Y\ntrigger:\n  keywords: [a]\n---\n\n## Overview\n..."
+    llm = MockLLM([json.dumps([
+        {"level": "L1", "rationale": "p1", "new_skill_md": valid_md},
+        {"level": "L1", "rationale": "p2", "new_skill_md": valid_md},
+        {"level": "L1", "rationale": "p3", "new_skill_md": valid_md},
+        {"level": "L1", "rationale": "p4", "new_skill_md": valid_md},
+    ])])
+
+    # 设定 clamp_limit 为 2，截断模式
+    patches = _generate_patches(
+        llm, meta, "body", [], [],
+        max_candidates=4,
+        clamp_limit=2,
+        on_candidate_overflow="truncate",
+    )
+    assert len(patches) == 2, "超 clamp 必须截断为 2，不能静默保留 4 个"
+
+
+def test_candidate_clamp_rejection():
+    meta = _mk_meta()
+    valid_md = "---\nname: test_skill\nversion: 1.0.1\ndescription: X\nuse_when: Y\ntrigger:\n  keywords: [a]\n---\n\n## Overview\n..."
+    llm = MockLLM([json.dumps([
+        {"level": "L1", "rationale": "p1", "new_skill_md": valid_md},
+        {"level": "L1", "rationale": "p2", "new_skill_md": valid_md},
+        {"level": "L1", "rationale": "p3", "new_skill_md": valid_md},
+    ])])
+
+    # 设定 clamp_limit 为 2，拒绝模式
+    with pytest.raises(BudgetExceededError) as exc_info:
+        _generate_patches(
+            llm, meta, "body", [], [],
+            max_candidates=3,
+            clamp_limit=2,
+            on_candidate_overflow="reject",
+        )
+
+    assert exc_info.value.cap_type == "candidate"
+    assert "CANDIDATE_LIMIT_EXCEEDED" in exc_info.value.reason
+
+
+# ============================================================================
+# 4. Evolver 端到端超帽硬停行为（中止并报原因，不静默继续）
+# ============================================================================
+
+
+def test_evolver_hard_stop_on_call_cap(tmp_path: Path):
+    reg = SkillRegistry(db_path=tmp_path / "t.db", skills_dir=tmp_path / "skills", repo_root=tmp_path)
+    evaluator_mock = SimpleNamespace(
+        evaluate_skill=lambda *args, **kwargs: (_ for _ in ()).throw(
+            BudgetExceededError("CALL_LIMIT_EXCEEDED: call count 2 >= limit 2", cap_type="call", limit=2, current=2)
+        ),
+        output_cache=EvaluatorOutputCache(),
+    )
+    evolver = SkillEvolver(
+        registry=reg,
+        evaluator=evaluator_mock,
+        llm=MockLLM([]),
+        budget=EvolveBudget(max_calls=2),
+    )
+
+    outcome = evolver.evolve_full("test_skill", max_candidates=3, verbose=False)
+    assert outcome.error is not None
+    assert "CALL_LIMIT_EXCEEDED" in outcome.error
+    assert outcome.patches_generated == 0
+
+
+def test_evolver_hard_stop_on_token_cap(tmp_path: Path):
+    reg = SkillRegistry(db_path=tmp_path / "t.db", skills_dir=tmp_path / "skills", repo_root=tmp_path)
+    evaluator_mock = SimpleNamespace(
+        evaluate_skill=lambda *args, **kwargs: (_ for _ in ()).throw(
+            BudgetExceededError("TOKEN_LIMIT_EXCEEDED: tokens 500 > limit 200", cap_type="token", limit=200, current=500)
+        ),
+        output_cache=EvaluatorOutputCache(),
+    )
+    evolver = SkillEvolver(
+        registry=reg,
+        evaluator=evaluator_mock,
+        llm=MockLLM([]),
+        budget=EvolveBudget(max_tokens=200),
+    )
+
+    outcome = evolver.evolve_full("test_skill", max_candidates=3, verbose=False)
+    assert outcome.error is not None
+    assert "TOKEN_LIMIT_EXCEEDED" in outcome.error
+    assert outcome.patches_generated == 0
+
+
+def test_evolver_hard_stop_on_candidate_clamp_reject(tmp_path: Path):
+    reg = SkillRegistry(db_path=tmp_path / "t.db", skills_dir=tmp_path / "skills", repo_root=tmp_path)
+    evaluator_mock = SimpleNamespace(
+        evaluate_skill=lambda *a, **kw: EvalResult(
+            release_id="r", structure_score={}, effect_score={},
+            objective_metrics={}, p0_pass=True, valid=True,
+            case_verdicts=[{"case_id": "c1", "task_completion": "B_better"}],
+            case_outputs=[{"case_id": "c1", "query": "q", "output_skill": "s", "output_baseline": "b"}],
+        ),
+        output_cache=EvaluatorOutputCache(),
+    )
+    budget = EvolveBudget(max_candidates=1, on_candidate_overflow="reject")
+    evolver = SkillEvolver(
+        registry=reg,
+        evaluator=evaluator_mock,
+        llm=MockLLM([]),
+        budget=budget,
+    )
+
+    outcome = evolver.evolve_full("test_skill", max_candidates=3, verbose=False)
+    assert outcome.error is not None
+    assert "CANDIDATE_LIMIT_EXCEEDED" in outcome.error
+
+
+# ============================================================================
+# 5. Output 缓存与基线漂移消除（含配置指纹隔离）
+# ============================================================================
+
+
+def test_evaluator_output_cache_hits_and_misses():
+    cache = EvaluatorOutputCache()
+    fp1 = "fingerprint-alpha"
+    fp2 = "fingerprint-beta"
+
+    # 首次查询，未命中
+    assert cache.get_bare("query-1", fp1) is None
+    assert cache.misses == 1
+
+    # 写入缓存
+    cache.set_bare("query-1", fp1, "output-alpha", {"tokens": 42})
+    assert len(cache) == 1
+
+    # 再次查询相同 query + 相同指纹：命中
+    hit = cache.get_bare("query-1", fp1)
+    assert hit is not None
+    assert hit[0] == "output-alpha"
+    assert hit[1]["tokens"] == 42
+    assert cache.hits == 1
+
+    # 相同 query + 不同指纹（例如 Judge 或执行配置改变）：未命中！防陈旧命中
+    assert cache.get_bare("query-1", fp2) is None
+    assert cache.misses == 2
+
+
+def test_fingerprint_changes_on_judge_and_execution_config():
+    llm_exec_1 = MockLLM([], model="exec-v1")
+    llm_exec_2 = MockLLM([], model="exec-v2")
+    llm_judge_1 = MockLLM([], model="judge-v1")
+    llm_judge_2 = MockLLM([], model="judge-v2")
+
+    fp_base = compute_evaluator_fingerprint(llm_exec_1, llm_judge_1)
+    fp_diff_judge = compute_evaluator_fingerprint(llm_exec_1, llm_judge_2)
+    fp_diff_exec = compute_evaluator_fingerprint(llm_exec_2, llm_judge_1)
+
+    assert fp_base != fp_diff_judge, "Judge 配置变化必须生成不同指纹，防陈旧缓存命中"
+    assert fp_base != fp_diff_exec, "Execution 配置变化必须生成不同指纹"
+    assert fp_base == compute_evaluator_fingerprint(llm_exec_1, llm_judge_1), "相同配置指纹必须完全稳定"
+
+
+def test_skill_evaluator_bare_output_uses_cache():
+    cache = EvaluatorOutputCache()
+    llm_exec = MockLLM(["exec_bare_result", "exec_skill_result"], token_per_call=50, model="exec-m")
+    llm_judge = MockLLM(["judge_result"], token_per_call=50, model="judge-m")
+
+    evaluator = SkillEvaluator(
+        registry=object(),
+        llm=llm_exec,
+        judge_llm=llm_judge,
+        output_cache=cache,
+    )
+
+    # 第一次 _run_bare
+    content1, m1 = evaluator._run_bare("what is the weather?")
+    assert content1 == "exec_bare_result"
+    assert len(llm_exec.calls) == 1
+    assert cache.hits == 0
+    assert cache.misses == 1
+
+    # 第二次 _run_bare 相同 query：走缓存，不产生新 LLM 调用，彻底消除随机基线漂移！
+    content2, m2 = evaluator._run_bare("what is the weather?")
+    assert content2 == "exec_bare_result"
+    assert len(llm_exec.calls) == 1, "命中缓存不得调用 LLM"
+    assert cache.hits == 1
+
+
+# ============================================================================
+# 6. Candidate 验证中途超帽触发 DECLINED 归档并硬停
+# ============================================================================
+
+
+def test_evolver_patch_validation_budget_exceeded_declines_and_halts(tmp_path: Path):
+    reg = SkillRegistry(db_path=tmp_path / "t.db", skills_dir=tmp_path / "skills", repo_root=tmp_path)
+    old_md = "---\nname: test_skill\nversion: 1.0.0\ndescription: X\nuse_when: Y\ntrigger:\n  keywords: [a]\n---\n\n## Overview\n..."
+    (tmp_path / "skills" / "test_skill").mkdir(parents=True)
+    (tmp_path / "skills" / "test_skill" / "SKILL.md").write_text(old_md, encoding="utf-8")
+    reg.load_skills_from_dir()
+
+    patch1 = Patch(
+        skill_name="test_skill",
+        level="L1",
+        diff=old_md.replace("version: 1.0.0", "version: 1.0.1"),
+        rationale="patch 1",
+    )
+    patch2 = Patch(
+        skill_name="test_skill",
+        level="L1",
+        diff=old_md.replace("version: 1.0.0", "version: 1.0.2"),
+        rationale="patch 2",
+    )
+
+    budget = EvolveBudget(max_calls=10)
+    ledger = LLMLedger(budget=budget)
+
+    # 模拟 evaluator 在验证第 1 个 patch 时触发预算超限
+    call_count = 0
+    def fake_validate(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        raise BudgetExceededError("TOKEN_LIMIT_EXCEEDED: token usage 1200 > limit 1000", cap_type="token", limit=1000, current=1200)
+
+    import skillforge.evolver as evolver_mod
+    original_validate = evolver_mod._validate_patch
+    evolver_mod._validate_patch = fake_validate
+
+    try:
+        evaluator_mock = SimpleNamespace(
+            evaluate_skill=lambda *a, **kw: EvalResult(
+                release_id="r", structure_score={}, effect_score={},
+                objective_metrics={}, p0_pass=True, valid=True,
+                case_verdicts=[{"case_id": "c1", "task_completion": "B_better"}],
+                case_outputs=[{"case_id": "c1", "query": "q", "output_skill": "s", "output_baseline": "b"}],
+            ),
+            output_cache=EvaluatorOutputCache(),
+            llm=MockLLM([]),
+            judge=SimpleNamespace(llm=MockLLM([])),
+        )
+
+        evolver = SkillEvolver(
+            registry=reg,
+            evaluator=evaluator_mock,
+            llm=MockLLM([
+                '{"trigger_inaccurate": {"prob": 0.8, "why": "err"}}',  # root cause
+                json.dumps([
+                    {"level": "L1", "rationale": "p1", "new_skill_md": patch1.diff},
+                    {"level": "L1", "rationale": "p2", "new_skill_md": patch2.diff},
+                ]),  # patches
+            ]),
+            budget=budget,
+            ledger=ledger,
+        )
+
+        outcome = evolver.evolve_full("test_skill", max_candidates=2, verbose=False)
+        assert outcome.error is not None
+        assert "沙箱验证预算硬帽超限" in outcome.error
+        assert len(outcome.patches_declined) == 1, "第 1 个 patch 必须被归档为 DECLINED"
+        assert call_count == 1, "预算超限后必须硬停，不得继续验证后续候选"
+    finally:
+        evolver_mod._validate_patch = original_validate
+
+
+# ============================================================================
+# 7. Current Output (with skill body) 缓存验证
+# ============================================================================
+
+
+def test_skill_evaluator_current_body_cache():
+    cache = EvaluatorOutputCache()
+    llm_exec = MockLLM(["skill_out_v1", "skill_out_v2"], token_per_call=60)
+    llm_judge = MockLLM([], token_per_call=60)
+
+    evaluator = SkillEvaluator(
+        registry=object(),
+        llm=llm_exec,
+        judge_llm=llm_judge,
+        output_cache=cache,
+    )
+
+    body_v1 = "## Overview\nversion 1"
+    body_v2 = "## Overview\nversion 2"
+
+    # 首次执行 body_v1
+    res1, _ = evaluator._run_with_skill("query", body_v1)
+    assert res1 == "skill_out_v1"
+    assert len(llm_exec.calls) == 1
+
+    # 再次执行相同 query + 相同 body_v1：命中缓存
+    res1_cached, _ = evaluator._run_with_skill("query", body_v1)
+    assert res1_cached == "skill_out_v1"
+    assert len(llm_exec.calls) == 1, "同 query 同 body 必须命中缓存"
+
+    # 执行相同 query + 不同 body_v2：未命中缓存
+    res2, _ = evaluator._run_with_skill("query", body_v2)
+    assert res2 == "skill_out_v2"
+    assert len(llm_exec.calls) == 2, "body 变更必须重新生成"
+
+
+# ============================================================================
+# 8. build_llm_pair ledger 挂载验证
+# ============================================================================
+
+
+def test_build_llm_pair_attaches_ledger(monkeypatch):
+    from skillforge.evaluator.llm_factory import build_llm_pair
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def invoke(self, messages, **kw):
+            return SimpleNamespace(content="ok", usage={"total_tokens": 50})
+
+    monkeypatch.setattr("hello_agents.HelloAgentsLLM", FakeClient)
+    values = {
+        "LLM_API_KEY": "k1",
+        "LLM_MODEL_ID": "m1",
+        "LLM_BASE_URL": "http://u1",
+        "JUDGE_LLM_API_KEY": "k2",
+        "JUDGE_LLM_MODEL_ID": "m2",
+        "JUDGE_LLM_BASE_URL": "http://u2",
+    }
+    for k, v in values.items():
+        monkeypatch.setenv(k, v)
+
+    ledger = LLMLedger()
+    exec_llm, judge_llm = build_llm_pair(ledger=ledger)
+
+    assert isinstance(exec_llm, TrackedLLM)
+    assert isinstance(judge_llm, TrackedLLM)
+    assert exec_llm.ledger is ledger
+    assert judge_llm.ledger is ledger
+
+    exec_llm.invoke([{"role": "user", "content": "hi"}])
+    judge_llm.invoke([{"role": "user", "content": "hi"}])
+
+    assert ledger.total_calls == 2
+    assert ledger.calls_by_role == {"agent": 1, "judge": 1}

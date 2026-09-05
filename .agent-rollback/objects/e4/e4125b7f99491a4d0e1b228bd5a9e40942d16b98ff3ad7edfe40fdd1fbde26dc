@@ -1,0 +1,2945 @@
+"""SkillEvolver 元 Agent：候选生成器 + 初筛器（非最终决策者）
+
+六步流程（ARCHITECTURE §4-D）:
+    1. 收集失败样本（从 EvalResult.case_verdicts 取 B_better）
+    2. LLM 根因分析（4 类标签：trigger/prompt/deps/boundary）
+    3. LLM 生成候选 patch（3-5 个，标 L1/L2/L3）
+    4. 沙箱验证（临时 skill dir + evaluator + 棘轮）
+    5. 分级发布：L1 + PASS → 自动；L2/L3 或 REVIEW → 只出建议
+    6. 归档：成功 → SQLite PUBLISHED；失败 → runs/failures/
+
+分级标准（ARCHITECTURE §4-D）:
+    L1 = 补 examples / not_for / description（不改语义边界）→ 可自动
+    L2 = 改 trigger / Instructions（可能影响路由与行为）→ REVIEW
+    L3 = 改 dependencies / 安全 Constraints（改权限/安全边界）→ 只建议
+
+成功率坦诚约 30%：10 次迭代约 3 次通过棘轮。价值在负样本沉淀 + 评估闭环压测。
+"""
+from __future__ import annotations
+import hashlib
+import json
+import re
+import shutil
+import tempfile
+import time
+from dataclasses import dataclass, field, replace
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Literal, Optional
+
+from hello_agents import SimpleAgent, HelloAgentsLLM
+
+from .diff import compute_semantic_diff, _parse_skill_document
+from .models import (
+    Patch,
+    EvalResult,
+    RatchetVerdict,
+    BudgetExceededError,
+    EvolveBudget,
+    EvolveContext,
+    EvolveRecord,
+    AttemptRecord,
+    AttemptFeedback,
+    BodySectionStats,
+)
+from .evaluator.validators import validate_dependency_patch, validate_router_patch
+from .evaluator.llm_factory import LLMLedger, wrap_with_ledger
+from .evaluator.prompt_bloat import check_prompt_bloat, compute_body_section_stats, PromptBloatResult
+from .evaluator.root_cause_prompts import (
+    ROUTING_METADATA,
+    EXECUTION_BEHAVIOR,
+    format_routing_metadata,
+    format_execution_behavior,
+    extract_relevant_body_sections,
+    format_body_sections,
+)
+
+
+# =============== 数据结构（evolver 内部） ===============
+
+
+@dataclass
+class Failure:
+    case_id: str
+    query: str
+    reference: str
+    output_skill: str
+    output_baseline: str
+    losing_dims: list[str] = field(default_factory=list)
+
+
+RootCauseLabel = Literal[
+    "trigger_inaccurate",
+    "prompt_vague",
+    "deps_broken",
+    "boundary_missing",
+    "eval_noise",
+    "dependency",
+]
+
+
+@dataclass
+class RootCause:
+    label: RootCauseLabel
+    prob: float
+    why: str
+
+
+@dataclass
+class EvolveOutcome:
+    """一次 evolve() 调用的产出汇总"""
+    skill_name: str
+    baseline_score: float
+    patches_generated: int
+    patches_published: list[str] = field(default_factory=list)  # release_ids
+    patches_review: list[str] = field(default_factory=list)     # suggestion file paths
+    patches_declined: list[str] = field(default_factory=list)   # failure log paths
+    error: Optional[str] = None
+    ledger: Optional[LLMLedger] = None
+    context: Optional[EvolveContext] = None
+    records: list[EvolveRecord] = field(default_factory=list)
+    rounds_executed: int = 1
+    attempts: list[AttemptRecord] = field(default_factory=list)
+
+
+# =============== 数据与防线辅助函数 ===============
+
+
+def is_forbidden_eval_set(eval_set_name: str) -> bool:
+    """判定评估集是否属于禁止用于迭代/反思的数据层（holdout/audit）。"""
+    norm = eval_set_name.removesuffix(".json").strip().lower()
+    return norm in ("experiment_holdout", "final_audit") or "holdout" in norm or "audit" in norm
+
+
+def assert_eval_set_for_iter(eval_set_name: str) -> None:
+    """断言 eval_set_for_iter 禁止指向 experiment_holdout 或 final_audit。"""
+    if is_forbidden_eval_set(eval_set_name):
+        raise ValueError(
+            f"FORBIDDEN_EVAL_SET: eval_set_for_iter '{eval_set_name}' 禁止指向 experiment_holdout 或 final_audit 数据层"
+        )
+
+
+def _archive_isolation_diagnostic(
+    repo_root: Path,
+    skill_name: str,
+    eval_set: str,
+    reason: str,
+) -> Path:
+    """数据边界违规诊断归档（REVIEW 出口）。"""
+    sug_dir = repo_root / "runs" / "suggestions"
+    sug_dir.mkdir(parents=True, exist_ok=True)
+    fname = f"{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{skill_name}-isolation-diagnostic.md"
+    path = sug_dir / fname
+    lines = [
+        f"# [REVIEW / ISOLATION_DIAGNOSTIC] {skill_name}",
+        "",
+        f"- ts: {datetime.now(timezone.utc).isoformat()}",
+        "- status: REVIEW",
+        "- decision: REVIEW",
+        "- level: L1",
+        "- patch_generated: false",
+        f"- isolation_reason: {reason}",
+        f"- eval_set: {eval_set}",
+        "",
+        "## 隔离保护诊断 (Data Isolation Boundary Guardrail)",
+        "- 规则说明: eval_set_for_iter 禁止指向 experiment_holdout 或 final_audit 数据层",
+        "- 处理方式: 显式阻断迭代，不执行 baseline 评估，不泄露用例至 Prompt，状态标记为 REVIEW",
+    ]
+    path.write_text("\n".join(lines), encoding="utf-8")
+    return path
+
+
+def is_candidate_eval_invalid(
+    new_result: Optional[EvalResult],
+    verdict: Optional[RatchetVerdict] = None,
+) -> tuple[bool, str]:
+    """判定候选评估是否为 INVALID 或基础设施异常（工具超时/fixture 异常/Judge 异常等）。"""
+    if new_result is None:
+        return True, "CANDIDATE_RESULT_NONE"
+    if not getattr(new_result, "valid", True):
+        reasons = getattr(new_result, "invalid_reasons", []) or ["RESULT_INVALID"]
+        return True, "; ".join(reasons)
+
+    ja_top = getattr(new_result, "judge_audit", None)
+    if isinstance(ja_top, dict):
+        if ja_top.get("status") == "ERROR":
+            return True, f"JUDGE_AUDIT_ERROR: {ja_top.get('reason', '')}"
+
+    for cv in getattr(new_result, "case_verdicts", []) or []:
+        for dim in ("task_completion", "robustness", "readability", "safety_boundaries", "format_compliance"):
+            val = cv.get(dim)
+            if val in ("INVALID", "TIMEOUT", "FIXTURE_ERROR"):
+                return True, f"CASE_VERDICT_INVALID: {cv.get('case_id')}/{dim}={val}"
+        ja = cv.get("judge_audit", {})
+        if isinstance(ja, dict):
+            for dim, audit in ja.items():
+                if isinstance(audit, dict):
+                    if audit.get("canonical_verdict") == "INVALID" or audit.get("raw_verdict") == "INVALID":
+                        return True, f"JUDGE_AUDIT_INVALID: {cv.get('case_id')}/{dim}"
+                    codes = [str(c).upper() for c in audit.get("reason_codes", [])]
+                    for bad in ("INVALID", "TIMEOUT", "FIXTURE_ERROR", "INFRASTRUCTURE_ERROR", "503", "DEPENDENCY_ERROR", "NETWORK_ERROR"):
+                        if any(bad in c for c in codes):
+                            return True, f"INFRASTRUCTURE_ERROR: {cv.get('case_id')}/{dim} ({bad})"
+
+    if verdict:
+        for r in verdict.reasons:
+            r_up = r.upper()
+            if any(bad in r_up for bad in ("评估无效", "INVALID", "TIMEOUT", "FIXTURE_ERROR", "INFRASTRUCTURE_ERROR", "503", "DEPENDENCY_ERROR")):
+                return True, f"RATCHET_INVALID: {r}"
+
+    return False, ""
+
+
+@dataclass
+class FinalAuditGateResult:
+    passed: bool
+    verdict: str  # PASS / DECLINED / SKIPPED
+    reasons: list[str] = field(default_factory=list)
+    audit_score: Optional[float] = None
+
+
+def run_final_audit_gate(
+    evaluator: Any,
+    repo_root: Path,
+    skill_name: str,
+    patch: Patch,
+    registry: Any = None,
+) -> FinalAuditGateResult:
+    """在发布前对 candidate 运行 final_audit 独立终审门。"""
+    audit_path = repo_root / "evaluation_sets" / "final_audit.json"
+    if not audit_path.exists():
+        return FinalAuditGateResult(
+            passed=True,
+            verdict="SKIPPED",
+            reasons=["final_audit.json 不存在，跳过终审门"],
+        )
+
+    if evaluator is None:
+        return FinalAuditGateResult(
+            passed=False,
+            verdict="DECLINED",
+            reasons=["缺少 evaluator，无法执行 final_audit 终审门"],
+        )
+
+    sandbox_evaluator = None
+    temp_dir_ctx = None
+    temp_reg = None
+    try:
+        if registry is not None and hasattr(registry, "skills_dir") and patch and getattr(patch, "diff", ""):
+            import tempfile, shutil
+            from .registry import SkillRegistry
+            from .evaluator import SkillEvaluator
+            temp_dir_ctx = tempfile.TemporaryDirectory(prefix="skillforge-final-audit-")
+            sandbox_root = Path(temp_dir_ctx.name)
+            sandbox_skills = sandbox_root / "skills"
+            if Path(registry.skills_dir).exists():
+                shutil.copytree(registry.skills_dir, sandbox_skills)
+                (sandbox_skills / skill_name / "SKILL.md").write_text(patch.diff, encoding="utf-8")
+                temp_reg = SkillRegistry(
+                    db_path=sandbox_root / "sandbox.db",
+                    skills_dir=sandbox_skills,
+                    repo_root=repo_root,
+                    router_log=sandbox_root / "router.jsonl",
+                )
+                temp_reg.load_skills_from_dir()
+                judge_llm = getattr(getattr(evaluator, "judge", None), "llm", None)
+                cache_obj = getattr(evaluator, "output_cache", None)
+                route_obj = getattr(evaluator, "router", None)
+                try:
+                    sandbox_evaluator = SkillEvaluator(
+                        registry=temp_reg,
+                        llm=getattr(evaluator, "llm", None),
+                        judge_llm=judge_llm,
+                        output_cache=cache_obj,
+                        router=route_obj,
+                    )
+                except TypeError:
+                    sandbox_evaluator = SkillEvaluator(
+                        registry=temp_reg,
+                        llm=getattr(evaluator, "llm", None),
+                        judge_llm=judge_llm,
+                    )
+                    if hasattr(sandbox_evaluator, "output_cache"):
+                        sandbox_evaluator.output_cache = cache_obj
+    except Exception:
+        sandbox_evaluator = None
+
+    eval_to_use = sandbox_evaluator if sandbox_evaluator is not None else evaluator
+    if not hasattr(eval_to_use, "evaluate_skill"):
+        if temp_reg:
+            temp_reg.close()
+        if temp_dir_ctx:
+            temp_dir_ctx.cleanup()
+        return FinalAuditGateResult(
+            passed=False,
+            verdict="DECLINED",
+            reasons=["缺少可用 evaluator，无法执行 final_audit 终审门"],
+        )
+
+    try:
+        cases = []
+        if hasattr(eval_to_use, "_load_cases"):
+            try:
+                cases = eval_to_use._load_cases("final_audit", skill_name)
+            except Exception:
+                cases = []
+        if cases:
+            audit_result = eval_to_use.evaluate_skill(
+                skill_name, eval_set="final_audit", cases=cases, verbose=False
+            )
+        else:
+            audit_result = eval_to_use.evaluate_skill(
+                skill_name, eval_set="final_audit", verbose=False
+            )
+
+        if not getattr(audit_result, "valid", True):
+            invalid_reasons = getattr(audit_result, "invalid_reasons", []) or ["final_audit 评估无效"]
+            return FinalAuditGateResult(
+                passed=False,
+                verdict="DECLINED",
+                reasons=[f"final_audit 评估无效: {'; '.join(invalid_reasons)}"],
+            )
+        if not getattr(audit_result, "p0_pass", True):
+            return FinalAuditGateResult(
+                passed=False,
+                verdict="DECLINED",
+                reasons=["final_audit P0 门控未通过"],
+            )
+        score = sum(getattr(audit_result, "structure_score", {}).values()) + sum(getattr(audit_result, "effect_score", {}).values())
+        return FinalAuditGateResult(
+            passed=True,
+            verdict="PASS",
+            reasons=["final_audit 独立终审门通过"],
+            audit_score=score,
+        )
+    except Exception as e:
+        return FinalAuditGateResult(
+            passed=False,
+            verdict="DECLINED",
+            reasons=[f"final_audit 执行异常: {e}"],
+        )
+    finally:
+        if temp_reg:
+            try:
+                temp_reg.close()
+            except Exception:
+                pass
+        if temp_dir_ctx:
+            try:
+                temp_dir_ctx.cleanup()
+            except Exception:
+                pass
+
+
+def validate_neighbor_variants(
+    registry,
+    skill_name: str,
+    failed_queries: list[str],
+    router=None,
+) -> tuple[bool, list[str]]:
+    """防自嗨防线 5：对失败 query 衍生邻近变体集并接入真实验证链。"""
+    variants: list[str] = []
+    for fq in failed_queries:
+        variants.extend(generate_neighbor_variants(fq, skill_name=skill_name))
+
+    if not variants:
+        return True, []
+
+    reasons: list[str] = []
+    if router is not None and hasattr(router, "route"):
+        for vq in variants[:6]:
+            try:
+                res = router.route(vq)
+                if res.chosen != skill_name:
+                    reasons.append(
+                        f"NEIGHBOR_VARIANT_MISMATCH: 失败 query 邻近变体 '{vq[:25]}' 未路由到 {skill_name} (chosen={res.chosen})"
+                    )
+            except Exception as e:
+                reasons.append(f"NEIGHBOR_VARIANT_ERROR: 变体路由异常 '{vq[:25]}': {e}")
+
+    return len(reasons) == 0, reasons
+
+
+# =============== SkillEvolver 主类 ===============
+
+
+DEFAULT_SYSTEM_PROMPT = (
+    "你是 SkillForge 的元 Agent。任务是分析 Skill 的失败样本，"
+    "找出根因、生成 3-5 个改进候选 patch。改动分级：\n"
+    "  L1 = 补 examples / not_for / description（不改语义边界）\n"
+    "  L2 = 改 trigger / Instructions（可能影响路由与行为）\n"
+    "  L3 = 改 dependencies / 安全 Constraints（改权限或安全边界）\n"
+    "宁可不改也不冒进——低风险 L1 优先。"
+)
+
+
+class SkillEvolver(SimpleAgent):
+    def __init__(
+        self,
+        registry,
+        evaluator,
+        llm: HelloAgentsLLM,
+        state_machine=None,
+        system_prompt: Optional[str] = None,
+        budget: Optional[EvolveBudget] = None,
+        ledger: Optional[LLMLedger] = None,
+    ):
+        """
+        Args:
+            registry:      SkillRegistry，读磁盘 body + 拿 meta
+            evaluator:     SkillEvaluator，跑评估
+            llm:           元 Agent 的 LLM（生成 patch + 根因分析）
+            state_machine: ReleaseStateMachine，L1 自动发布用；None 时跳过发布只归档
+            budget:        EvolveBudget，预算与随机性护栏配置（P1-F）
+            ledger:        LLMLedger，统一记账单例（可选，未传入时从 budget 初始化）
+        """
+        super().__init__(
+            name="skill_evolver",
+            llm=llm,
+            system_prompt=system_prompt or DEFAULT_SYSTEM_PROMPT,
+        )
+        self.registry = registry
+        self.evaluator = evaluator
+        self.state_machine = state_machine
+        self.repo_root = registry.repo_root
+        self.budget = budget or EvolveBudget()
+        self.ledger = ledger or LLMLedger(budget=self.budget)
+        self._bind_ledger(self.ledger)
+
+    def _bind_ledger(self, ledger: LLMLedger) -> None:
+        self.ledger = ledger
+        self.llm = wrap_with_ledger(self.llm, ledger, role="evolver")
+        if self.evaluator is not None:
+            if hasattr(self.evaluator, "llm") and self.evaluator.llm is not None:
+                self.evaluator.llm = wrap_with_ledger(self.evaluator.llm, ledger, role="agent")
+            if (
+                hasattr(self.evaluator, "judge")
+                and self.evaluator.judge is not None
+                and hasattr(self.evaluator.judge, "llm")
+                and self.evaluator.judge.llm is not None
+            ):
+                self.evaluator.judge.llm = wrap_with_ledger(self.evaluator.judge.llm, ledger, role="judge")
+
+    def _create_attempt_record(
+        self,
+        context: EvolveContext,
+        strategy: str,
+        candidate_digest: str,
+        computed_level: str,
+        verdict: str,
+        reason_codes: list[str],
+        round_no: int,
+        status: Optional[str] = None,
+        patch: Optional[Patch] = None,
+    ) -> AttemptRecord:
+        calls_val = getattr(self.ledger, "total_calls", None) if getattr(self, "ledger", None) else None
+        tokens_val = getattr(self.ledger, "total_tokens", None) if getattr(self, "ledger", None) else None
+        return AttemptRecord(
+            attempt_no=len(context.attempts) + 1,
+            strategy=strategy,
+            candidate_digest=candidate_digest,
+            computed_level=computed_level,
+            verdict=verdict,
+            reason_codes=list(reason_codes),
+            calls=calls_val,
+            tokens=tokens_val,
+            round_no=round_no,
+            status=status,
+            patch=patch,
+        )
+
+    # -------- ARCHITECTURE §7 签名 --------
+    def evolve(self, skill_name: str, max_candidates: int = 3) -> list[Patch]:
+        outcome = self.evolve_full(skill_name, max_candidates=max_candidates)
+        # 返回发布/建议的 patch 列表（此方法主要为兼容签名；实际请用 evolve_full）
+        return outcome  # type: ignore
+
+    # -------- 完整流程（推荐入口）--------
+    def evolve_full(
+        self,
+        skill_name: str,
+        max_candidates: int = 3,
+        eval_set_for_iter: str = "repair_set",
+        verbose: bool = True,
+        budget: Optional[EvolveBudget] = None,
+        enable_reflection: Optional[bool] = None,
+        shadow_mode: Optional[bool] = None,
+        auto_publish_enabled: Optional[bool] = None,
+    ) -> EvolveOutcome:
+        """
+        对指定 Skill 跑完整六步迭代（支持 P1-H 受控两轮反思回环）。
+
+        Args:
+            skill_name:           目标 skill
+            max_candidates:       一次生成候选数（默认 3，round1 ≤3，总上限 ≤4）
+            eval_set_for_iter:    迭代评估用哪个集（默认 repair_set 22 条，含 P0 与 seen regression）
+            verbose:              打印进度
+            budget:               可选单次运行覆盖的预算配置
+            enable_reflection:    是否启用反思回环（feature flag 默认关闭）
+            shadow_mode:          是否以 shadow 模式运行（默认 True：只归档不自动发布）
+            auto_publish_enabled: 是否允许自动发布路径（本卡只做机制，默认 False 不开）
+
+        Returns:
+            EvolveOutcome：本次迭代所有产出汇总
+        """
+        active_budget = budget or self.budget
+        self.ledger.reset(budget=active_budget)
+        self._bind_ledger(self.ledger)
+
+        # 机制开关与模式确定
+        eff_enable_reflection = (
+            enable_reflection
+            if enable_reflection is not None
+            else getattr(active_budget, "enable_reflection", False)
+        )
+        eff_shadow_mode = (
+            shadow_mode
+            if shadow_mode is not None
+            else getattr(active_budget, "shadow_mode", True)
+        )
+        eff_auto_publish = (
+            auto_publish_enabled
+            if auto_publish_enabled is not None
+            else getattr(active_budget, "auto_publish_enabled", False)
+        )
+
+        outcome = EvolveOutcome(
+            skill_name=skill_name,
+            baseline_score=0.0,
+            patches_generated=0,
+            ledger=self.ledger,
+            rounds_executed=1,
+        )
+
+        candidate_cap = active_budget.get_effective_candidate_limit(round_index=0, candidates_so_far=0)
+        if (
+            candidate_cap is not None
+            and max_candidates > candidate_cap
+            and active_budget.on_candidate_overflow == "reject"
+        ):
+            outcome.error = (
+                f"候选生成预算硬帽超限：CANDIDATE_LIMIT_EXCEEDED: "
+                f"requested {max_candidates} candidates > clamp {candidate_cap}"
+            )
+            return outcome
+        # P0-1: 数据边界显式断言与拒绝（禁止指向 holdout/audit 层）
+        if is_forbidden_eval_set(eval_set_for_iter):
+            reason_msg = f"FORBIDDEN_EVAL_SET: eval_set_for_iter '{eval_set_for_iter}' 禁止指向 experiment_holdout 或 final_audit"
+            diag_path = _archive_isolation_diagnostic(
+                repo_root=self.repo_root,
+                skill_name=skill_name,
+                eval_set=eval_set_for_iter,
+                reason=reason_msg,
+            )
+            outcome.error = reason_msg
+            outcome.patches_review.append(str(diag_path))
+            meta = self.registry.get_meta(skill_name)
+            body = self.registry._bodies.get(skill_name, "")
+            baseline_stats = compute_body_section_stats(body)
+            outcome.records.append(EvolveRecord(
+                skill_name=skill_name,
+                patch=None,
+                baseline_body=body,
+                candidate_body="",
+                baseline_body_stats=baseline_stats,
+                candidate_body_stats={},
+                bloat_verdict=None,
+                bloat_reasons=[reason_msg],
+                distillation_prompt=None,
+                status="REVIEW",
+            ))
+            return outcome
+
+        # ---- 前置：跑一次 baseline 评估拿失败样本 ----
+        if verbose:
+            print(f"\n▶ [Evolve/1-baseline] 跑 baseline 评估 {skill_name} on {eval_set_for_iter}")
+        try:
+            old_result = self.evaluator.evaluate_skill(
+                skill_name, eval_set=eval_set_for_iter, verbose=False,
+            )
+        except BudgetExceededError as e:
+            outcome.error = f"baseline 评估预算硬帽超限：{e.reason}"
+            return outcome
+        except Exception as e:
+            outcome.error = f"baseline 评估失败：{e}"
+            return outcome
+        route_error = getattr(old_result, "route_error", None)
+        if route_error:
+            outcome.error = f"路由判定不可用，停止迭代：{route_error}"
+            return outcome
+        if not old_result.valid:
+            tool_trace = _build_tool_trace_from_eval_result(old_result)
+            is_dep, dep_reason = is_dependency_issue([], tool_trace)
+            if is_dep:
+                if verbose:
+                    print(f"\n▶ [Evolve/1-dependency] baseline 评测因外部依赖异常中断 (REVIEW): {dep_reason}")
+                meta = self.registry.get_meta(skill_name)
+                body = self.registry._bodies.get(skill_name, "")
+                baseline_stats = compute_body_section_stats(body)
+                diag_path = _archive_dependency_diagnostic(
+                    repo_root=self.repo_root,
+                    skill_name=skill_name,
+                    root_causes=[RootCause(label="deps_broken", prob=1.0, why=dep_reason)],
+                    tool_trace=tool_trace,
+                    dep_reason=dep_reason,
+                    meta=meta,
+                    body=body,
+                    failures=[],
+                )
+                outcome.patches_generated = 0
+                outcome.patches_review.append(str(diag_path))
+                outcome.records.append(EvolveRecord(
+                    skill_name=skill_name,
+                    patch=None,
+                    baseline_body=body,
+                    candidate_body="",
+                    baseline_body_stats=baseline_stats,
+                    candidate_body_stats={},
+                    bloat_verdict=None,
+                    bloat_reasons=[f"DEPENDENCY_ISSUE: {dep_reason}"],
+                    distillation_prompt=None,
+                    status="REVIEW",
+                ))
+                return outcome
+            details = "; ".join(old_result.invalid_reasons) or "未知 INVALID 原因"
+            outcome.error = f"baseline 评估无效，停止迭代：{details}"
+            return outcome
+        outcome.baseline_score = sum(old_result.structure_score.values()) + sum(old_result.effect_score.values())
+        if verbose:
+            print(f"  baseline 总分 = {outcome.baseline_score:.2f}")
+
+        # ---- Step 1：收集失败 ----
+        failures = _collect_failures(old_result)
+        if verbose:
+            print(f"\n▶ [Evolve/2-collect] 收集失败样本 {len(failures)} 条")
+        if not failures:
+            outcome.error = "无 B_better 失败样本，Skill 已达最优 → 跳过迭代"
+            return outcome
+
+        # ---- Step 2：根因分析 ----
+        meta = self.registry.get_meta(skill_name)
+        body = self.registry._bodies.get(skill_name, "")
+        baseline_stats = compute_body_section_stats(body)
+        original_skill_md = _reconstruct_skill_md(meta, body)
+        original_digest = compute_skill_fingerprint(original_skill_md)
+
+        context = EvolveContext(
+            skill_name=skill_name,
+            original_digest=original_digest,
+            repair_set=eval_set_for_iter,
+            baseline_result=old_result,
+            failures=failures,
+            baseline_meta=meta,
+            baseline_body=body,
+            baseline_body_stats=baseline_stats,
+            active_budget=active_budget,
+            round_no=1,
+            seen_fingerprints={original_digest},
+            shadow_mode=eff_shadow_mode,
+        )
+        outcome.context = context
+        if verbose:
+            print(f"\n▶ [Evolve/3-root_cause] LLM 根因分析")
+
+        # P1-G 三路输入准备（P0-1: 只读取 RouteResult 真实字段）
+        relevant_body = extract_relevant_body_sections(body)
+        route_result = getattr(old_result, "route_result", None)
+        route_trace = None
+        if route_result is not None:
+            route_trace = {
+                "hit_layer": route_result.hit_layer,
+                "chosen_skill": route_result.chosen,
+                "scores": route_result.scores,
+                "latency_ms": route_result.latency_ms,
+                "trigger_keywords": getattr(getattr(meta, "trigger", None), "keywords", []),
+                "matched_keywords": route_result.matched_keywords,
+                "use_when": getattr(meta, "use_when", ""),
+                "not_for": getattr(meta, "not_for", []),
+                "routing_notes": route_result.routing_notes,
+            }
+        tool_trace = _build_tool_trace_from_eval_result(old_result)
+
+        try:
+            root_causes = _analyze_root_cause(
+                self.llm,
+                meta,
+                body,
+                failures,
+                relevant_body_sections=relevant_body,
+                route_trace=route_trace,
+                tool_trace=tool_trace,
+            )
+        except BudgetExceededError as e:
+            outcome.error = f"根因分析预算硬帽超限：{e.reason}"
+            return outcome
+        if verbose:
+            for rc in root_causes:
+                print(f"  {rc.label}: prob={rc.prob:.2f}, why={rc.why[:60]}")
+
+        # ---- Step 2.5：P1-G dependency 出口（依赖故障走诊断归档，不生成文案 patch） ----
+        is_dep, dep_reason = is_dependency_issue(root_causes, tool_trace)
+        if is_dep:
+            if verbose:
+                print(f"\n▶ [Evolve/3.5-dependency] 识别为外部依赖根因 (REVIEW): {dep_reason}")
+                print("  ⚡ 依赖问题改 prompt 无效，阻断 prompt 文案 patch 生成，转入诊断归档")
+            diag_path = _archive_dependency_diagnostic(
+                repo_root=self.repo_root,
+                skill_name=skill_name,
+                root_causes=root_causes,
+                tool_trace=tool_trace,
+                dep_reason=dep_reason,
+                meta=meta,
+                body=body,
+                failures=failures,
+            )
+            outcome.patches_generated = 0
+            outcome.patches_review.append(str(diag_path))
+            record = EvolveRecord(
+                skill_name=skill_name,
+                patch=None,
+                baseline_body=body,
+                candidate_body="",
+                baseline_body_stats=baseline_stats,
+                candidate_body_stats={},
+                bloat_verdict=None,
+                bloat_reasons=[f"DEPENDENCY_ISSUE: {dep_reason}"],
+                distillation_prompt=None,
+                status="REVIEW",
+            )
+            outcome.records.append(record)
+            return outcome
+
+        # =========================================================
+        # ROUND 1: 初始轮生成（≤3 候选，总候选上限 ≤4）
+        # =========================================================
+        clamp_r1 = min(candidate_cap, 3) if candidate_cap is not None else 3
+        effective_max = min(max_candidates, clamp_r1)
+        if verbose:
+            print(f"\n▶ [Evolve/Round 1-generate] LLM 生成 {effective_max} 个候选 patch")
+        try:
+            patches = _generate_patches(
+                self.llm,
+                meta,
+                body,
+                failures,
+                root_causes,
+                max_candidates=effective_max,
+                clamp_limit=clamp_r1,
+                on_candidate_overflow=active_budget.on_candidate_overflow,
+                budget=active_budget,
+            )
+        except BudgetExceededError as e:
+            outcome.error = f"候选生成预算硬帽超限：{e.reason}"
+            return outcome
+        outcome.patches_generated = len(patches)
+        if verbose:
+            print(f"  实际生成 {len(patches)} 个 patch")
+            for p in patches:
+                level_label = p.level
+                if p.computed_level != p.level:
+                    level_label = f"{p.level}→{p.computed_level}"
+                print(f"    [{level_label}] {p.rationale[:60]}")
+        if not patches:
+            outcome.error = "LLM 未生成有效 patch（可能 JSON 解析失败）"
+            return outcome
+
+        has_acceptable = False
+        declined_evaluations: list[tuple[Patch, EvalResult, RatchetVerdict, float]] = []
+
+        # ---- Round 1 逐 patch 验证 + 发布 ----
+        for i, patch in enumerate(patches):
+            if verbose:
+                print(f"\n▶ [Evolve/Round 1-validate #{i + 1}] 沙箱验证 {patch.level} patch")
+
+            cand_fp = compute_skill_fingerprint(patch.diff)
+            # 防自嗨防线 7: repeated fingerprint 熔断
+            if cand_fp in context.seen_fingerprints:
+                if verbose:
+                    print(f"  ⚡ 候选指纹与已有版本重复 ({cand_fp[:8]})，触发 repeated fingerprint 熔断")
+                verdict = RatchetVerdict(
+                    decision="DECLINED",
+                    reasons=[f"REPEATED_FINGERPRINT_STOP: 候选指纹与已有版本重复 ({cand_fp[:8]})，熔断停止"],
+                )
+                attempt_record = self._create_attempt_record(
+                    context,
+                    strategy="routing_metadata" if patch.level == "L1" else "execution_behavior",
+                    candidate_digest=cand_fp,
+                    computed_level=patch.computed_level,
+                    verdict="DECLINED",
+                    reason_codes=verdict.reasons,
+                    round_no=1,
+                    status="DECLINED",
+                    patch=patch,
+                )
+                context.attempts.append(attempt_record)
+                outcome.attempts.append(attempt_record)
+                path = _archive_failure(
+                    self.repo_root, skill_name, patch, verdict, None,
+                    error="REPEATED_FINGERPRINT_STOP",
+                    attempt_no=attempt_record.attempt_no,
+                    round_no=1,
+                    reason_codes=verdict.reasons,
+                    shadow_mode=eff_shadow_mode,
+                    candidate_digest=cand_fp,
+                )
+                outcome.patches_declined.append(str(path))
+                context.stop_reason = "REPEATED_FINGERPRINT_STOP"
+                continue
+
+            context.seen_fingerprints.add(cand_fp)
+
+            try:
+                new_result, verdict = _validate_patch(
+                    self.evaluator, self.registry, skill_name, patch,
+                    old_result, eval_set_for_iter,
+                    budget=active_budget,
+                )
+            except BudgetExceededError as e:
+                if verbose:
+                    print(f"  ❌ 预算硬帽超限：{e.reason}")
+                verdict = RatchetVerdict(decision="DECLINED", reasons=[f"BUDGET_EXCEEDED: {e.reason}"])
+                attempt_record = self._create_attempt_record(
+                    context,
+                    strategy="routing_metadata" if patch.level == "L1" else "execution_behavior",
+                    candidate_digest=cand_fp,
+                    computed_level=patch.computed_level,
+                    verdict="DECLINED",
+                    reason_codes=verdict.reasons,
+                    round_no=1,
+                    status="DECLINED",
+                    patch=patch,
+                )
+                context.attempts.append(attempt_record)
+                outcome.attempts.append(attempt_record)
+                path = _archive_failure(
+                    self.repo_root, skill_name, patch, verdict, None, str(e),
+                    attempt_no=attempt_record.attempt_no,
+                    round_no=1,
+                    reason_codes=verdict.reasons,
+                    shadow_mode=eff_shadow_mode,
+                    candidate_digest=cand_fp,
+                )
+                outcome.patches_declined.append(str(path))
+                outcome.error = f"沙箱验证预算硬帽超限：{e.reason}"
+                break
+            except Exception as e:
+                if verbose:
+                    print(f"  ❌ 验证异常：{e}")
+                verdict = RatchetVerdict(decision="DECLINED", reasons=[f"VALIDATION_EXCEPTION: {e}"])
+                attempt_record = self._create_attempt_record(
+                    context,
+                    strategy="routing_metadata" if patch.level == "L1" else "execution_behavior",
+                    candidate_digest=cand_fp,
+                    computed_level=patch.computed_level,
+                    verdict="DECLINED",
+                    reason_codes=verdict.reasons,
+                    round_no=1,
+                    status="DECLINED",
+                    patch=patch,
+                )
+                context.attempts.append(attempt_record)
+                outcome.attempts.append(attempt_record)
+                path = _archive_failure(
+                    self.repo_root, skill_name, patch, None, None, str(e),
+                    attempt_no=attempt_record.attempt_no,
+                    round_no=1,
+                    reason_codes=verdict.reasons,
+                    shadow_mode=eff_shadow_mode,
+                    candidate_digest=cand_fp,
+                )
+                outcome.patches_declined.append(str(path))
+                continue
+
+            new_score = sum(new_result.structure_score.values()) + sum(new_result.effect_score.values())
+            if verbose:
+                print(f"  new_score={new_score:.2f}, verdict={verdict.decision}")
+                for r in verdict.reasons[:3]:
+                    print(f"    · {r}")
+
+            attempt_record = self._create_attempt_record(
+                context,
+                strategy="routing_metadata" if patch.level == "L1" else "execution_behavior",
+                candidate_digest=cand_fp,
+                computed_level=patch.computed_level,
+                verdict=verdict.decision,
+                reason_codes=verdict.reasons,
+                round_no=1,
+                patch=patch,
+            )
+
+            # 分级发布或 shadow 归档
+            outc = _publish_patch(
+                repo_root=self.repo_root,
+                registry=self.registry,
+                state_machine=self.state_machine,
+                skill_name=skill_name,
+                patch=patch,
+                verdict=verdict,
+                new_result=new_result,
+                budget=active_budget,
+                root_causes=root_causes,
+                attempt_no=attempt_record.attempt_no,
+                round_no=1,
+                reason_codes=verdict.reasons,
+                shadow_mode=eff_shadow_mode,
+                auto_publish_enabled=eff_auto_publish,
+                candidate_digest=cand_fp,
+                evaluator=self.evaluator,
+            )
+            attempt_record.status = outc["status"]
+            context.attempts.append(attempt_record)
+            outcome.attempts.append(attempt_record)
+
+            if verbose:
+                print(f"  → {outc['status']}: {outc['path']}")
+
+            try:
+                cand_body = _parse_skill_document(patch.diff).body
+            except Exception:
+                cand_body = ""
+            record = EvolveRecord(
+                skill_name=skill_name,
+                patch=patch,
+                baseline_body=body,
+                candidate_body=cand_body,
+                baseline_body_stats=patch.baseline_body_stats or baseline_stats,
+                candidate_body_stats=patch.candidate_body_stats,
+                bloat_verdict=patch.bloat_verdict,
+                bloat_reasons=patch.bloat_reasons,
+                distillation_prompt=patch.distillation_prompt,
+                status=outc["status"],
+            )
+            outcome.records.append(record)
+
+            if outc["status"] == "PUBLISHED":
+                outcome.patches_published.append(outc["release_id"])
+            elif outc["status"] in ("REVIEW", "SHADOW"):
+                outcome.patches_review.append(outc["path"])
+            else:  # DECLINED / SUGGESTION
+                outcome.patches_declined.append(outc["path"])
+
+            if verdict.decision in ("PASS", "REVIEW"):
+                has_acceptable = True
+
+            # P0-2: 候选 INVALID/基础设施异常不进反思池
+            is_cand_inv, inv_why = is_candidate_eval_invalid(new_result, verdict)
+            if is_cand_inv:
+                attempt_record.reason_codes.append(f"INFRASTRUCTURE_FAIL_CLOSED: {inv_why}")
+            elif verdict.decision == "DECLINED":
+                declined_evaluations.append((patch, new_result, verdict, new_score))
+
+            if outc["status"] == "PUBLISHED":
+                if verbose:
+                    print(f"\n  ⚡ L1 自动发布成功，本轮迭代结束")
+                break
+
+        # =========================================================
+        # ROUND 2: 判定是否进入受控定向反思（定稿 4.1-4.4）
+        # =========================================================
+        # 规则 2: 已有可接受 PASS/REVIEW 不重试追分；REVIEW 不重试（人工裁决）
+        if has_acceptable:
+            if verbose:
+                print("\n  ⚡ 已有可接受 PASS/REVIEW 候选，按规则不重试追分")
+            context.stop_reason = "ACCEPTABLE_CANDIDATE_FOUND"
+            return outcome
+
+        # 若未开启回环 feature flag，或者 max_rounds < 2，则结束
+        max_rounds = active_budget.max_rounds if eff_enable_reflection else 1
+        if not eff_enable_reflection or max_rounds < 2:
+            context.stop_reason = "REFLECTION_DISABLED_OR_MAX_ROUNDS_REACHED"
+            return outcome
+
+        # 规则 2: 仅整批无可用候选且评估有效 → 选'退步最少、证据最完整'的 1 个 DECLINED 候选反思
+        if not old_result.valid:
+            if verbose:
+                print("\n  ❌ baseline 评估无效，不触发反思回环")
+            context.stop_reason = "BASELINE_INVALID"
+            return outcome
+
+        if not declined_evaluations:
+            if verbose:
+                print("\n  ❌ 无可用有效 DECLINED 候选进行反思（候选全 INVALID 或无可反思样本），结束迭代")
+            if not context.stop_reason:
+                context.stop_reason = "CANDIDATE_INVALID_FAIL_CLOSED"
+            return outcome
+
+        # 总候选上限检查（最多 4 个候选）
+        candidates_so_far = len(patches)
+        effective_cap_r2 = active_budget.get_effective_candidate_limit(
+            round_index=1,
+            candidates_so_far=candidates_so_far,
+        )
+        if effective_cap_r2 is not None and effective_cap_r2 <= 0:
+            if verbose:
+                print(f"\n  ❌ 已达总候选上限 (max_candidates_total={active_budget.max_candidates_total})，停止迭代")
+            context.stop_reason = "TOTAL_CANDIDATES_EXCEEDED"
+            return outcome
+
+        outcome.rounds_executed = 2
+        context.round_no = 2
+        if verbose:
+            print(f"\n▶ [Evolve/Round 2-reflection] 触发定向反思重试（仅选 1 个退步最少、证据最完整的候选）")
+
+        # 选'退步最少、证据最完整'的 1 个 DECLINED 候选
+        best_patch, best_result, best_verdict, best_score = _select_reflection_candidate(
+            declined_evaluations, outcome.baseline_score
+        )
+
+        bundle = _load_dataset_layer_ids(self.repo_root)
+        repair_ids, holdout_ids, audit_ids, holdout_q, audit_q = bundle[:5]
+
+        # 构造 AttemptFeedback（按定稿 4.2 完整结构 14 字段）
+        feedback = _build_attempt_feedback(
+            attempt_no=len(context.attempts),
+            original_skill_md=original_skill_md,
+            candidate_patch=best_patch,
+            baseline_result=old_result,
+            candidate_result=best_result,
+            ratchet_verdict=best_verdict,
+            repair_case_ids=repair_ids,
+            holdout_case_ids=holdout_ids,
+            audit_case_ids=audit_ids,
+            repeated_fingerprints=list(context.seen_fingerprints),
+            remaining_budget={
+                "calls_remaining": getattr(self.ledger, "calls_remaining", None),
+                "tokens_remaining": getattr(self.ledger, "tokens_remaining", None),
+            },
+            strategy="execution_behavior" if best_patch.level != "L1" else "routing_metadata",
+        )
+
+        # 实现层断言严禁 holdout/audit 入反思
+        assert_reflection_isolation(
+            feedback,
+            holdout_ids=bundle.holdout_ids,
+            audit_ids=bundle.audit_ids,
+            holdout_queries=bundle.holdout_queries,
+            audit_queries=bundle.audit_queries,
+            holdout_references=bundle.holdout_references,
+            audit_references=bundle.audit_references,
+        )
+
+        try:
+            reflection_patches = _generate_reflection_patch(
+                self.llm,
+                meta,
+                body,
+                feedback,
+                budget=active_budget,
+            )
+        except BudgetExceededError as e:
+            outcome.error = f"反思候选生成预算硬帽超限：{e.reason}"
+            context.stop_reason = f"BUDGET_EXCEEDED: {e.reason}"
+            return outcome
+
+        if not reflection_patches:
+            outcome.error = "LLM 反思未生成有效 patch"
+            context.stop_reason = "REFLECTION_EMPTY_PATCH"
+            return outcome
+
+        outcome.patches_generated += len(reflection_patches)
+        reflection_patch = reflection_patches[0]
+
+        r2_fp = compute_skill_fingerprint(reflection_patch.diff)
+        # 防自嗨防线 7: repeated fingerprint 熔断
+        if r2_fp in context.seen_fingerprints:
+            if verbose:
+                print(f"  ⚡ Round 2 候选指纹与已有版本重复 ({r2_fp[:8]})，触发 repeated fingerprint 熔断")
+            verdict = RatchetVerdict(
+                decision="DECLINED",
+                reasons=[f"REPEATED_FINGERPRINT_STOP: 反思候选指纹与已有版本重复 ({r2_fp[:8]})，熔断停止"],
+            )
+            attempt_record = self._create_attempt_record(
+                context,
+                strategy=feedback.strategy,
+                candidate_digest=r2_fp,
+                computed_level=reflection_patch.computed_level,
+                verdict="DECLINED",
+                reason_codes=verdict.reasons,
+                round_no=2,
+                status="DECLINED",
+                patch=reflection_patch,
+            )
+            context.attempts.append(attempt_record)
+            outcome.attempts.append(attempt_record)
+            path = _archive_failure(
+                self.repo_root, skill_name, reflection_patch, verdict, None,
+                error="REPEATED_FINGERPRINT_STOP",
+                attempt_no=attempt_record.attempt_no,
+                round_no=2,
+                reason_codes=verdict.reasons,
+                shadow_mode=eff_shadow_mode,
+                candidate_digest=r2_fp,
+            )
+            outcome.patches_declined.append(str(path))
+            context.stop_reason = "REPEATED_FINGERPRINT_STOP"
+            return outcome
+
+        context.seen_fingerprints.add(r2_fp)
+
+        # 沙箱验证 Round 2 候选
+        if verbose:
+            print(f"\n▶ [Evolve/Round 2-validate] 沙箱验证反思候选 patch ({reflection_patch.level})")
+        try:
+            new_result, verdict = _validate_patch(
+                self.evaluator, self.registry, skill_name, reflection_patch,
+                old_result, eval_set_for_iter,
+                budget=active_budget,
+            )
+        except BudgetExceededError as e:
+            verdict = RatchetVerdict(decision="DECLINED", reasons=[f"BUDGET_EXCEEDED: {e.reason}"])
+            attempt_record = self._create_attempt_record(
+                context,
+                strategy=feedback.strategy,
+                candidate_digest=r2_fp,
+                computed_level=reflection_patch.computed_level,
+                verdict="DECLINED",
+                reason_codes=verdict.reasons,
+                round_no=2,
+                status="DECLINED",
+                patch=reflection_patch,
+            )
+            context.attempts.append(attempt_record)
+            outcome.attempts.append(attempt_record)
+            path = _archive_failure(
+                self.repo_root, skill_name, reflection_patch, verdict, None, str(e),
+                attempt_no=attempt_record.attempt_no,
+                round_no=2,
+                reason_codes=verdict.reasons,
+                shadow_mode=eff_shadow_mode,
+                candidate_digest=r2_fp,
+            )
+            outcome.patches_declined.append(str(path))
+            context.stop_reason = f"BUDGET_EXCEEDED: {e.reason}"
+            return outcome
+        except Exception as e:
+            verdict = RatchetVerdict(decision="DECLINED", reasons=[f"VALIDATION_EXCEPTION: {e}"])
+            attempt_record = self._create_attempt_record(
+                context,
+                strategy=feedback.strategy,
+                candidate_digest=r2_fp,
+                computed_level=reflection_patch.computed_level,
+                verdict="DECLINED",
+                reason_codes=verdict.reasons,
+                round_no=2,
+                status="DECLINED",
+                patch=reflection_patch,
+            )
+            context.attempts.append(attempt_record)
+            outcome.attempts.append(attempt_record)
+            path = _archive_failure(
+                self.repo_root, skill_name, reflection_patch, None, None, str(e),
+                attempt_no=attempt_record.attempt_no,
+                round_no=2,
+                reason_codes=verdict.reasons,
+                shadow_mode=eff_shadow_mode,
+                candidate_digest=r2_fp,
+            )
+            outcome.patches_declined.append(str(path))
+            context.stop_reason = f"VALIDATION_EXCEPTION: {e}"
+            return outcome
+
+        attempt_record = self._create_attempt_record(
+            context,
+            strategy=feedback.strategy,
+            candidate_digest=r2_fp,
+            computed_level=reflection_patch.computed_level,
+            verdict=verdict.decision,
+            reason_codes=verdict.reasons,
+            round_no=2,
+            patch=reflection_patch,
+        )
+
+        outc = _publish_patch(
+            repo_root=self.repo_root,
+            registry=self.registry,
+            state_machine=self.state_machine,
+            skill_name=skill_name,
+            patch=reflection_patch,
+            verdict=verdict,
+            new_result=new_result,
+            budget=active_budget,
+            root_causes=root_causes,
+            attempt_no=attempt_record.attempt_no,
+            round_no=2,
+            reason_codes=verdict.reasons,
+            shadow_mode=eff_shadow_mode,
+            auto_publish_enabled=eff_auto_publish,
+            candidate_digest=r2_fp,
+            evaluator=self.evaluator,
+        )
+        attempt_record.status = outc["status"]
+        context.attempts.append(attempt_record)
+        outcome.attempts.append(attempt_record)
+
+        try:
+            cand_body = _parse_skill_document(reflection_patch.diff).body
+        except Exception:
+            cand_body = ""
+        record = EvolveRecord(
+            skill_name=skill_name,
+            patch=reflection_patch,
+            baseline_body=body,
+            candidate_body=cand_body,
+            baseline_body_stats=reflection_patch.baseline_body_stats or baseline_stats,
+            candidate_body_stats=reflection_patch.candidate_body_stats,
+            bloat_verdict=reflection_patch.bloat_verdict,
+            bloat_reasons=reflection_patch.bloat_reasons,
+            distillation_prompt=reflection_patch.distillation_prompt,
+            status=outc["status"],
+        )
+        outcome.records.append(record)
+
+        if outc["status"] == "PUBLISHED":
+            outcome.patches_published.append(outc["release_id"])
+        elif outc["status"] in ("REVIEW", "SHADOW"):
+            outcome.patches_review.append(outc["path"])
+        else:
+            outcome.patches_declined.append(outc["path"])
+
+        # 验收标准 (a): 同 case 两轮失败后不再反思（rounds 耗尽→诊断归档不循环）
+        context.stop_reason = "ROUNDS_EXHAUSTED"
+        return outcome
+
+
+# =============== Step 1: 收集失败 ===============
+
+
+def _collect_failures(result: EvalResult) -> list[Failure]:
+    """从 EvalResult.case_verdicts 拉出 skill 版被判 B_better 的 case"""
+    fail_list: list[Failure] = []
+    outputs_by_id = {c["case_id"]: c for c in (result.case_outputs or [])}
+
+    for v in (result.case_verdicts or []):
+        losing = [
+            dim for dim in ("task_completion", "robustness", "readability")
+            if v.get(dim) == "B_better"
+        ]
+        if not losing:
+            continue
+        out = outputs_by_id.get(v["case_id"], {})
+        fail_list.append(Failure(
+            case_id=v["case_id"],
+            query=v.get("query") or out.get("query", ""),
+            reference=out.get("reference", ""),
+            output_skill=out.get("output_skill", ""),
+            output_baseline=out.get("output_baseline", ""),
+            losing_dims=losing,
+        ))
+    return fail_list
+
+
+# =============== Step 2: 根因分析 ===============
+
+
+_ROOT_CAUSE_PROMPT = """你是 SkillForge 的元 Agent。分析 Skill 的失败样本，结合相关 Body 段、路由判定链与工具执行行为轨迹，判定根因概率。
+
+**Skill 定义**:
+- name: {name}
+- description: {desc}
+- use_when: {use_when}
+- not_for: {not_for}
+- trigger.keywords: {kws}
+
+**相关 Body 段 (Prompt 内容与分段统计)**:
+{body_sections_block}
+
+**路由判定链 (ROUTING_METADATA / Route Trace)**:
+{routing_metadata_block}
+
+**执行行为轨迹 (EXECUTION_BEHAVIOR / Tool Trace)**:
+{execution_behavior_block}
+
+**失败样本**（Skill 版被 baseline 打败的 case）:
+{failures_block}
+
+**根因类别说明**:
+1. trigger_inaccurate: 路由误判（触发词缺失/不准，或 use_when/not_for 范围偏窄/误伤，Agent 判定错调用时机）
+2. prompt_vague: prompt 缺陷（Instructions/Overview 模糊或步骤缺失，Agent 不知具体操作规程）
+3. deps_broken: 外部依赖问题（工具缺失/网络超时/服务不可用/熔断开启等执行层故障，非 prompt 文案问题）
+4. boundary_missing: 边界约束缺失（Constraints 未覆盖时间跨度、超范围数据、安全防护或幻觉抑制）
+5. eval_noise: 评测噪声（Judge 打分偶发抖动、参考答案风格争议或评测集局部度量噪声）
+
+只输出严格 JSON（不加代码块标记）：
+{{"trigger_inaccurate": {{"prob": <0-1>, "why": "..."}},
+  "prompt_vague":        {{"prob": <0-1>, "why": "..."}},
+  "deps_broken":         {{"prob": <0-1>, "why": "..."}},
+  "boundary_missing":    {{"prob": <0-1>, "why": "..."}},
+  "eval_noise":          {{"prob": <0-1>, "why": "..."}}}}
+"""
+
+
+def _build_tool_trace_from_eval_result(result: Optional[EvalResult]) -> dict[str, Any]:
+    """从评估结果中提取执行层行为轨迹（tool trace）。"""
+    if result is None:
+        return {
+            "failed_phase": "none",
+            "failure_type": "NONE",
+            "is_dependency_failure": False,
+            "error_message": "",
+            "validation_channels": [],
+            "tool_provenances": [],
+        }
+
+    provenances = getattr(result, "provenances", []) or []
+    has_dep_failure = False
+    failure_type = "NONE"
+    failed_phase = "none"
+    error_msg = ""
+
+    for p in provenances:
+        status = getattr(p, "output_status", "")
+        success = getattr(p, "tool_success", True)
+        auth = getattr(p, "authenticity_pass", True)
+        if status in ("ERROR", "CIRCUIT_OPEN") or not success or not auth:
+            has_dep_failure = True
+            failed_phase = "tool_execution"
+            failure_type = "CIRCUIT_OPEN" if status == "CIRCUIT_OPEN" else "DEPENDENCY_ERROR"
+            error_msg = getattr(p, "output_summary", "") or f"工具 `{getattr(p, 'tool_name', '')}` 执行失败"
+            break
+
+    if not has_dep_failure and not getattr(result, "valid", True):
+        reasons = getattr(result, "invalid_reasons", []) or []
+        failed_phase = "execution"
+        failure_type = "INVALID"
+        error_msg = "; ".join(reasons)
+        for r in reasons:
+            r_lower = r.casefold()
+            if any(k in r_lower for k in ("503", "timeout", "network", "connection", "dependency", "service unavailable")):
+                has_dep_failure = True
+                failure_type = "DEPENDENCY_ERROR"
+                break
+
+    return {
+        "failed_phase": failed_phase,
+        "failure_type": failure_type,
+        "is_dependency_failure": has_dep_failure,
+        "error_message": error_msg,
+        "validation_channels": getattr(result, "validation_channels", []) or [],
+        "tool_provenances": [p.__dict__ if hasattr(p, "__dict__") else p for p in provenances],
+    }
+
+
+def is_dependency_issue(
+    root_causes: list[RootCause],
+    tool_trace: Optional[dict[str, Any] | list[Any] | str] = None,
+) -> tuple[bool, str]:
+    """判定是否属于外部依赖问题。
+
+    【P0-2 严格去自报】dependency 出口只由执行层证据触发（output_status in {ERROR,CIRCUIT_OPEN}、
+    tool_success=False、authenticity_pass=False 等），严禁 LLM 根因自报触发或阻断发布。
+    """
+    # 1. 依据 tool trace dict 执行层失败特征
+    if isinstance(tool_trace, dict):
+        if tool_trace.get("is_dependency_failure"):
+            return True, f"tool trace 标记依赖失败: {tool_trace.get('failure_type', 'DEPENDENCY_ERROR')} - {tool_trace.get('error_message', '')}"
+        if tool_trace.get("failure_type") in (
+            "DEPENDENCY_ERROR", "LLM_ERROR", "NETWORK_ERROR", "TOOL_NOT_FOUND", "CIRCUIT_OPEN"
+        ):
+            return True, f"tool trace 识别执行层依赖异常: {tool_trace.get('failure_type')}"
+        if tool_trace.get("failed_phase") in ("tool_execution", "sandbox") and tool_trace.get("failure_type") not in ("NONE", "INVALID"):
+            return True, f"tool trace 执行阶段异常: {tool_trace.get('failed_phase')} ({tool_trace.get('failure_type')})"
+        for p in tool_trace.get("tool_provenances", []):
+            status = p.get("output_status", "") if isinstance(p, dict) else getattr(p, "output_status", "")
+            success = p.get("tool_success", True) if isinstance(p, dict) else getattr(p, "tool_success", True)
+            auth = p.get("authenticity_pass", True) if isinstance(p, dict) else getattr(p, "authenticity_pass", True)
+            tool_name = p.get("tool_name", "") if isinstance(p, dict) else getattr(p, "tool_name", "")
+            if status in ("ERROR", "CIRCUIT_OPEN") or not success or not auth:
+                return True, f"tool trace 凭证异常: 工具 `{tool_name}` 状态 {status}"
+
+    # 2. 依据 tool trace list 执行层失败特征
+    elif isinstance(tool_trace, list):
+        for p in tool_trace:
+            status = p.get("output_status", "") if isinstance(p, dict) else getattr(p, "output_status", "")
+            success = p.get("tool_success", True) if isinstance(p, dict) else getattr(p, "tool_success", True)
+            auth = p.get("authenticity_pass", True) if isinstance(p, dict) else getattr(p, "authenticity_pass", True)
+            tool_name = p.get("tool_name", "") if isinstance(p, dict) else getattr(p, "tool_name", "")
+            if status in ("ERROR", "CIRCUIT_OPEN") or not success or not auth:
+                return True, f"tool trace 列表凭证异常: 工具 `{tool_name}` 状态 {status}"
+
+    # 彻底删除 LLM 根因自报触发路径（无执行层证据时不得阻断/触发 dependency 出口）
+    return False, ""
+
+
+def _analyze_root_cause(
+    llm,
+    meta,
+    body: str,
+    failures: list[Failure],
+    *,
+    relevant_body_sections: Optional[dict[str, str] | str] = None,
+    route_trace: Optional[dict[str, Any] | str] = None,
+    tool_trace: Optional[dict[str, Any] | list[Any] | str] = None,
+) -> list[RootCause]:
+    fb = "\n".join(
+        f"[{f.case_id}] query='{f.query}'\n"
+        f"  losing_dims={f.losing_dims}\n"
+        f"  skill_out(200): {f.output_skill[:200]}\n"
+        f"  baseline(200): {f.output_baseline[:200]}\n"
+        for f in failures[:5]
+    )
+
+    body_sec_block = format_body_sections(relevant_body_sections, body=body)
+    route_block = format_routing_metadata(route_trace)
+    tool_block = format_execution_behavior(tool_trace)
+
+    prompt = _ROOT_CAUSE_PROMPT.format(
+        name=meta.name,
+        desc=meta.description,
+        use_when=meta.use_when,
+        not_for=meta.not_for,
+        kws=getattr(getattr(meta, "trigger", None), "keywords", []),
+        body_sections_block=body_sec_block,
+        routing_metadata_block=route_block,
+        execution_behavior_block=tool_block,
+        failures_block=fb,
+    )
+    resp = llm.invoke([{"role": "user", "content": prompt}])
+    text = str(getattr(resp, "content", resp) or "")
+    text = _strip_code_fence(text)
+    try:
+        data = json.loads(text)
+    except Exception:
+        return []
+    causes = []
+    valid_labels = (
+        "trigger_inaccurate",
+        "prompt_vague",
+        "deps_broken",
+        "boundary_missing",
+        "eval_noise",
+        "dependency",
+    )
+    for label, item in data.items():
+        if label in valid_labels and isinstance(item, dict):
+            normalized_label = "deps_broken" if label == "dependency" else label
+            causes.append(RootCause(
+                label=normalized_label,  # type: ignore
+                prob=float(item.get("prob", 0)),
+                why=str(item.get("why", "")),
+            ))
+    causes.sort(key=lambda x: -x.prob)
+    return causes
+
+
+
+# =============== Step 3: 生成候选 ===============
+
+
+_PATCH_GEN_PROMPT = """你是 SkillForge 的元 Agent。为 Skill 生成 {n} 个改进候选。
+
+**当前 SKILL.md**:
+```markdown
+{skill_md}
+```
+
+**根因分析 top**:
+{root_causes_block}
+
+**失败样本**（供参考）:
+{failures_block}
+
+**改动分级规则（严格遵守）**:
+- L1: 只允许改 YAML 里的 `examples` / `not_for` / `description` 三选一（不动 use_when / trigger / dependencies）；不改 Body 内容
+- L2: 允许改 `trigger.keywords` 或 Body 的 `## Instructions` 段
+- L3: 允许改 `dependencies` 或 Body 的 `## Constraints` 段
+
+要求：
+- 每个候选都必须是完整的、可直接落盘的 SKILL.md（frontmatter + Body 全）
+- `name` 保持不变，`version` bump patch 段（如 1.0.0 → 1.0.1）
+- 至少 2 个 L1（低风险优先）
+- 每个 patch 附一句 rationale
+
+只输出严格 JSON 数组（不加代码块标记），schema：
+[
+  {{"level": "L1|L2|L3", "rationale": "...", "new_skill_md": "---\\nname: ...\\n---\\n\\n## Overview\\n..."}},
+  ...
+]
+"""
+
+
+def _generate_patches(
+    llm,
+    meta,
+    body: str,
+    failures: list[Failure],
+    root_causes: list[RootCause],
+    max_candidates: int,
+    clamp_limit: Optional[int] = None,
+    on_candidate_overflow: Literal["truncate", "reject"] = "truncate",
+    budget: Optional[EvolveBudget] = None,
+) -> list[Patch]:
+    effective_limit = min(max_candidates, clamp_limit) if clamp_limit is not None else max_candidates
+    # 拼当前 SKILL.md
+    skill_md = _reconstruct_skill_md(meta, body)
+    fb = "\n".join(
+        f"[{f.case_id}] {f.query} (losing: {','.join(f.losing_dims)})"
+        for f in failures[:5]
+    )
+    rc = "\n".join(f"- {c.label}: prob={c.prob:.2f} - {c.why[:100]}" for c in root_causes[:3])
+
+    prompt = _PATCH_GEN_PROMPT.format(
+        n=effective_limit, skill_md=skill_md,
+        root_causes_block=rc, failures_block=fb,
+    )
+    resp = llm.invoke([{"role": "user", "content": prompt}])
+    text = _strip_code_fence(str(getattr(resp, "content", resp) or ""))
+    try:
+        data = json.loads(text)
+    except Exception:
+        return []
+    if not isinstance(data, list):
+        return []
+
+    if len(data) > effective_limit:
+        if on_candidate_overflow == "reject":
+            raise BudgetExceededError(
+                f"CANDIDATE_LIMIT_EXCEEDED: LLM returned {len(data)} candidates > clamp {effective_limit}",
+                cap_type="candidate",
+                limit=effective_limit,
+                current=len(data),
+            )
+        data = data[:effective_limit]
+
+    patches = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        raw_level = item.get("level", "")
+        if not isinstance(raw_level, str):
+            continue
+        level = raw_level.upper()
+        if level not in ("L1", "L2", "L3"):
+            continue
+        raw_new_md = item.get("new_skill_md", "")
+        if not isinstance(raw_new_md, str):
+            continue
+        new_md = raw_new_md.strip()
+        if not new_md or not new_md.startswith("---"):
+            continue
+        semantic_diff = compute_semantic_diff(skill_md, new_md, level)
+        if not semantic_diff.is_valid:
+            continue
+
+        cand_parsed = _parse_skill_document(new_md)
+        bloat_result = check_prompt_bloat(
+            body,
+            cand_parsed.body,
+            budget=budget,
+            changed_sections=semantic_diff.changed_body_sections,
+        )
+        patches.append(Patch(
+            skill_name=meta.name,
+            level=level,  # type: ignore
+            diff=new_md,  # 存完整新 SKILL.md 作为 patch payload
+            rationale=str(item.get("rationale", ""))[:200],
+            computed_level=semantic_diff.computed_level,
+            unified_diff=semantic_diff.unified_diff,
+            downgrade_attempt=semantic_diff.downgrade_attempt,
+            changed_frontmatter=semantic_diff.changed_frontmatter,
+            changed_body_sections=semantic_diff.changed_body_sections,
+            baseline_body_stats=bloat_result.baseline_stats,
+            candidate_body_stats=bloat_result.candidate_stats,
+            bloat_verdict=bloat_result.decision,
+            bloat_reasons=bloat_result.reasons,
+            distillation_prompt=bloat_result.distillation_prompt,
+        ))
+
+    if len(patches) > effective_limit:
+        if on_candidate_overflow == "reject":
+            raise BudgetExceededError(
+                f"CANDIDATE_LIMIT_EXCEEDED: parsed {len(patches)} valid patches > clamp {effective_limit}",
+                cap_type="candidate",
+                limit=effective_limit,
+                current=len(patches),
+            )
+        patches = patches[:effective_limit]
+
+    return patches
+
+
+# =============== Step 3.5: P1-H 反思回环与防自嗨防线 ===============
+
+
+_REFLECTION_PATCH_GEN_PROMPT = """你是 SkillForge 的元 Agent。上一轮改进候选未通过沙箱验证（被 DECLINED）。
+请根据第一轮的失败反思反馈，进行定向纠偏，生成 1 个高质量修复候选 patch。
+
+**当前基线 SKILL.md**:
+```markdown
+{skill_md}
+```
+
+**第一轮候选差异 (Candidate Diff)**:
+```diff
+{candidate_diff}
+```
+
+**上一轮评估结论与未通过原因**:
+- 声明等级: {declared_level} / 计算等级: {computed_level}
+- 棘轮拒绝原因: {ratchet_reasons}
+- P0 门状态: {p0_status}
+- 真实性检查状态: {authenticity_status}
+- Prompt 预算状态: {prompt_budget_status}
+
+**上一轮退步/失败的用例明细 (Failed Cases in Repair Set)**:
+{failed_cases_block}
+
+**定向修复要求（严格遵守）**:
+1. 针对退步 case 的具体表现与原因码，进行精准修补，不得盲目扩写。
+2. 保持低风险优先：若是 L1（frontmatter），仅微调 description/examples/not_for；若是 L2（Instructions），针对性补充指导，严禁废话膨胀。
+3. 严禁背诵或写死用例的 query 或 mock 结果到 SKILL.md 中（防泄漏与防 Mock 固化）。
+4. 必须产出完整新 SKILL.md（frontmatter + Body 全），且内容不得与上一轮候选完全相同（避免重复指纹）。
+
+只输出严格 JSON 数组，恰好包含 1 个候选（不加代码块标记）：
+[
+  {{"level": "L1|L2|L3", "rationale": "反思说明与修复意图", "new_skill_md": "---\\nname: ...\\n---\\n\\n## Overview\\n..."}}
+]
+"""
+
+
+def compute_skill_fingerprint(skill_content: str) -> str:
+    """计算规范化 SKILL.md 的 SHA-256 指纹（防自嗨防线 7 重复候选熔断）。"""
+    if not skill_content or not isinstance(skill_content, str):
+        return ""
+    try:
+        parsed = _parse_skill_document(skill_content)
+        raw_fm = getattr(parsed, "raw_meta", None) or getattr(parsed, "frontmatter", {})
+        fm_keys = sorted(k for k in raw_fm.keys() if k != "version")
+        norm_fm = {k: raw_fm[k] for k in fm_keys}
+        fm_json = json.dumps(norm_fm, sort_keys=True, ensure_ascii=False)
+        body_lines = [line.rstrip() for line in parsed.body.replace("\r\n", "\n").splitlines()]
+        norm_body = "\n".join(body_lines).strip()
+        norm_body = re.sub(r"\n{3,}", "\n\n", norm_body)
+        canonical = f"{fm_json}\n---\n{norm_body}"
+    except Exception:
+        canonical = re.sub(r"\s+", " ", skill_content.strip())
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+class DatasetLayerBundle(tuple):
+    """Bundle of dataset layer IDs, queries, references, and fixture constants.
+
+    Inherits from tuple and yields 5 elements upon standard unpacking for backward compatibility,
+    while exposing references and fixture constants as attributes.
+    """
+    def __new__(
+        cls,
+        repair_ids: set[str],
+        holdout_ids: set[str],
+        audit_ids: set[str],
+        holdout_queries: set[str],
+        audit_queries: set[str],
+        holdout_references: Optional[set[str]] = None,
+        audit_references: Optional[set[str]] = None,
+        fixture_constants: Optional[list[str]] = None,
+    ):
+        instance = super().__new__(
+            cls,
+            (repair_ids, holdout_ids, audit_ids, holdout_queries, audit_queries)
+        )
+        instance.repair_ids = repair_ids
+        instance.holdout_ids = holdout_ids
+        instance.audit_ids = audit_ids
+        instance.holdout_queries = holdout_queries
+        instance.audit_queries = audit_queries
+        instance.holdout_references = holdout_references or set()
+        instance.audit_references = audit_references or set()
+        instance.fixture_constants = fixture_constants or []
+        return instance
+
+
+def _load_dataset_layer_ids(
+    repo_root: Optional[Path] = None,
+) -> DatasetLayerBundle:
+    """加载 repair_set、experiment_holdout 与 final_audit 的 case ID、query、reference 及 fixture 常量。
+
+    解析失败时显式 fail-closed 抛出异常（P2-1），杜绝静默吞错变空集。
+    """
+    repair_ids: set[str] = set()
+    holdout_ids: set[str] = set()
+    audit_ids: set[str] = set()
+    holdout_queries: set[str] = set()
+    audit_queries: set[str] = set()
+    holdout_references: set[str] = set()
+    audit_references: set[str] = set()
+    fixture_constants: list[str] = [
+        "create_nonce_weather_fixture",
+        "AmapWeatherFixture",
+        "MockWeatherFixture",
+        "nonce_",
+    ]
+
+    if repo_root is None:
+        return DatasetLayerBundle(
+            repair_ids, holdout_ids, audit_ids, holdout_queries, audit_queries,
+            holdout_references, audit_references, fixture_constants,
+        )
+
+    eval_dir = repo_root / "evaluation_sets"
+    if not eval_dir.exists():
+        return DatasetLayerBundle(
+            repair_ids, holdout_ids, audit_ids, holdout_queries, audit_queries,
+            holdout_references, audit_references, fixture_constants,
+        )
+
+    repair_file = eval_dir / "repair_set.json"
+    if repair_file.exists():
+        try:
+            data = json.loads(repair_file.read_text(encoding="utf-8"))
+            for c in data.get("cases", []):
+                if "id" in c:
+                    repair_ids.add(c["id"])
+        except Exception as e:
+            raise ValueError(f"DATASET_PARSE_ERROR: 无法解析 {repair_file.name}: {e}") from e
+
+    holdout_file = eval_dir / "experiment_holdout.json"
+    if holdout_file.exists():
+        try:
+            data = json.loads(holdout_file.read_text(encoding="utf-8"))
+            for c in data.get("cases", []):
+                if "id" in c:
+                    holdout_ids.add(c["id"])
+                if "query" in c and c["query"]:
+                    holdout_queries.add(c["query"].strip())
+                if "reference" in c and c["reference"]:
+                    holdout_references.add(c["reference"].strip())
+        except Exception as e:
+            raise ValueError(f"DATASET_PARSE_ERROR: 无法解析 {holdout_file.name}: {e}") from e
+
+    audit_file = eval_dir / "final_audit.json"
+    if audit_file.exists():
+        try:
+            data = json.loads(audit_file.read_text(encoding="utf-8"))
+            for c in data.get("cases", []):
+                if "id" in c:
+                    audit_ids.add(c["id"])
+                if "query" in c and c["query"]:
+                    audit_queries.add(c["query"].strip())
+                if "reference" in c and c["reference"]:
+                    audit_references.add(c["reference"].strip())
+        except Exception as e:
+            raise ValueError(f"DATASET_PARSE_ERROR: 无法解析 {audit_file.name}: {e}") from e
+
+    return DatasetLayerBundle(
+        repair_ids, holdout_ids, audit_ids, holdout_queries, audit_queries,
+        holdout_references, audit_references, fixture_constants,
+    )
+
+
+def scan_patch_leakage(
+    patch_text: str,
+    repo_root: Optional[Path] = None,
+    forbidden_case_ids: Optional[set[str]] = None,
+    forbidden_queries: Optional[list[str]] = None,
+    forbidden_references: Optional[list[str]] = None,
+    forbidden_constants: Optional[list[str]] = None,
+    baseline_text: Optional[str] = None,
+) -> tuple[bool, list[str]]:
+    """扫描候选 patch，防范 case ID/整句 query/reference/fixture 常量泄露进 SKILL.md（防自嗨防线 6）。
+
+    如果传入 baseline_text，则只对新引入的内容告警，不将基线已有内容误判为泄露。
+    """
+    violations: list[str] = []
+    f_ids = set(forbidden_case_ids or set())
+    f_queries = list(forbidden_queries or [])
+    f_refs = list(forbidden_references or [])
+    f_consts = list(forbidden_constants or [])
+
+    if repo_root is not None:
+        bundle = _load_dataset_layer_ids(repo_root)
+        f_ids.update(bundle.holdout_ids)
+        f_ids.update(bundle.audit_ids)
+        f_queries.extend(list(bundle.holdout_queries))
+        f_queries.extend(list(bundle.audit_queries))
+        f_refs.extend(list(bundle.holdout_references))
+        f_refs.extend(list(bundle.audit_references))
+        f_consts.extend(list(bundle.fixture_constants))
+
+    # 1. 检测 case ID 泄露
+    for cid in sorted(f_ids):
+        if not cid:
+            continue
+        if re.search(r"\b" + re.escape(cid) + r"\b", patch_text):
+            if not (baseline_text and re.search(r"\b" + re.escape(cid) + r"\b", baseline_text)):
+                violations.append(f"LEAKAGE_DETECTED: case ID '{cid}' 泄露进候选 patch")
+
+    # 2. 检测整句 query 泄露（排除极短串防误报，阈值 ≥ 6 字符）
+    for q in f_queries:
+        q_str = str(q).strip()
+        if len(q_str) >= 6 and q_str in patch_text:
+            if not (baseline_text and q_str in baseline_text):
+                violations.append(f"LEAKAGE_DETECTED: 评测 query '{q_str[:30]}' 泄露进候选 patch")
+
+    # 3. 检测 reference 答案泄露（阈值 ≥ 8 字符，包含全句与分句切片）
+    for ref in f_refs:
+        raw_ref = str(ref).strip()
+        candidates = [raw_ref] + [
+            seg.strip() for seg in re.split(r"[+；;\n]", raw_ref) if len(seg.strip()) >= 8
+        ]
+        for ref_cand in candidates:
+            ref_str = str(ref_cand).strip()
+            if len(ref_str) >= 8 and ref_str in patch_text:
+                if not (baseline_text and ref_str in baseline_text):
+                    violations.append(f"LEAKAGE_DETECTED: 评测 reference '{ref_str[:30]}' 泄露进候选 patch")
+                    break
+
+    # 4. 检测 fixture 常量泄露
+    for c in f_consts:
+        c_str = str(c).strip()
+        if len(c_str) >= 4 and c_str in patch_text:
+            if not (baseline_text and c_str in baseline_text):
+                violations.append(f"LEAKAGE_DETECTED: fixture 常量 '{c_str}' 泄露进候选 patch")
+
+    return bool(violations), violations
+
+
+def generate_neighbor_variants(query: str, skill_name: str = "") -> list[str]:
+    """生成失败 query 的邻近变体集（城市/日期/措辞/边界，防自嗨防线 5）。"""
+    variants: list[str] = []
+    # 1. 城市变体
+    city_pool = ["北京市", "上海市", "广州市", "深圳市", "成都市", "杭州市", "武汉市"]
+    for c in city_pool:
+        if c in query or c[:2] in query:
+            base_city = c if c in query else c[:2]
+            for alt in city_pool:
+                if alt != base_city and alt[:2] != base_city[:2]:
+                    variants.append(query.replace(base_city, alt))
+                    if len(variants) >= 2:
+                        break
+            break
+
+    # 2. 日期变体
+    date_map = {"今天": ["明天", "后天", "本周六"], "明天": ["今天", "后天", "本周末"]}
+    for d, alts in date_map.items():
+        if d in query:
+            for alt in alts:
+                variants.append(query.replace(d, alt))
+            break
+
+    # 3. 措辞变体
+    if "查询" in query:
+        variants.append(query.replace("查询", "请问"))
+        variants.append(query.replace("查询", "帮我看一下"))
+    elif "讲讲" in query:
+        variants.append(query.replace("讲讲", "详细解释一下"))
+        variants.append(query.replace("讲讲", "什么是"))
+    elif "写一份" in query:
+        variants.append(query.replace("写一份", "生成一份"))
+        variants.append(query.replace("写一份", "帮我整理一份"))
+    else:
+        variants.append(f"请详细解答：{query}")
+        variants.append(f"请结合实际场景说明：{query}")
+
+    # 4. 边界变体
+    variants.append(f"{query.strip()}（包含边界与异常输入）")
+    if "正则" in query or skill_name == "explain_regex":
+        variants.append(f"{query}（空字符串或特殊字符如 ^$*+?{{}} 怎么处理）")
+
+    seen = set()
+    unique_variants = []
+    for v in variants:
+        if v not in seen and v != query:
+            seen.add(v)
+            unique_variants.append(v)
+    return unique_variants[:6]
+
+
+def assert_reflection_isolation(
+    feedback: AttemptFeedback,
+    holdout_ids: set[str],
+    audit_ids: set[str],
+    holdout_queries: Optional[set[str]] = None,
+    audit_queries: Optional[set[str]] = None,
+    holdout_references: Optional[set[str]] = None,
+    audit_references: Optional[set[str]] = None,
+) -> None:
+    """断言严禁 experiment holdout / final audit 数据混入反思输入 AttemptFeedback。"""
+    forbidden_ids = set(holdout_ids) | set(audit_ids)
+    forbidden_q = set(holdout_queries or set()) | set(audit_queries or set())
+    forbidden_refs = set(holdout_references or set()) | set(audit_references or set())
+
+    # 1. 检查 failed_cases
+    for fc in feedback.failed_cases:
+        cid = fc.get("case_id")
+        if cid in forbidden_ids:
+            raise AssertionError(
+                f"ISOLATION_BREACH: holdout/audit 用例 ID '{cid}' 泄露进 AttemptFeedback.failed_cases"
+            )
+        q = fc.get("query", "")
+        if q and q in forbidden_q:
+            raise AssertionError(
+                f"ISOLATION_BREACH: holdout/audit 用例 query '{q}' 泄露进 AttemptFeedback.failed_cases"
+            )
+        ref = fc.get("reference", "")
+        if ref and (ref in forbidden_refs or any(len(r) >= 8 and r in ref for r in forbidden_refs)):
+            raise AssertionError(
+                f"ISOLATION_BREACH: holdout/audit 用例 reference '{ref}' 泄露进 AttemptFeedback.failed_cases"
+            )
+        for out_key in ("old_output", "candidate_output", "baseline_output"):
+            out_val = str(fc.get(out_key, "") or "")
+            if out_val:
+                for fq in forbidden_q:
+                    if len(fq) >= 6 and fq in out_val:
+                        raise AssertionError(
+                            f"ISOLATION_BREACH: holdout/audit query '{fq}' 泄露进 AttemptFeedback.{out_key}"
+                        )
+                for fr in forbidden_refs:
+                    if len(fr) >= 8 and fr in out_val:
+                        raise AssertionError(
+                            f"ISOLATION_BREACH: holdout/audit reference '{fr}' 泄露进 AttemptFeedback.{out_key}"
+                        )
+
+    # 2. 检查 candidate_diff
+    diff = getattr(feedback, "candidate_diff", "") or ""
+    if diff:
+        for cid in forbidden_ids:
+            if cid and re.search(r"\b" + re.escape(cid) + r"\b", diff):
+                raise AssertionError(
+                    f"ISOLATION_BREACH: holdout/audit 用例 ID '{cid}' 泄露进 AttemptFeedback.candidate_diff"
+                )
+        for fq in forbidden_q:
+            if len(fq) >= 6 and fq in diff:
+                raise AssertionError(
+                    f"ISOLATION_BREACH: holdout/audit query '{fq}' 泄露进 AttemptFeedback.candidate_diff"
+                )
+        for fr in forbidden_refs:
+            if len(fr) >= 8 and fr in diff:
+                raise AssertionError(
+                    f"ISOLATION_BREACH: holdout/audit reference '{fr}' 泄露进 AttemptFeedback.candidate_diff"
+                )
+
+    # 3. 检查 ratchet_reasons
+    for r in getattr(feedback, "ratchet_reasons", []) or []:
+        for cid in forbidden_ids:
+            if cid and cid in r:
+                raise AssertionError(
+                    f"ISOLATION_BREACH: holdout/audit 用例 ID '{cid}' 泄露进 AttemptFeedback.ratchet_reasons"
+                )
+
+
+def _select_reflection_candidate(
+    declined_candidates: list[tuple[Patch, EvalResult, RatchetVerdict, float]],
+    baseline_score: float,
+) -> tuple[Patch, EvalResult, RatchetVerdict, float]:
+    """从整批 DECLINED 候选里，选'退步最少、证据最完整'的 1 个候选进行定向反思。"""
+    if not declined_candidates:
+        raise ValueError("declined_candidates 列表为空，无法选择反思候选")
+
+    def _rank_key(item):
+        patch, result, verdict, score = item
+        score_delta = score - baseline_score
+        v_count = len(getattr(result, "case_verdicts", []) or [])
+        r_count = len(getattr(verdict, "reasons", []) or [])
+        p_count = len(getattr(patch, "provenances", []) or [])
+        evidence_metric = v_count * 3 + r_count * 2 + p_count
+        return (score_delta, evidence_metric)
+
+    return max(declined_candidates, key=_rank_key)
+
+
+def _build_attempt_feedback(
+    attempt_no: int,
+    original_skill_md: str,
+    candidate_patch: Patch,
+    baseline_result: Optional[EvalResult],
+    candidate_result: Optional[EvalResult],
+    ratchet_verdict: Optional[RatchetVerdict],
+    repair_case_ids: set[str],
+    holdout_case_ids: Optional[set[str]] = None,
+    audit_case_ids: Optional[set[str]] = None,
+    repeated_fingerprints: Optional[list[str]] = None,
+    remaining_budget: Optional[Any] = None,
+    strategy: str = "execution_behavior",
+) -> AttemptFeedback:
+    """构造强类型 AttemptFeedback，按定稿 4.2 包含 14 字段，严格隔离并甄别真失败/退步/触发门槛 case。"""
+    orig_digest = compute_skill_fingerprint(original_skill_md)
+    cand_digest = compute_skill_fingerprint(candidate_patch.diff)
+    forbidden_ids = set(holdout_case_ids or set()) | set(audit_case_ids or set())
+
+    cand_verdicts = getattr(candidate_result, "case_verdicts", []) or []
+    cand_outputs = {c.get("case_id"): c for c in (getattr(candidate_result, "case_outputs", []) or []) if "case_id" in c}
+
+    base_verdicts = {v.get("case_id"): v for v in (getattr(baseline_result, "case_verdicts", []) or []) if "case_id" in v}
+    base_outputs = {c.get("case_id"): c for c in (getattr(baseline_result, "case_outputs", []) or []) if "case_id" in c}
+
+    failed_cases: list[dict[str, Any]] = []
+    for cv in cand_verdicts:
+        cid = cv.get("case_id")
+        if not cid:
+            continue
+
+        # 1. 严格隔离：严禁 holdout/audit 入反思；failed_cases 只可能来自 repair 可见集
+        if cid in forbidden_ids:
+            continue
+        if not repair_case_ids or cid not in repair_case_ids:
+            continue
+
+        # 2. 4.2 原则：Judge INVALID / 工具超时 / fixture 异常不进反思
+        case_verdict = cv.get("verdict", "")
+        reason_codes = list(cv.get("reason_codes", []))
+        is_dim_invalid = any(
+            cv.get(dim) == "INVALID"
+            for dim in ("task_completion", "robustness", "readability")
+        )
+        ja = cv.get("judge_audit", {})
+        has_infra_error = False
+        if isinstance(ja, dict):
+            for dim, audit in ja.items():
+                if isinstance(audit, dict):
+                    if audit.get("canonical_verdict") == "INVALID" or audit.get("raw_verdict") == "INVALID":
+                        has_infra_error = True
+                    for c in audit.get("reason_codes", []):
+                        reason_codes.append(str(c))
+                        c_up = str(c).upper()
+                        if any(bad in c_up for bad in ("INVALID", "TIMEOUT", "FIXTURE_ERROR", "INFRASTRUCTURE_ERROR", "503", "DEPENDENCY_ERROR", "NETWORK_ERROR")):
+                            has_infra_error = True
+
+        if (
+            case_verdict == "INVALID"
+            or is_dim_invalid
+            or has_infra_error
+            or any(
+                code in (r.upper() for r in reason_codes)
+                for code in ("INVALID", "TIMEOUT", "FIXTURE_ERROR", "INFRASTRUCTURE_ERROR", "503", "DEPENDENCY_ERROR", "NETWORK_ERROR")
+            )
+        ):
+            continue
+
+        # 3. 甄别真失败/退步/触发门槛
+        bv = base_verdicts.get(cid, {})
+        cout = cand_outputs.get(cid, {})
+        bout = base_outputs.get(cid, {})
+
+        is_losing = any(
+            cv.get(dim) == "B_better"
+            for dim in ("task_completion", "robustness", "readability")
+        )
+        score_deltas = {}
+        for dim in ("task_completion", "robustness", "readability", "score"):
+            if dim in cv and dim in bv and isinstance(cv[dim], (int, float)) and isinstance(bv[dim], (int, float)):
+                score_deltas[dim] = cv[dim] - bv[dim]
+
+        has_score_drop = any(delta < 0 for delta in score_deltas.values())
+        authenticity_failed = not cv.get("authenticity_pass", True)
+        in_ratchet_reasons = any(cid in r for r in (ratchet_verdict.reasons if ratchet_verdict else []))
+
+        if not (is_losing or has_score_drop or authenticity_failed or in_ratchet_reasons):
+            continue
+
+        query = cv.get("query") or cout.get("query") or bout.get("query", "")
+        reference = cout.get("reference") or bout.get("reference", "")
+        old_out = bout.get("output_skill") or bout.get("output", "")
+        cand_out = cout.get("output_skill") or cout.get("output", "")
+        base_out = cout.get("output_baseline") or bout.get("output_baseline", "")
+
+        old_v = {k: v for k, v in bv.items() if k in ("task_completion", "robustness", "readability", "score")}
+        new_v = {k: v for k, v in cv.items() if k in ("task_completion", "robustness", "readability", "score")}
+
+        failed_cases.append({
+            "case_id": cid,
+            "query": query,
+            "reference": reference,
+            "old_output": old_out,
+            "candidate_output": cand_out,
+            "baseline_output": base_out,
+            "old_verdicts": old_v,
+            "new_verdicts": new_v,
+            "score_deltas": score_deltas,
+            "reason_codes": reason_codes,
+        })
+
+    p0_stat = getattr(candidate_result, "p0_pass", True) if candidate_result else True
+    auth_stat = all(
+        getattr(p, "authenticity_pass", True)
+        for p in getattr(candidate_patch, "provenances", []) or []
+    ) if getattr(candidate_patch, "provenances", None) else True
+    prompt_stat = getattr(candidate_patch, "bloat_verdict", "PASS") or "PASS"
+
+    return AttemptFeedback(
+        attempt_no=attempt_no,
+        original_skill_digest=orig_digest,
+        candidate_digest=cand_digest,
+        declared_level=candidate_patch.level,
+        computed_level=candidate_patch.computed_level,
+        strategy=strategy,
+        candidate_diff=candidate_patch.unified_diff or candidate_patch.diff,
+        failed_cases=failed_cases,
+        ratchet_reasons=list(ratchet_verdict.reasons if ratchet_verdict else []),
+        p0_status=p0_stat,
+        authenticity_status=auth_stat,
+        prompt_budget_status=prompt_stat,
+        repeated_patch_fingerprints=list(repeated_fingerprints or []),
+        remaining_budget=remaining_budget or {},
+    )
+
+
+def _generate_reflection_patch(
+    llm,
+    meta,
+    body: str,
+    feedback: AttemptFeedback,
+    budget: Optional[EvolveBudget] = None,
+) -> list[Patch]:
+    """根据 AttemptFeedback 生成 1 个定向反思纠偏候选 patch（Round 2）。"""
+    skill_md = _reconstruct_skill_md(meta, body)
+    fc_items = []
+    for fc in feedback.failed_cases[:5]:
+        fc_items.append(
+            f"[{fc['case_id']}] query: '{fc['query']}'\n"
+            f"  reference: {fc['reference']}\n"
+            f"  old_output: {fc['old_output'][:150]}\n"
+            f"  candidate_output: {fc['candidate_output'][:150]}\n"
+            f"  old_verdicts: {fc['old_verdicts']} -> new_verdicts: {fc['new_verdicts']}\n"
+            f"  score_deltas: {fc['score_deltas']}\n"
+            f"  reason_codes: {fc['reason_codes']}"
+        )
+    fc_block = "\n".join(fc_items) if fc_items else "（无具体 case 退步，主要是综合指标未达标）"
+
+    prompt = _REFLECTION_PATCH_GEN_PROMPT.format(
+        skill_md=skill_md,
+        candidate_diff=feedback.candidate_diff[:1500],
+        declared_level=feedback.declared_level,
+        computed_level=feedback.computed_level,
+        ratchet_reasons="; ".join(feedback.ratchet_reasons),
+        p0_status=feedback.p0_status,
+        authenticity_status=feedback.authenticity_status,
+        prompt_budget_status=feedback.prompt_budget_status,
+        failed_cases_block=fc_block,
+    )
+    resp = llm.invoke([{"role": "user", "content": prompt}])
+    text = _strip_code_fence(str(getattr(resp, "content", resp) or ""))
+    try:
+        data = json.loads(text)
+    except Exception:
+        return []
+    if not isinstance(data, list):
+        if isinstance(data, dict):
+            data = [data]
+        else:
+            return []
+
+    data = data[:1]
+    patches = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        raw_level = item.get("level", "")
+        if not isinstance(raw_level, str):
+            continue
+        level = raw_level.upper()
+        if level not in ("L1", "L2", "L3"):
+            continue
+        raw_new_md = item.get("new_skill_md", "")
+        if not isinstance(raw_new_md, str):
+            continue
+        new_md = raw_new_md.strip()
+        if not new_md or not new_md.startswith("---"):
+            continue
+
+        semantic_diff = compute_semantic_diff(skill_md, new_md, level)
+        if not semantic_diff.is_valid:
+            continue
+
+        cand_parsed = _parse_skill_document(new_md)
+        bloat_result = check_prompt_bloat(
+            body,
+            cand_parsed.body,
+            budget=budget,
+            changed_sections=semantic_diff.changed_body_sections,
+        )
+        patches.append(Patch(
+            skill_name=meta.name,
+            level=level,  # type: ignore
+            diff=new_md,
+            rationale=str(item.get("rationale", ""))[:200],
+            computed_level=semantic_diff.computed_level,
+            unified_diff=semantic_diff.unified_diff,
+            downgrade_attempt=semantic_diff.downgrade_attempt,
+            changed_frontmatter=semantic_diff.changed_frontmatter,
+            changed_body_sections=semantic_diff.changed_body_sections,
+            baseline_body_stats=bloat_result.baseline_stats,
+            candidate_body_stats=bloat_result.candidate_stats,
+            bloat_verdict=bloat_result.decision,
+            bloat_reasons=bloat_result.reasons,
+            distillation_prompt=bloat_result.distillation_prompt,
+        ))
+    return patches[:1]
+
+
+# =============== Step 4: 沙箱验证 ===============
+
+
+def _validate_patch(
+    evaluator, registry, skill_name: str, patch: Patch,
+    old_result: EvalResult, eval_set: str,
+    budget: Optional[EvolveBudget] = None,
+) -> tuple[EvalResult, RatchetVerdict]:
+    """Validate a candidate through channels selected by its change surface."""
+    from .registry import SkillRegistry
+    from .evaluator.ratchet import check_ratchet
+
+    repo_root = registry.repo_root
+
+    baseline_full_text = ""
+    if hasattr(registry, "skills_dir"):
+        skill_file = registry.skills_dir / skill_name / "SKILL.md"
+        if skill_file.exists():
+            try:
+                baseline_full_text = skill_file.read_text(encoding="utf-8")
+            except Exception:
+                pass
+    if not baseline_full_text:
+        baseline_full_text = getattr(registry, "_bodies", {}).get(skill_name, "")
+
+    # 防自嗨防线 6: 泄漏扫描 (case ID/整句 query/reference/fixture 常量进 patch → 阻断或 REVIEW)
+    has_leakage, leak_reasons = scan_patch_leakage(
+        patch.diff, repo_root=repo_root, baseline_text=baseline_full_text
+    )
+    if has_leakage:
+        result = replace(
+            old_result,
+            release_id="candidate",
+            validation_channels=[],
+            provenances=[],
+        )
+        return result, RatchetVerdict(decision="DECLINED", reasons=leak_reasons)
+    metadata_changed = bool(
+        set(patch.changed_frontmatter) - {"dependencies"}
+    )
+    body_changed = bool(patch.changed_body_sections)
+    dependencies_changed = "dependencies" in patch.changed_frontmatter
+    channels: list[str] = []
+    provenances = []
+
+    # 提取基线与候选 Body 并计算分段统计与 Prompt Bloat 护栏
+    old_body = getattr(registry, "_bodies", {}).get(skill_name, "")
+    if not old_body and hasattr(registry, "skills_dir"):
+        skill_file = registry.skills_dir / skill_name / "SKILL.md"
+        if skill_file.exists():
+            try:
+                old_body = _parse_skill_document(skill_file.read_text(encoding="utf-8")).body
+            except Exception:
+                pass
+
+    try:
+        cand_body = _parse_skill_document(patch.diff).body
+    except Exception:
+        cand_body = ""
+
+    bloat_res = check_prompt_bloat(
+        old_body,
+        cand_body,
+        budget=budget,
+        changed_sections=patch.changed_body_sections,
+    )
+    patch.baseline_body_stats = bloat_res.baseline_stats
+    patch.candidate_body_stats = bloat_res.candidate_stats
+    patch.bloat_verdict = bloat_res.decision
+    patch.bloat_reasons = bloat_res.reasons
+    patch.distillation_prompt = bloat_res.distillation_prompt
+
+    if bloat_res.decision == "DECLINED":
+        result = replace(
+            old_result,
+            release_id="candidate",
+            validation_channels=channels,
+            provenances=list(provenances),
+        )
+        return result, RatchetVerdict(decision="DECLINED", reasons=bloat_res.reasons)
+
+    with tempfile.TemporaryDirectory(prefix="skillforge-validator-") as temp_dir:
+        sandbox_root = Path(temp_dir)
+        sandbox_skills = sandbox_root / "skills"
+        shutil.copytree(registry.skills_dir, sandbox_skills)
+        (sandbox_skills / skill_name / "SKILL.md").write_text(
+            patch.diff, encoding="utf-8"
+        )
+
+        temp_reg = SkillRegistry(
+            db_path=sandbox_root / "sandbox.db",
+            skills_dir=sandbox_skills,
+            # Evaluation sets remain read-only assets from the real repository.
+            repo_root=repo_root,
+            router_log=sandbox_root / "router.jsonl",
+        )
+        temp_reg.load_skills_from_dir()
+        try:
+            failed_queries = [
+                cv.get("query", "")
+                for cv in getattr(old_result, "case_verdicts", [])
+                if not cv.get("passed", True) and cv.get("query")
+            ]
+            if failed_queries:
+                channels.append("neighbor_variants")
+                route_obj = getattr(evaluator, "router", None)
+                neighbor_ok, neighbor_reasons = validate_neighbor_variants(
+                    temp_reg, skill_name, failed_queries, router=route_obj
+                )
+                if not neighbor_ok:
+                    result = replace(
+                        old_result,
+                        release_id="candidate",
+                        validation_channels=channels,
+                        provenances=list(provenances),
+                    )
+                    return result, RatchetVerdict(decision="REVIEW", reasons=neighbor_reasons)
+
+            if metadata_changed:
+                channels.append("router")
+                router_verdict = validate_router_patch(
+                    registry,
+                    temp_reg,
+                    skill_name,
+                    changed_frontmatter=patch.changed_frontmatter,
+                    computed_level=patch.computed_level,
+                )
+                if router_verdict.decision != "PASS":
+                    result = replace(
+                        old_result,
+                        release_id="candidate",
+                        validation_channels=channels,
+                    )
+                    return result, router_verdict
+
+            if dependencies_changed:
+                channels.append("dependency_fixture")
+                dependency_verdict, provenances = validate_dependency_patch(
+                    registry, temp_reg, skill_name, llm=evaluator.llm
+                )
+                patch.provenances = list(provenances)
+                if dependency_verdict.decision != "PASS":
+                    result = replace(
+                        old_result,
+                        release_id="candidate",
+                        validation_channels=channels,
+                        provenances=list(provenances),
+                    )
+                    return result, dependency_verdict
+
+            if body_changed:
+                channels.append("behavior")
+                from .evaluator import SkillEvaluator
+
+                judge_llm = getattr(getattr(evaluator, "judge", None), "llm", None)
+                cache_obj = getattr(evaluator, "output_cache", None)
+                route_obj = getattr(evaluator, "router", None)
+                try:
+                    temp_eval = SkillEvaluator(
+                        registry=temp_reg,
+                        llm=getattr(evaluator, "llm", None),
+                        judge_llm=judge_llm,
+                        output_cache=cache_obj,
+                        router=route_obj,
+                    )
+                except TypeError:
+                    temp_eval = SkillEvaluator(
+                        registry=temp_reg,
+                        llm=getattr(evaluator, "llm", None),
+                        judge_llm=judge_llm,
+                    )
+                    if hasattr(temp_eval, "output_cache"):
+                        temp_eval.output_cache = cache_obj
+                cases = temp_eval._load_cases(eval_set, skill_name)
+                new_result = temp_eval.evaluate_skill(
+                    skill_name,
+                    eval_set=eval_set,
+                    cases=cases,
+                    verbose=False,
+                )
+                new_result.validation_channels = channels
+                new_result.provenances = list(provenances)
+
+                from .evaluator.p0_gate import (
+                    evaluate_p0_gate,
+                    check_p0_ratchet_verdict,
+                    merge_p0_into_eval_result,
+                )
+                p0_result = evaluate_p0_gate(temp_eval, skill_name, repo_root=repo_root, verbose=False)
+                new_result = merge_p0_into_eval_result(new_result, p0_result)
+                p0_verdict = check_p0_ratchet_verdict(p0_result)
+                if p0_verdict.decision != "PASS":
+                    return new_result, p0_verdict
+
+                ratchet_verdict = check_ratchet(old_result, new_result)
+                if bloat_res.decision == "REVIEW":
+                    if ratchet_verdict.decision == "DECLINED":
+                        combined_reasons = list(ratchet_verdict.reasons) + bloat_res.reasons
+                        return new_result, RatchetVerdict(decision="DECLINED", reasons=combined_reasons)
+                    combined_reasons = list(ratchet_verdict.reasons) + bloat_res.reasons
+                    return new_result, RatchetVerdict(decision="REVIEW", reasons=combined_reasons)
+
+                return new_result, ratchet_verdict
+
+            result = replace(
+                old_result,
+                release_id="candidate",
+                validation_channels=channels,
+                provenances=list(provenances),
+            )
+            if not channels:
+                return result, RatchetVerdict(
+                    decision="DECLINED",
+                    reasons=["未识别到可验证的改动面，按 fail-closed 拒绝"],
+                )
+            if not getattr(old_result, "valid", True) or not getattr(old_result, "p0_pass", True):
+                return result, RatchetVerdict(
+                    decision="DECLINED",
+                    reasons=["基线未通过 P0 门或评估无效，按 fail-closed 拒绝放行 L1 补丁"],
+                )
+
+            # L1 metadata-only 路径接入独立 P0 门：不再仅复用 old_result.p0_pass
+            if metadata_changed:
+                p0_gate_result = getattr(old_result, "p0_gate_result", None)
+                is_valid_p0_proof = False
+                if (
+                    p0_gate_result is not None
+                    and getattr(p0_gate_result, "valid", False)
+                    and getattr(p0_gate_result, "p0_pass", False)
+                    and getattr(p0_gate_result, "expected_count", 0) > 0
+                ):
+                    try:
+                        from .evaluator.p0_gate import load_p0_cases
+                        expected_cases = load_p0_cases(repo_root, skill_name=skill_name)
+                        expected_ids = {c["id"] for c in expected_cases}
+                        executed_ids = {
+                            v.get("case_id")
+                            for v in getattr(p0_gate_result, "case_verdicts", [])
+                            if v.get("case_id")
+                        }
+                        if (
+                            expected_ids
+                            and expected_ids.issubset(executed_ids)
+                            and getattr(p0_gate_result, "executed_count", 0) >= len(expected_ids)
+                        ):
+                            is_valid_p0_proof = True
+                    except Exception:
+                        is_valid_p0_proof = False
+
+                if is_valid_p0_proof:
+                    from .evaluator.p0_gate import check_p0_ratchet_verdict, merge_p0_into_eval_result
+                    result = merge_p0_into_eval_result(result, p0_gate_result)
+                    p0_verdict = check_p0_ratchet_verdict(p0_gate_result)
+                    if p0_verdict.decision != "PASS":
+                        return result, p0_verdict
+                else:
+                    from .evaluator import SkillEvaluator
+                    from .evaluator.p0_gate import (
+                        evaluate_p0_gate,
+                        check_p0_ratchet_verdict,
+                        merge_p0_into_eval_result,
+                    )
+                    judge_llm = getattr(getattr(evaluator, "judge", None), "llm", None)
+                    cache_obj = getattr(evaluator, "output_cache", None)
+                    try:
+                        temp_eval = SkillEvaluator(
+                            registry=temp_reg,
+                            llm=getattr(evaluator, "llm", None),
+                            judge_llm=judge_llm,
+                            output_cache=cache_obj,
+                        )
+                    except TypeError:
+                        temp_eval = SkillEvaluator(
+                            registry=temp_reg,
+                            llm=getattr(evaluator, "llm", None),
+                            judge_llm=judge_llm,
+                        )
+                        if hasattr(temp_eval, "output_cache"):
+                            temp_eval.output_cache = cache_obj
+                    p0_result = evaluate_p0_gate(temp_eval, skill_name, repo_root=repo_root, verbose=False)
+                    result = merge_p0_into_eval_result(result, p0_result)
+                    p0_verdict = check_p0_ratchet_verdict(p0_result)
+                    if p0_verdict.decision != "PASS":
+                        return result, p0_verdict
+
+            if bloat_res.decision == "REVIEW":
+                return result, RatchetVerdict(decision="REVIEW", reasons=bloat_res.reasons)
+            return result, RatchetVerdict(decision="PASS", reasons=[])
+
+        finally:
+            temp_reg.close()
+
+
+# =============== Step 5: 分级发布 + Step 6: 归档 ===============
+
+
+def _publish_patch(
+    repo_root: Path,
+    registry,
+    state_machine,
+    skill_name: str,
+    patch: Patch,
+    verdict: RatchetVerdict,
+    new_result: EvalResult,
+    budget: Optional[EvolveBudget] = None,
+    root_causes: Optional[list[RootCause]] = None,
+    attempt_no: Optional[int] = None,
+    round_no: Optional[int] = None,
+    reason_codes: Optional[list[str]] = None,
+    shadow_mode: bool = False,
+    auto_publish_enabled: Optional[bool] = None,
+    candidate_digest: Optional[str] = None,
+    evaluator: Optional[Any] = None,
+) -> dict:
+    """
+    分级发布与归档（支持 P1-H shadow 模式与 attempt_no/reason_codes 跟踪）：
+      declared L1 + computed L1 + no downgrade + PASS 且非 shadow 且允许发布 → 自动发布
+      shadow 模式 / round2 / REVIEW → 归档到 runs/suggestions/（不覆盖技能，记录 attempt 与 reason_codes）
+      任何 DECLINED → 归档到 runs/failures/
+    """
+    if auto_publish_enabled is None:
+        # 兼容旧单测未显式传参且 round_no 为空时测试发布通路
+        effective_auto_publish = (round_no is None)
+    else:
+        effective_auto_publish = bool(auto_publish_enabled)
+
+    codes = list(reason_codes or (verdict.reasons if verdict else []))
+    if verdict.decision == "DECLINED":
+        path = _archive_failure(
+            repo_root, skill_name, patch, verdict, new_result, None,
+            root_causes=root_causes,
+            attempt_no=attempt_no, round_no=round_no, reason_codes=codes,
+            shadow_mode=shadow_mode, candidate_digest=candidate_digest,
+        )
+        patch.status = "DECLINED"
+        return {"status": "DECLINED", "path": str(path)}
+
+    bloat_active = (
+        getattr(patch, "bloat_verdict", None) == "REVIEW"
+        or any("PROMPT_BLOAT" in (r or "") for r in verdict.reasons)
+    )
+
+    # 接入 final_audit 独立审计门（auto-publish 前必须过 final audit，shadow 下归档记录门结果）
+    audit_gate = run_final_audit_gate(
+        evaluator=evaluator,
+        repo_root=repo_root,
+        skill_name=skill_name,
+        patch=patch,
+        registry=registry,
+    )
+
+    # flag 开时门阻断不合格发布
+    if not shadow_mode and effective_auto_publish and not audit_gate.passed:
+        codes.append("FINAL_AUDIT_GATE_FAILED")
+        codes.extend(audit_gate.reasons)
+        path = _archive_failure(
+            repo_root, skill_name, patch, verdict, new_result,
+            f"final_audit 终审门未通过: {'; '.join(audit_gate.reasons)}",
+            root_causes=root_causes,
+            attempt_no=attempt_no, round_no=round_no, reason_codes=codes,
+            shadow_mode=shadow_mode, candidate_digest=candidate_digest,
+            final_audit_gate=audit_gate,
+        )
+        patch.status = "DECLINED"
+        return {"status": "DECLINED", "path": str(path), "final_audit_gate": audit_gate}
+
+    can_auto_publish = (
+        not shadow_mode
+        and effective_auto_publish
+        and (round_no is None or round_no <= 1)
+        and patch.level == "L1"
+        and patch.computed_level == "L1"
+        and not patch.downgrade_attempt
+        and verdict.decision == "PASS"
+        and not bloat_active
+        and state_machine is not None
+        and audit_gate.passed
+    )
+
+    if can_auto_publish:
+        # 自动发布
+        try:
+            release_id = _apply_and_publish_L1(
+                repo_root, registry, state_machine, skill_name, patch, new_result,
+            )
+            patch.status = "PUBLISHED"
+            return {"status": "PUBLISHED", "release_id": release_id, "path": "", "final_audit_gate": audit_gate}
+        except Exception as e:
+            path = _archive_failure(
+                repo_root, skill_name, patch, verdict, new_result, f"发布失败: {e}",
+                root_causes=root_causes,
+                attempt_no=attempt_no, round_no=round_no, reason_codes=codes,
+                shadow_mode=shadow_mode, candidate_digest=candidate_digest,
+                final_audit_gate=audit_gate,
+            )
+            patch.status = "DECLINED"
+            return {"status": "DECLINED", "path": str(path), "final_audit_gate": audit_gate}
+
+    # 其他情况：只出建议或 shadow 归档
+    path = _archive_suggestion(
+        repo_root, skill_name, patch, verdict, new_result,
+        root_causes=root_causes,
+        attempt_no=attempt_no, round_no=round_no, reason_codes=codes,
+        shadow_mode=shadow_mode, candidate_digest=candidate_digest,
+        final_audit_gate=audit_gate,
+    )
+    if shadow_mode and verdict.decision == "PASS":
+        status = "SHADOW"
+    elif (
+        verdict.decision == "REVIEW"
+        or bloat_active
+        or patch.downgrade_attempt
+        or patch.computed_level == "L3"
+        or not audit_gate.passed
+    ):
+        status = "REVIEW"
+    else:
+        status = "SUGGESTION"
+
+    patch.status = status
+    return {"status": status, "path": str(path), "final_audit_gate": audit_gate}
+
+
+def _apply_and_publish_L1(
+    repo_root: Path, registry, state_machine,
+    skill_name: str, patch: Patch, new_result: EvalResult,
+) -> str:
+    """L1 自动发布：写新 SKILL.md 到 skills/<name>/ + state_machine 4 步"""
+    # 恢复 patch.diff 里的 name 为原 skill_name（validator 里改成 candidate 了；这里回改）
+    new_md = re.sub(
+        r"^name:\s*.+$", f"name: {skill_name}",
+        patch.diff, count=1, flags=re.MULTILINE,
+    )
+    skill_md_path = repo_root / "skills" / skill_name / "SKILL.md"
+    skill_md_path.write_text(new_md, encoding="utf-8")
+
+    # state_machine 4 步
+    # 提取新版本号
+    m = re.search(r"^version:\s*(\S+)", new_md, flags=re.MULTILINE)
+    version = m.group(1) if m else "1.0.1"
+
+    rid = state_machine.begin_release(skill_name, version, "L1")
+    state_machine.write_commit(rid, patch)
+    # 更新 EvalResult 的 release_id
+    new_result.release_id = rid
+    state_machine.append_evaluation(rid, new_result)
+    state_machine.commit_release(rid)
+    return rid
+
+
+def _archive_suggestion(
+    repo_root: Path, skill_name: str, patch: Patch,
+    verdict: RatchetVerdict, new_result: EvalResult,
+    root_causes: Optional[list[RootCause]] = None,
+    attempt_no: Optional[int] = None,
+    round_no: Optional[int] = None,
+    reason_codes: Optional[list[str]] = None,
+    shadow_mode: bool = False,
+    candidate_digest: Optional[str] = None,
+    final_audit_gate: Optional[FinalAuditGateResult] = None,
+) -> Path:
+    sug_dir = repo_root / "runs" / "suggestions"
+    sug_dir.mkdir(parents=True, exist_ok=True)
+    suffix_parts = []
+    if attempt_no is not None:
+        suffix_parts.append(f"att{attempt_no}")
+    if candidate_digest:
+        suffix_parts.append(candidate_digest[:8])
+    extra = ("-" + "-".join(suffix_parts)) if suffix_parts else ""
+    ts = datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')
+    fname = f"{ts}-{skill_name}-{patch.level}{extra}.md"
+    path = sug_dir / fname
+    if path.exists():
+        counter = 1
+        while (sug_dir / f"{ts}-{skill_name}-{patch.level}{extra}-{counter}.md").exists():
+            counter += 1
+        path = sug_dir / f"{ts}-{skill_name}-{patch.level}{extra}-{counter}.md"
+
+    total = sum(new_result.structure_score.values()) + sum(new_result.effect_score.values())
+    title = f"[{patch.level} 建议] {skill_name}"
+    if shadow_mode:
+        title = f"[SHADOW / {verdict.decision} / {patch.level}] {skill_name}"
+    elif patch.downgrade_attempt:
+        title = (
+            f"[REVIEW / 降级拦截 / {patch.level}→{patch.computed_level}] "
+            f"{skill_name}"
+        )
+    elif getattr(patch, "bloat_verdict", None) == "REVIEW" or any("PROMPT_BLOAT" in (r or "") for r in verdict.reasons):
+        title = f"[REVIEW / PROMPT_BLOAT / {patch.level}] {skill_name}"
+    path.write_text(_render_archive_md(
+        title=title,
+        patch=patch, verdict=verdict, new_score=total, error=None,
+        root_causes=root_causes,
+        attempt_no=attempt_no, round_no=round_no, reason_codes=reason_codes,
+        shadow_mode=shadow_mode, candidate_digest=candidate_digest,
+        final_audit_gate=final_audit_gate,
+    ), encoding="utf-8")
+    return path
+
+
+def _archive_dependency_diagnostic(
+    repo_root: Path,
+    skill_name: str,
+    root_causes: list[RootCause],
+    tool_trace: Any,
+    dep_reason: str,
+    meta: Any,
+    body: str,
+    failures: list[Failure],
+) -> Path:
+    """外部依赖故障诊断归档（REVIEW 出口），不生成 prompt 文案 patch。"""
+    sug_dir = repo_root / "runs" / "suggestions"
+    sug_dir.mkdir(parents=True, exist_ok=True)
+    fname = f"{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{skill_name}-dependency-diagnostic.md"
+    path = sug_dir / fname
+
+    lines = [
+        f"# [REVIEW / DEPENDENCY_DIAGNOSTIC] {skill_name}",
+        "",
+        f"- ts: {datetime.now(timezone.utc).isoformat()}",
+        "- status: REVIEW",
+        "- decision: REVIEW",
+        "- level: L3",
+        "- patch_generated: false",
+        f"- dependency_reason: {dep_reason}",
+        "",
+        "## 根因诊断 (Root Cause Diagnostics - Informational Only)",
+        "- 规则说明: 根因概率仅供辅助阅读诊断，不参与自动发布门判定",
+    ]
+    if root_causes:
+        for rc in root_causes:
+            lines.append(f"- cause: {rc.label} (prob={rc.prob:.2f}) - {rc.why}")
+    else:
+        lines.append("- cause: deps_broken (由执行层行为轨迹直接判定)")
+
+    lines.append("")
+    lines.append("## 执行层行为轨迹 (Execution Behavior / Tool Trace)")
+    if isinstance(tool_trace, dict):
+        lines.append(f"- failed_phase: {tool_trace.get('failed_phase', 'unknown')}")
+        lines.append(f"- failure_type: {tool_trace.get('failure_type', 'unknown')}")
+        lines.append(f"- error_message: {tool_trace.get('error_message', 'none')}")
+        lines.append(f"- is_dependency_failure: {tool_trace.get('is_dependency_failure', True)}")
+        provs = tool_trace.get("tool_provenances", [])
+        if provs:
+            lines.append("- 工具调用凭据:")
+            for p in provs:
+                if isinstance(p, dict):
+                    lines.append(f"  * tool={p.get('tool_name')} status={p.get('output_status')} summary={p.get('output_summary', '')[:80]}")
+    elif isinstance(tool_trace, str):
+        lines.append(tool_trace)
+    else:
+        lines.append("（无额外轨迹数据）")
+
+    lines.append("")
+    lines.append("## 处置建议 (Actionable Advice)")
+    lines.append("- 外部依赖故障（LLM服务不可用/网络中断/工具缺失/熔断触发）。")
+    lines.append("- 修改 Prompt/SKILL.md 文案对解决依赖问题无效，系统已阻断文案 patch 生成。")
+    lines.append("- 请排查外部依赖服务、网络连接或环境配置后重新执行评估。")
+    lines.append("")
+    lines.append("## 提案状态")
+    lines.append("（诊断归档：外部依赖问题，不产出文案 patch，状态为 REVIEW）")
+
+    path.write_text("\n".join(lines), encoding="utf-8")
+    return path
+
+
+
+def _archive_failure(
+    repo_root: Path, skill_name: str, patch: Patch,
+    verdict: Optional[RatchetVerdict], new_result: Optional[EvalResult],
+    error: Optional[str],
+    root_causes: Optional[list[RootCause]] = None,
+    attempt_no: Optional[int] = None,
+    round_no: Optional[int] = None,
+    reason_codes: Optional[list[str]] = None,
+    shadow_mode: bool = False,
+    candidate_digest: Optional[str] = None,
+    final_audit_gate: Optional[FinalAuditGateResult] = None,
+) -> Path:
+    fail_dir = repo_root / "runs" / "failures"
+    fail_dir.mkdir(parents=True, exist_ok=True)
+    suffix_parts = []
+    if attempt_no is not None:
+        suffix_parts.append(f"att{attempt_no}")
+    if candidate_digest:
+        suffix_parts.append(candidate_digest[:8])
+    extra = ("-" + "-".join(suffix_parts)) if suffix_parts else ""
+    ts = datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')
+    fname = f"{ts}-{skill_name}-{patch.level}{extra}.md"
+    path = fail_dir / fname
+    if path.exists():
+        counter = 1
+        while (fail_dir / f"{ts}-{skill_name}-{patch.level}{extra}-{counter}.md").exists():
+            counter += 1
+        path = fail_dir / f"{ts}-{skill_name}-{patch.level}{extra}-{counter}.md"
+
+    total = None
+    if new_result is not None:
+        total = sum(new_result.structure_score.values()) + sum(new_result.effect_score.values())
+    title = f"[DECLINED / {patch.level}] {skill_name}"
+    if any("BUDGET_EXCEEDED" in (r or "") for r in (verdict.reasons if verdict else [])):
+        title = f"[DECLINED / BUDGET_EXCEEDED / {patch.level}] {skill_name}"
+    elif any("PROMPT_BLOAT" in (r or "") for r in (verdict.reasons if verdict else [])):
+        title = f"[DECLINED / PROMPT_BLOAT / {patch.level}] {skill_name}"
+    elif any("REPEATED_FINGERPRINT" in (r or "") for r in (verdict.reasons if verdict else [])):
+        title = f"[DECLINED / REPEATED_FINGERPRINT / {patch.level}] {skill_name}"
+    elif any("LEAKAGE_DETECTED" in (r or "") for r in (verdict.reasons if verdict else [])):
+        title = f"[DECLINED / LEAKAGE_DETECTED / {patch.level}] {skill_name}"
+    elif any("FINAL_AUDIT_GATE_FAILED" in (r or "") for r in (reason_codes or [])):
+        title = f"[DECLINED / FINAL_AUDIT_GATE / {patch.level}] {skill_name}"
+    path.write_text(_render_archive_md(
+        title=title,
+        patch=patch, verdict=verdict, new_score=total, error=error,
+        root_causes=root_causes,
+        attempt_no=attempt_no, round_no=round_no, reason_codes=reason_codes,
+        shadow_mode=shadow_mode, candidate_digest=candidate_digest,
+        final_audit_gate=final_audit_gate,
+    ), encoding="utf-8")
+    return path
+
+
+def _render_archive_md(
+    title: str, patch: Patch,
+    verdict: Optional[RatchetVerdict], new_score: Optional[float], error: Optional[str],
+    root_causes: Optional[list[RootCause]] = None,
+    attempt_no: Optional[int] = None,
+    round_no: Optional[int] = None,
+    reason_codes: Optional[list[str]] = None,
+    shadow_mode: bool = False,
+    candidate_digest: Optional[str] = None,
+    final_audit_gate: Optional[FinalAuditGateResult] = None,
+) -> str:
+    lines = [f"# {title}", ""]
+    lines.append(f"- ts: {datetime.now(timezone.utc).isoformat()}")
+    if attempt_no is not None:
+        lines.append(f"- attempt_no: {attempt_no}")
+    if round_no is not None:
+        lines.append(f"- round_no: {round_no}")
+    if candidate_digest:
+        lines.append(f"- candidate_digest: {candidate_digest}")
+    if shadow_mode:
+        lines.append("- shadow_mode: true")
+    if final_audit_gate is not None:
+        lines.append(f"- final_audit_gate_passed: {str(final_audit_gate.passed).lower()}")
+        lines.append(f"- final_audit_gate_verdict: {final_audit_gate.verdict}")
+        if final_audit_gate.audit_score is not None:
+            lines.append(f"- final_audit_gate_score: {final_audit_gate.audit_score:.2f}")
+        if final_audit_gate.reasons:
+            lines.append("- final_audit_gate_reasons:")
+            for r in final_audit_gate.reasons:
+                lines.append(f"  - {r}")
+    lines.append(f"- level: {patch.level}")
+    lines.append(f"- declared_level: {patch.level}")
+    lines.append(f"- computed_level: {patch.computed_level}")
+    lines.append(f"- downgrade_attempt: {str(patch.downgrade_attempt).lower()}")
+    lines.append(f"- level_decision: {_level_decision_reason(patch)}")
+    lines.append(f"- rationale: {patch.rationale}")
+    if new_score is not None:
+        lines.append(f"- new_score: {new_score:.2f} / 100")
+    if verdict is not None:
+        lines.append(f"- ratchet: {verdict.decision}")
+        if verdict.reasons:
+            lines.append("- reasons:")
+            for r in verdict.reasons:
+                lines.append(f"  - {r}")
+    combined_codes = list(reason_codes or (verdict.reasons if verdict else []))
+    if combined_codes:
+        lines.append("- reason_codes:")
+        for r in combined_codes:
+            lines.append(f"  - {r}")
+    if getattr(patch, "distillation_prompt", None):
+        lines.append(f"- distillation_prompt: {patch.distillation_prompt}")
+    if getattr(patch, "baseline_body_stats", None) or getattr(patch, "candidate_body_stats", None):
+        lines.append(f"- baseline_body_stats: {json.dumps(patch.baseline_body_stats, ensure_ascii=False)}")
+        lines.append(f"- candidate_body_stats: {json.dumps(patch.candidate_body_stats, ensure_ascii=False)}")
+    if error:
+        lines.append(f"- error: {error}")
+    if root_causes:
+        lines.append("")
+        lines.append("## 根因辅助阅读 (Root Cause Diagnostics - Informational Only)")
+        lines.append("- 规则说明: 根因概率仅供辅助阅读诊断，不参与自动发布门判定")
+        for rc in root_causes:
+            lines.append(f"- cause: {rc.label} (prob={rc.prob:.2f}) - {rc.why}")
+
+    lines.append("")
+    if patch.provenances:
+        lines.append("## 工具调用存据 (Tool Call Provenance)")
+        lines.append("")
+        for provenance in patch.provenances:
+            params = json.dumps(
+                provenance.input_params, ensure_ascii=False, sort_keys=True
+            )
+            lines.append(
+                f"- 工具: `{provenance.tool_name}` "
+                f"(Fixture: {str(provenance.is_fixture).lower()})"
+            )
+            lines.append(f"  - Fixture case: `{provenance.fixture_case_id}`")
+            lines.append(
+                f"  - 调用序号: {provenance.call_index}/{provenance.call_count}"
+            )
+            lines.append(
+                "  - 执行事实: "
+                f"required={str(provenance.tool_required).lower()}, "
+                f"called={str(provenance.tool_called).lower()}, "
+                f"success={str(provenance.tool_success).lower()}, "
+                f"authenticity={str(provenance.authenticity_pass).lower()}"
+            )
+            lines.append(f"  - 参数: `{params}`")
+            lines.append(
+                f"  - 状态: {provenance.output_status} "
+                f"({provenance.latency_ms:.2f} ms)"
+            )
+            lines.append(f"  - 时间: {provenance.timestamp}")
+            lines.append(f"  - 输出摘要: {provenance.output_summary}")
+            lines.append(f"  - 签名: `sha256:{provenance.signature}`")
+        lines.append("")
+    unified_fence = _markdown_fence(patch.unified_diff)
+    lines.append("## 差异对比 (Unified Diff)")
+    lines.append(f"{unified_fence}diff")
+    lines.append(patch.unified_diff or "（无可用 unified diff）")
+    lines.append(unified_fence)
+    lines.append("")
+    markdown_fence = _markdown_fence(patch.diff)
+    lines.append("## 完整新 SKILL.md")
+    lines.append(f"{markdown_fence}markdown")
+    lines.append(patch.diff)
+    lines.append(markdown_fence)
+    return "\n".join(lines) + "\n"
+
+
+def _level_decision_reason(patch: Patch) -> str:
+    if patch.downgrade_attempt:
+        return (
+            f"实际改动为 {patch.computed_level}，高于模型声明 {patch.level}；"
+            "已阻断自动发布并转人工复核"
+        )
+    if patch.computed_level == patch.level:
+        return f"模型声明与确定性计算一致（{patch.computed_level}）"
+    if patch.computed_level == "INVALID":
+        return "缺少可信语义分级；按 fail-closed 禁止自动发布"
+    return (
+        f"模型声明 {patch.level} 高于实际计算 {patch.computed_level}；"
+        "保留较审慎的声明等级"
+    )
+
+
+def _markdown_fence(content: str) -> str:
+    longest_run = max(
+        (len(match.group(0)) for match in re.finditer(r"`+", content)),
+        default=0,
+    )
+    return "`" * max(4, longest_run + 1)
+
+
+# =============== 工具函数 ===============
+
+
+def _reconstruct_skill_md(meta, body: str) -> str:
+    """把 SkillMeta + body 拼回完整 SKILL.md（供 LLM 参考）"""
+    import yaml
+    fm = {
+        "name": meta.name,
+        "version": meta.version,
+        "description": meta.description,
+        "use_when": meta.use_when,
+        "not_for": meta.not_for,
+        "dependencies": meta.dependencies,
+        "trigger": {"keywords": meta.trigger.keywords},
+        "examples": meta.examples,
+    }
+    return f"---\n{yaml.safe_dump(fm, allow_unicode=True, sort_keys=False).strip()}\n---\n\n{body}"
+
+
+def _strip_code_fence(text: str) -> str:
+    """LLM 输出常带 ```json ... ``` 包裹，去掉外围"""
+    text = text.strip()
+    m = re.match(r"^```(?:json|markdown)?\s*\n(.*)\n```\s*$", text, flags=re.DOTALL)
+    return m.group(1) if m else text
