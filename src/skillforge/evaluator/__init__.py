@@ -18,7 +18,7 @@ from typing import Optional
 
 from hello_agents.tools import Tool, ToolParameter
 
-from ..models import EvalResult, RatchetVerdict
+from ..models import EvalResult, RatchetVerdict, RouteResult
 from .structure import score_structure, structure_total
 from .judge import PairwiseJudge, invert_verdict, skill_is_presented_as_a
 from .metrics import collect_objective_metrics
@@ -38,6 +38,18 @@ from .prompt_bloat import (
     check_prompt_bloat,
     compute_body_section_stats,
     canonical_section_name,
+)
+from .root_cause_prompts import (
+    PromptFragment,
+    ROUTING_METADATA,
+    ROUTING_METADATA_SCHEMA,
+    EXECUTION_BEHAVIOR,
+    EXECUTION_BEHAVIOR_SCHEMA,
+    format_routing_metadata,
+    format_execution_behavior,
+    extract_relevant_body_sections,
+    format_body_sections,
+    validate_payload_against_schema,
 )
 
 
@@ -109,6 +121,7 @@ class SkillEvaluator(Tool):
         judge_llm=None,
         output_cache: Optional[EvaluatorOutputCache] = None,
         ledger=None,
+        router=None,
     ):
         """
         Args:
@@ -117,6 +130,7 @@ class SkillEvaluator(Tool):
             judge_llm: Judge 专用 LLM。必须是与执行端不同的 client 实例。
             output_cache: 可选，缓存 bare/current 输出以消除随机漂移
             ledger: 可选，挂载统一 LLM ledger
+            router: 可选，IntentRouter 实例；不传时若 registry 具备 list_names 则自动构造
         """
         super().__init__(
             name="skill_evaluator",
@@ -135,6 +149,20 @@ class SkillEvaluator(Tool):
             raise ValueError("执行 LLM 与 Judge 必须使用不同 client/session 实例")
         self.judge = PairwiseJudge(judge_llm)
         self.output_cache = output_cache if output_cache is not None else EvaluatorOutputCache()
+        self.router_init_error: Optional[str] = None
+        if router is not None:
+            self.router = router
+        elif hasattr(registry, "list_names"):
+            try:
+                from ..router import IntentRouter
+                self.router = IntentRouter(registry=registry, llm=None)
+            except Exception as exc:
+                self.router = None
+                self.router_init_error = (
+                    f"ROUTER_INIT_ERROR: {type(exc).__name__}: {exc}"
+                )
+        else:
+            self.router = None
 
     def get_config_fingerprint(self) -> str:
         """Return configuration fingerprint including execution and Judge settings."""
@@ -238,6 +266,12 @@ class SkillEvaluator(Tool):
                 case_outputs=[],
                 valid=False,
                 invalid_reasons=[f"用例集为空 (eval_set={eval_set}, skill={skill_name})，按 fail-closed 判为 INVALID"],
+                hit_layer="unknown",
+                verdict="EMPTY_CASES",
+                matched_keywords=[],
+                routing_notes="用例集为空，未执行路由评估",
+                route_result=None,
+                route_error="ROUTER_NOT_RUN: empty evaluation case set",
             )
 
         if p0_ids is None:
@@ -331,6 +365,53 @@ class SkillEvaluator(Tool):
             "avg_latency_ms_skill": round(mean(m["latency_ms"] for m in skill_metrics_list), 2),
         }
 
+        # P0-1: 真实路由判定链计算与保存
+        routed_results: list[tuple[dict, RouteResult]] = []
+        route_error: Optional[str] = None
+        if getattr(self, "router", None) is None:
+            route_error = (
+                getattr(self, "router_init_error", None)
+                or "ROUTER_UNAVAILABLE: IntentRouter is not configured"
+            )
+        elif cases:
+            for c in cases:
+                try:
+                    q = c.get("query", "")
+                    res = self.router.route(q)
+                    routed_results.append((c, res))
+                except Exception as exc:
+                    route_error = f"ROUTER_ERROR: {type(exc).__name__}: {exc}"
+                    break
+
+        route_result: Optional[RouteResult] = None
+        hit_layer = "unknown"
+        verdict_str = "ROUTE_UNEVALUATED"
+        matched_kws: list[str] = []
+        routing_notes = ""
+
+        if route_error:
+            hit_layer = "unknown"
+            verdict_str = "ROUTE_UNAVAILABLE"
+            matched_kws = []
+            routing_notes = route_error
+            route_result = None
+        elif routed_results:
+            target_pair = next((p for p in routed_results if p[1].chosen == skill_name), None)
+            if target_pair:
+                _, route_result = target_pair
+                verdict_str = "ROUTE_MATCH"
+            else:
+                _, route_result = routed_results[0]
+                verdict_str = "ROUTE_REJECT" if route_result.chosen is None else f"ROUTE_MISMATCH_{route_result.chosen}"
+            hit_layer = route_result.hit_layer
+            matched_kws = list(route_result.matched_keywords)
+            routing_notes = route_result.routing_notes
+        else:
+            route_error = "ROUTER_UNAVAILABLE: no route result was produced"
+            hit_layer = "unknown"
+            verdict_str = "ROUTE_UNAVAILABLE"
+            routing_notes = route_error
+
         return EvalResult(
             release_id=release_id,
             structure_score=struct,
@@ -341,6 +422,12 @@ class SkillEvaluator(Tool):
             case_outputs=case_outputs,
             valid=not invalid_reasons,
             invalid_reasons=invalid_reasons,
+            hit_layer=hit_layer,
+            verdict=verdict_str,
+            matched_keywords=matched_kws,
+            routing_notes=routing_notes,
+            route_result=route_result,
+            route_error=route_error,
         )
 
     # ----------------- 辅助 -----------------
@@ -479,4 +566,14 @@ __all__ = [
     "evaluate_p0_gate",
     "check_p0_ratchet_verdict",
     "merge_p0_into_eval_result",
+    "PromptFragment",
+    "ROUTING_METADATA",
+    "ROUTING_METADATA_SCHEMA",
+    "EXECUTION_BEHAVIOR",
+    "EXECUTION_BEHAVIOR_SCHEMA",
+    "format_routing_metadata",
+    "format_execution_behavior",
+    "extract_relevant_body_sections",
+    "format_body_sections",
+    "validate_payload_against_schema",
 ]

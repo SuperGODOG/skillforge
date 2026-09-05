@@ -74,6 +74,7 @@ class IntentRouter(Tool):
 
         # === 规则层：只做记账（trigger.keywords 是信号，不独占决策）===
         rule_scores = self.rule.match(query, skills)
+        all_matched_kws = {s.name: [kw for kw in s.trigger.keywords if kw and kw in query] for s in skills}
 
         # === Embed 层：始终跑（前提是模型可用）===
         try:
@@ -83,13 +84,15 @@ class IntentRouter(Tool):
             # bge 模型未装：退化到"仅规则"，规则唯一命中才决策
             snapshot = {"rule": rule_scores, "embed": {}}
             if len(rule_scores) == 1:
-                return self._done(next(iter(rule_scores)), "rule", snapshot, started)
-            return self._done(None, "rule", snapshot, started)
+                chosen_skill = next(iter(rule_scores))
+                kws = all_matched_kws.get(chosen_skill, [])
+                return self._done(chosen_skill, "rule", snapshot, started, matched_keywords=kws, routing_notes=f"规则层唯一命中: {kws}")
+            return self._done(None, "rule", snapshot, started, matched_keywords=[], routing_notes="规则层未命中或多义并列，无 embed 模型直接拒绝")
 
         scores_snapshot: dict = {"rule": rule_scores, "embed": dict(embed_top)}
 
         if not embed_top:
-            return self._done(None, "embed", scores_snapshot, started)
+            return self._done(None, "embed", scores_snapshot, started, matched_keywords=[], routing_notes="向量索引无匹配候选")
 
         top1_name, top1_sim = embed_top[0]
         top2_sim = embed_top[1][1] if len(embed_top) > 1 else 0.0
@@ -97,22 +100,24 @@ class IntentRouter(Tool):
 
         # 高置信 + 明确分差 → embed 独占决策
         if top1_sim >= HIGH_CONF and margin >= MARGIN:
-            return self._done(top1_name, "embed", scores_snapshot, started)
+            kws = all_matched_kws.get(top1_name, [])
+            return self._done(top1_name, "embed", scores_snapshot, started, matched_keywords=kws, routing_notes=f"Embed 向量层决策: top1={top1_name} (sim={top1_sim:.3f}, margin={margin:.3f})")
 
         # 极低置信 → 直接拒绝（不值得跑 LLM）
         if top1_sim < LOW_CONF:
-            return self._done(None, "embed", scores_snapshot, started)
+            return self._done(None, "embed", scores_snapshot, started, matched_keywords=[], routing_notes=f"Embed 置信度不足拒绝: top1_sim={top1_sim:.3f} < {LOW_CONF}")
 
         # 中间地带 → LLM 兜底（传 SkillMeta，让 LLM 看到 use_when + not_for）
         if self.llm:
             candidate_metas = [self.registry.get_meta(name) for name, _ in embed_top]
             chosen = self.llm.choose(query, candidate_metas)
             scores_snapshot["llm_chosen"] = chosen
-            return self._done(chosen, "llm", scores_snapshot, started)
+            kws = all_matched_kws.get(chosen, []) if chosen else []
+            return self._done(chosen, "llm", scores_snapshot, started, matched_keywords=kws, routing_notes=f"LLM 兜底决策: {chosen}")
 
         # 无 LLM 兜底且中间地带 → 保守拒绝
         # （旧版本硬选 top1 导致 17/18 硬负例被误 route）
-        return self._done(None, "embed", scores_snapshot, started)
+        return self._done(None, "embed", scores_snapshot, started, matched_keywords=[], routing_notes=f"Embed 中间地带无 LLM 兜底保守拒绝 (top1_sim={top1_sim:.3f})")
 
     @staticmethod
     def _done(
@@ -120,6 +125,8 @@ class IntentRouter(Tool):
         hit_layer: str,
         scores: dict,
         started: float,
+        matched_keywords: Optional[list[str]] = None,
+        routing_notes: str = "",
     ) -> RouteResult:
         latency_ms = (time.perf_counter() - started) * 1000
         return RouteResult(
@@ -127,4 +134,6 @@ class IntentRouter(Tool):
             hit_layer=hit_layer,
             scores=scores,
             latency_ms=round(latency_ms, 2),
+            matched_keywords=matched_keywords or [],
+            routing_notes=routing_notes,
         )

@@ -42,6 +42,14 @@ from .models import (
 from .evaluator.validators import validate_dependency_patch, validate_router_patch
 from .evaluator.llm_factory import LLMLedger, wrap_with_ledger
 from .evaluator.prompt_bloat import check_prompt_bloat, compute_body_section_stats, PromptBloatResult
+from .evaluator.root_cause_prompts import (
+    ROUTING_METADATA,
+    EXECUTION_BEHAVIOR,
+    format_routing_metadata,
+    format_execution_behavior,
+    extract_relevant_body_sections,
+    format_body_sections,
+)
 
 
 # =============== 数据结构（evolver 内部） ===============
@@ -57,9 +65,19 @@ class Failure:
     losing_dims: list[str] = field(default_factory=list)
 
 
+RootCauseLabel = Literal[
+    "trigger_inaccurate",
+    "prompt_vague",
+    "deps_broken",
+    "boundary_missing",
+    "eval_noise",
+    "dependency",
+]
+
+
 @dataclass
 class RootCause:
-    label: Literal["trigger_inaccurate", "prompt_vague", "deps_broken", "boundary_missing"]
+    label: RootCauseLabel
     prob: float
     why: str
 
@@ -203,7 +221,44 @@ class SkillEvolver(SimpleAgent):
         except Exception as e:
             outcome.error = f"baseline 评估失败：{e}"
             return outcome
+        route_error = getattr(old_result, "route_error", None)
+        if route_error:
+            outcome.error = f"路由判定不可用，停止迭代：{route_error}"
+            return outcome
         if not old_result.valid:
+            tool_trace = _build_tool_trace_from_eval_result(old_result)
+            is_dep, dep_reason = is_dependency_issue([], tool_trace)
+            if is_dep:
+                if verbose:
+                    print(f"\n▶ [Evolve/1-dependency] baseline 评测因外部依赖异常中断 (REVIEW): {dep_reason}")
+                meta = self.registry.get_meta(skill_name)
+                body = self.registry._bodies.get(skill_name, "")
+                baseline_stats = compute_body_section_stats(body)
+                diag_path = _archive_dependency_diagnostic(
+                    repo_root=self.repo_root,
+                    skill_name=skill_name,
+                    root_causes=[RootCause(label="deps_broken", prob=1.0, why=dep_reason)],
+                    tool_trace=tool_trace,
+                    dep_reason=dep_reason,
+                    meta=meta,
+                    body=body,
+                    failures=[],
+                )
+                outcome.patches_generated = 0
+                outcome.patches_review.append(str(diag_path))
+                outcome.records.append(EvolveRecord(
+                    skill_name=skill_name,
+                    patch=None,
+                    baseline_body=body,
+                    candidate_body="",
+                    baseline_body_stats=baseline_stats,
+                    candidate_body_stats={},
+                    bloat_verdict=None,
+                    bloat_reasons=[f"DEPENDENCY_ISSUE: {dep_reason}"],
+                    distillation_prompt=None,
+                    status="REVIEW",
+                ))
+                return outcome
             details = "; ".join(old_result.invalid_reasons) or "未知 INVALID 原因"
             outcome.error = f"baseline 评估无效，停止迭代：{details}"
             return outcome
@@ -233,14 +288,74 @@ class SkillEvolver(SimpleAgent):
         outcome.context = context
         if verbose:
             print(f"\n▶ [Evolve/3-root_cause] LLM 根因分析")
+
+        # P1-G 三路输入准备（P0-1: 只读取 RouteResult 真实字段）
+        relevant_body = extract_relevant_body_sections(body)
+        route_result = getattr(old_result, "route_result", None)
+        route_trace = None
+        if route_result is not None:
+            route_trace = {
+                "hit_layer": route_result.hit_layer,
+                "chosen_skill": route_result.chosen,
+                "scores": route_result.scores,
+                "latency_ms": route_result.latency_ms,
+                "trigger_keywords": getattr(getattr(meta, "trigger", None), "keywords", []),
+                "matched_keywords": route_result.matched_keywords,
+                "use_when": getattr(meta, "use_when", ""),
+                "not_for": getattr(meta, "not_for", []),
+                "routing_notes": route_result.routing_notes,
+            }
+        tool_trace = _build_tool_trace_from_eval_result(old_result)
+
         try:
-            root_causes = _analyze_root_cause(self.llm, meta, body, failures)
+            root_causes = _analyze_root_cause(
+                self.llm,
+                meta,
+                body,
+                failures,
+                relevant_body_sections=relevant_body,
+                route_trace=route_trace,
+                tool_trace=tool_trace,
+            )
         except BudgetExceededError as e:
             outcome.error = f"根因分析预算硬帽超限：{e.reason}"
             return outcome
         if verbose:
             for rc in root_causes:
                 print(f"  {rc.label}: prob={rc.prob:.2f}, why={rc.why[:60]}")
+
+        # ---- Step 2.5：P1-G dependency 出口（依赖故障走诊断归档，不生成文案 patch） ----
+        is_dep, dep_reason = is_dependency_issue(root_causes, tool_trace)
+        if is_dep:
+            if verbose:
+                print(f"\n▶ [Evolve/3.5-dependency] 识别为外部依赖根因 (REVIEW): {dep_reason}")
+                print("  ⚡ 依赖问题改 prompt 无效，阻断 prompt 文案 patch 生成，转入诊断归档")
+            diag_path = _archive_dependency_diagnostic(
+                repo_root=self.repo_root,
+                skill_name=skill_name,
+                root_causes=root_causes,
+                tool_trace=tool_trace,
+                dep_reason=dep_reason,
+                meta=meta,
+                body=body,
+                failures=failures,
+            )
+            outcome.patches_generated = 0
+            outcome.patches_review.append(str(diag_path))
+            record = EvolveRecord(
+                skill_name=skill_name,
+                patch=None,
+                baseline_body=body,
+                candidate_body="",
+                baseline_body_stats=baseline_stats,
+                candidate_body_stats={},
+                bloat_verdict=None,
+                bloat_reasons=[f"DEPENDENCY_ISSUE: {dep_reason}"],
+                distillation_prompt=None,
+                status="REVIEW",
+            )
+            outcome.records.append(record)
+            return outcome
 
         # ---- Step 3：生成候选 ----
         effective_max = (
@@ -318,6 +433,7 @@ class SkillEvolver(SimpleAgent):
                 verdict=verdict,
                 new_result=new_result,
                 budget=active_budget,
+                root_causes=root_causes,
             )
             if verbose:
                 print(f"  → {outc['status']}: {outc['path']}")
@@ -386,7 +502,7 @@ def _collect_failures(result: EvalResult) -> list[Failure]:
 # =============== Step 2: 根因分析 ===============
 
 
-_ROOT_CAUSE_PROMPT = """你是 SkillForge 的元 Agent。分析 Skill 的失败样本，判定四类根因概率。
+_ROOT_CAUSE_PROMPT = """你是 SkillForge 的元 Agent。分析 Skill 的失败样本，结合相关 Body 段、路由判定链与工具执行行为轨迹，判定根因概率。
 
 **Skill 定义**:
 - name: {name}
@@ -395,24 +511,136 @@ _ROOT_CAUSE_PROMPT = """你是 SkillForge 的元 Agent。分析 Skill 的失败�
 - not_for: {not_for}
 - trigger.keywords: {kws}
 
+**相关 Body 段 (Prompt 内容与分段统计)**:
+{body_sections_block}
+
+**路由判定链 (ROUTING_METADATA / Route Trace)**:
+{routing_metadata_block}
+
+**执行行为轨迹 (EXECUTION_BEHAVIOR / Tool Trace)**:
+{execution_behavior_block}
+
 **失败样本**（Skill 版被 baseline 打败的 case）:
 {failures_block}
 
-**四类根因**:
-1. trigger_inaccurate: 触发词或 use_when 不准，Agent 弄错该何时用
-2. prompt_vague: Instructions/Overview 模糊，Agent 不知具体怎么做
-3. deps_broken: 声明的工具/依赖失效或缺失
-4. boundary_missing: Constraints 未覆盖边界（历史查询、超范围数据、幻觉编造）
+**根因类别说明**:
+1. trigger_inaccurate: 路由误判（触发词缺失/不准，或 use_when/not_for 范围偏窄/误伤，Agent 判定错调用时机）
+2. prompt_vague: prompt 缺陷（Instructions/Overview 模糊或步骤缺失，Agent 不知具体操作规程）
+3. deps_broken: 外部依赖问题（工具缺失/网络超时/服务不可用/熔断开启等执行层故障，非 prompt 文案问题）
+4. boundary_missing: 边界约束缺失（Constraints 未覆盖时间跨度、超范围数据、安全防护或幻觉抑制）
+5. eval_noise: 评测噪声（Judge 打分偶发抖动、参考答案风格争议或评测集局部度量噪声）
 
 只输出严格 JSON（不加代码块标记）：
 {{"trigger_inaccurate": {{"prob": <0-1>, "why": "..."}},
   "prompt_vague":        {{"prob": <0-1>, "why": "..."}},
   "deps_broken":         {{"prob": <0-1>, "why": "..."}},
-  "boundary_missing":    {{"prob": <0-1>, "why": "..."}}}}
+  "boundary_missing":    {{"prob": <0-1>, "why": "..."}},
+  "eval_noise":          {{"prob": <0-1>, "why": "..."}}}}
 """
 
 
-def _analyze_root_cause(llm, meta, body: str, failures: list[Failure]) -> list[RootCause]:
+def _build_tool_trace_from_eval_result(result: Optional[EvalResult]) -> dict[str, Any]:
+    """从评估结果中提取执行层行为轨迹（tool trace）。"""
+    if result is None:
+        return {
+            "failed_phase": "none",
+            "failure_type": "NONE",
+            "is_dependency_failure": False,
+            "error_message": "",
+            "validation_channels": [],
+            "tool_provenances": [],
+        }
+
+    provenances = getattr(result, "provenances", []) or []
+    has_dep_failure = False
+    failure_type = "NONE"
+    failed_phase = "none"
+    error_msg = ""
+
+    for p in provenances:
+        status = getattr(p, "output_status", "")
+        success = getattr(p, "tool_success", True)
+        auth = getattr(p, "authenticity_pass", True)
+        if status in ("ERROR", "CIRCUIT_OPEN") or not success or not auth:
+            has_dep_failure = True
+            failed_phase = "tool_execution"
+            failure_type = "CIRCUIT_OPEN" if status == "CIRCUIT_OPEN" else "DEPENDENCY_ERROR"
+            error_msg = getattr(p, "output_summary", "") or f"工具 `{getattr(p, 'tool_name', '')}` 执行失败"
+            break
+
+    if not has_dep_failure and not getattr(result, "valid", True):
+        reasons = getattr(result, "invalid_reasons", []) or []
+        failed_phase = "execution"
+        failure_type = "INVALID"
+        error_msg = "; ".join(reasons)
+        for r in reasons:
+            r_lower = r.casefold()
+            if any(k in r_lower for k in ("503", "timeout", "network", "connection", "dependency", "service unavailable")):
+                has_dep_failure = True
+                failure_type = "DEPENDENCY_ERROR"
+                break
+
+    return {
+        "failed_phase": failed_phase,
+        "failure_type": failure_type,
+        "is_dependency_failure": has_dep_failure,
+        "error_message": error_msg,
+        "validation_channels": getattr(result, "validation_channels", []) or [],
+        "tool_provenances": [p.__dict__ if hasattr(p, "__dict__") else p for p in provenances],
+    }
+
+
+def is_dependency_issue(
+    root_causes: list[RootCause],
+    tool_trace: Optional[dict[str, Any] | list[Any] | str] = None,
+) -> tuple[bool, str]:
+    """判定是否属于外部依赖问题。
+
+    【P0-2 严格去自报】dependency 出口只由执行层证据触发（output_status in {ERROR,CIRCUIT_OPEN}、
+    tool_success=False、authenticity_pass=False 等），严禁 LLM 根因自报触发或阻断发布。
+    """
+    # 1. 依据 tool trace dict 执行层失败特征
+    if isinstance(tool_trace, dict):
+        if tool_trace.get("is_dependency_failure"):
+            return True, f"tool trace 标记依赖失败: {tool_trace.get('failure_type', 'DEPENDENCY_ERROR')} - {tool_trace.get('error_message', '')}"
+        if tool_trace.get("failure_type") in (
+            "DEPENDENCY_ERROR", "LLM_ERROR", "NETWORK_ERROR", "TOOL_NOT_FOUND", "CIRCUIT_OPEN"
+        ):
+            return True, f"tool trace 识别执行层依赖异常: {tool_trace.get('failure_type')}"
+        if tool_trace.get("failed_phase") in ("tool_execution", "sandbox") and tool_trace.get("failure_type") not in ("NONE", "INVALID"):
+            return True, f"tool trace 执行阶段异常: {tool_trace.get('failed_phase')} ({tool_trace.get('failure_type')})"
+        for p in tool_trace.get("tool_provenances", []):
+            status = p.get("output_status", "") if isinstance(p, dict) else getattr(p, "output_status", "")
+            success = p.get("tool_success", True) if isinstance(p, dict) else getattr(p, "tool_success", True)
+            auth = p.get("authenticity_pass", True) if isinstance(p, dict) else getattr(p, "authenticity_pass", True)
+            tool_name = p.get("tool_name", "") if isinstance(p, dict) else getattr(p, "tool_name", "")
+            if status in ("ERROR", "CIRCUIT_OPEN") or not success or not auth:
+                return True, f"tool trace 凭证异常: 工具 `{tool_name}` 状态 {status}"
+
+    # 2. 依据 tool trace list 执行层失败特征
+    elif isinstance(tool_trace, list):
+        for p in tool_trace:
+            status = p.get("output_status", "") if isinstance(p, dict) else getattr(p, "output_status", "")
+            success = p.get("tool_success", True) if isinstance(p, dict) else getattr(p, "tool_success", True)
+            auth = p.get("authenticity_pass", True) if isinstance(p, dict) else getattr(p, "authenticity_pass", True)
+            tool_name = p.get("tool_name", "") if isinstance(p, dict) else getattr(p, "tool_name", "")
+            if status in ("ERROR", "CIRCUIT_OPEN") or not success or not auth:
+                return True, f"tool trace 列表凭证异常: 工具 `{tool_name}` 状态 {status}"
+
+    # 彻底删除 LLM 根因自报触发路径（无执行层证据时不得阻断/触发 dependency 出口）
+    return False, ""
+
+
+def _analyze_root_cause(
+    llm,
+    meta,
+    body: str,
+    failures: list[Failure],
+    *,
+    relevant_body_sections: Optional[dict[str, str] | str] = None,
+    route_trace: Optional[dict[str, Any] | str] = None,
+    tool_trace: Optional[dict[str, Any] | list[Any] | str] = None,
+) -> list[RootCause]:
     fb = "\n".join(
         f"[{f.case_id}] query='{f.query}'\n"
         f"  losing_dims={f.losing_dims}\n"
@@ -420,9 +648,20 @@ def _analyze_root_cause(llm, meta, body: str, failures: list[Failure]) -> list[R
         f"  baseline(200): {f.output_baseline[:200]}\n"
         for f in failures[:5]
     )
+
+    body_sec_block = format_body_sections(relevant_body_sections, body=body)
+    route_block = format_routing_metadata(route_trace)
+    tool_block = format_execution_behavior(tool_trace)
+
     prompt = _ROOT_CAUSE_PROMPT.format(
-        name=meta.name, desc=meta.description, use_when=meta.use_when,
-        not_for=meta.not_for, kws=meta.trigger.keywords,
+        name=meta.name,
+        desc=meta.description,
+        use_when=meta.use_when,
+        not_for=meta.not_for,
+        kws=getattr(getattr(meta, "trigger", None), "keywords", []),
+        body_sections_block=body_sec_block,
+        routing_metadata_block=route_block,
+        execution_behavior_block=tool_block,
         failures_block=fb,
     )
     resp = llm.invoke([{"role": "user", "content": prompt}])
@@ -433,15 +672,25 @@ def _analyze_root_cause(llm, meta, body: str, failures: list[Failure]) -> list[R
     except Exception:
         return []
     causes = []
+    valid_labels = (
+        "trigger_inaccurate",
+        "prompt_vague",
+        "deps_broken",
+        "boundary_missing",
+        "eval_noise",
+        "dependency",
+    )
     for label, item in data.items():
-        if label in ("trigger_inaccurate", "prompt_vague", "deps_broken", "boundary_missing"):
+        if label in valid_labels and isinstance(item, dict):
+            normalized_label = "deps_broken" if label == "dependency" else label
             causes.append(RootCause(
-                label=label,  # type: ignore
+                label=normalized_label,  # type: ignore
                 prob=float(item.get("prob", 0)),
                 why=str(item.get("why", "")),
             ))
     causes.sort(key=lambda x: -x.prob)
     return causes
+
 
 
 # =============== Step 3: 生成候选 ===============
@@ -691,12 +940,14 @@ def _validate_patch(
 
                 judge_llm = getattr(getattr(evaluator, "judge", None), "llm", None)
                 cache_obj = getattr(evaluator, "output_cache", None)
+                route_obj = getattr(evaluator, "router", None)
                 try:
                     temp_eval = SkillEvaluator(
                         registry=temp_reg,
                         llm=getattr(evaluator, "llm", None),
                         judge_llm=judge_llm,
                         output_cache=cache_obj,
+                        router=route_obj,
                     )
                 except TypeError:
                     temp_eval = SkillEvaluator(
@@ -838,6 +1089,7 @@ def _publish_patch(
     verdict: RatchetVerdict,
     new_result: EvalResult,
     budget: Optional[EvolveBudget] = None,
+    root_causes: Optional[list[RootCause]] = None,
 ) -> dict:
     """
     分级发布：
@@ -849,7 +1101,7 @@ def _publish_patch(
     Returns: {"status": "PUBLISHED/REVIEW/SUGGESTION/DECLINED", "path/release_id": ...}
     """
     if verdict.decision == "DECLINED":
-        path = _archive_failure(repo_root, skill_name, patch, verdict, new_result, None)
+        path = _archive_failure(repo_root, skill_name, patch, verdict, new_result, None, root_causes=root_causes)
         patch.status = "DECLINED"
         return {"status": "DECLINED", "path": str(path)}
 
@@ -875,12 +1127,12 @@ def _publish_patch(
             patch.status = "PUBLISHED"
             return {"status": "PUBLISHED", "release_id": release_id, "path": ""}
         except Exception as e:
-            path = _archive_failure(repo_root, skill_name, patch, verdict, new_result, f"发布失败: {e}")
+            path = _archive_failure(repo_root, skill_name, patch, verdict, new_result, f"发布失败: {e}", root_causes=root_causes)
             patch.status = "DECLINED"
             return {"status": "DECLINED", "path": str(path)}
 
     # 其他情况：只出建议
-    path = _archive_suggestion(repo_root, skill_name, patch, verdict, new_result)
+    path = _archive_suggestion(repo_root, skill_name, patch, verdict, new_result, root_causes=root_causes)
     status = (
         "REVIEW"
         if (
@@ -925,6 +1177,7 @@ def _apply_and_publish_L1(
 def _archive_suggestion(
     repo_root: Path, skill_name: str, patch: Patch,
     verdict: RatchetVerdict, new_result: EvalResult,
+    root_causes: Optional[list[RootCause]] = None,
 ) -> Path:
     sug_dir = repo_root / "runs" / "suggestions"
     sug_dir.mkdir(parents=True, exist_ok=True)
@@ -942,14 +1195,83 @@ def _archive_suggestion(
     path.write_text(_render_archive_md(
         title=title,
         patch=patch, verdict=verdict, new_score=total, error=None,
+        root_causes=root_causes,
     ), encoding="utf-8")
     return path
+
+
+def _archive_dependency_diagnostic(
+    repo_root: Path,
+    skill_name: str,
+    root_causes: list[RootCause],
+    tool_trace: Any,
+    dep_reason: str,
+    meta: Any,
+    body: str,
+    failures: list[Failure],
+) -> Path:
+    """外部依赖故障诊断归档（REVIEW 出口），不生成 prompt 文案 patch。"""
+    sug_dir = repo_root / "runs" / "suggestions"
+    sug_dir.mkdir(parents=True, exist_ok=True)
+    fname = f"{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{skill_name}-dependency-diagnostic.md"
+    path = sug_dir / fname
+
+    lines = [
+        f"# [REVIEW / DEPENDENCY_DIAGNOSTIC] {skill_name}",
+        "",
+        f"- ts: {datetime.now(timezone.utc).isoformat()}",
+        "- status: REVIEW",
+        "- decision: REVIEW",
+        "- level: L3",
+        "- patch_generated: false",
+        f"- dependency_reason: {dep_reason}",
+        "",
+        "## 根因诊断 (Root Cause Diagnostics - Informational Only)",
+        "- 规则说明: 根因概率仅供辅助阅读诊断，不参与自动发布门判定",
+    ]
+    if root_causes:
+        for rc in root_causes:
+            lines.append(f"- cause: {rc.label} (prob={rc.prob:.2f}) - {rc.why}")
+    else:
+        lines.append("- cause: deps_broken (由执行层行为轨迹直接判定)")
+
+    lines.append("")
+    lines.append("## 执行层行为轨迹 (Execution Behavior / Tool Trace)")
+    if isinstance(tool_trace, dict):
+        lines.append(f"- failed_phase: {tool_trace.get('failed_phase', 'unknown')}")
+        lines.append(f"- failure_type: {tool_trace.get('failure_type', 'unknown')}")
+        lines.append(f"- error_message: {tool_trace.get('error_message', 'none')}")
+        lines.append(f"- is_dependency_failure: {tool_trace.get('is_dependency_failure', True)}")
+        provs = tool_trace.get("tool_provenances", [])
+        if provs:
+            lines.append("- 工具调用凭据:")
+            for p in provs:
+                if isinstance(p, dict):
+                    lines.append(f"  * tool={p.get('tool_name')} status={p.get('output_status')} summary={p.get('output_summary', '')[:80]}")
+    elif isinstance(tool_trace, str):
+        lines.append(tool_trace)
+    else:
+        lines.append("（无额外轨迹数据）")
+
+    lines.append("")
+    lines.append("## 处置建议 (Actionable Advice)")
+    lines.append("- 外部依赖故障（LLM服务不可用/网络中断/工具缺失/熔断触发）。")
+    lines.append("- 修改 Prompt/SKILL.md 文案对解决依赖问题无效，系统已阻断文案 patch 生成。")
+    lines.append("- 请排查外部依赖服务、网络连接或环境配置后重新执行评估。")
+    lines.append("")
+    lines.append("## 提案状态")
+    lines.append("（诊断归档：外部依赖问题，不产出文案 patch，状态为 REVIEW）")
+
+    path.write_text("\n".join(lines), encoding="utf-8")
+    return path
+
 
 
 def _archive_failure(
     repo_root: Path, skill_name: str, patch: Patch,
     verdict: Optional[RatchetVerdict], new_result: Optional[EvalResult],
     error: Optional[str],
+    root_causes: Optional[list[RootCause]] = None,
 ) -> Path:
     fail_dir = repo_root / "runs" / "failures"
     fail_dir.mkdir(parents=True, exist_ok=True)
@@ -966,6 +1288,7 @@ def _archive_failure(
     path.write_text(_render_archive_md(
         title=title,
         patch=patch, verdict=verdict, new_score=total, error=error,
+        root_causes=root_causes,
     ), encoding="utf-8")
     return path
 
@@ -973,6 +1296,7 @@ def _archive_failure(
 def _render_archive_md(
     title: str, patch: Patch,
     verdict: Optional[RatchetVerdict], new_score: Optional[float], error: Optional[str],
+    root_causes: Optional[list[RootCause]] = None,
 ) -> str:
     lines = [f"# {title}", ""]
     lines.append(f"- ts: {datetime.now(timezone.utc).isoformat()}")
@@ -997,6 +1321,13 @@ def _render_archive_md(
         lines.append(f"- candidate_body_stats: {json.dumps(patch.candidate_body_stats, ensure_ascii=False)}")
     if error:
         lines.append(f"- error: {error}")
+    if root_causes:
+        lines.append("")
+        lines.append("## 根因辅助阅读 (Root Cause Diagnostics - Informational Only)")
+        lines.append("- 规则说明: 根因概率仅供辅助阅读诊断，不参与自动发布门判定")
+        for rc in root_causes:
+            lines.append(f"- cause: {rc.label} (prob={rc.prob:.2f}) - {rc.why}")
+
     lines.append("")
     if patch.provenances:
         lines.append("## 工具调用存据 (Tool Call Provenance)")

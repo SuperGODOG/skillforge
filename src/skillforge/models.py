@@ -39,6 +39,8 @@ class RouteResult:
     hit_layer: Literal["rule", "embed", "llm"]
     scores: dict
     latency_ms: float
+    matched_keywords: list[str] = field(default_factory=list)
+    routing_notes: str = ""
 
 
 @dataclass(frozen=True)
@@ -80,6 +82,13 @@ class EvalResult:
     valid: bool = True
     invalid_reasons: list[str] = field(default_factory=list)
     p0_gate_result: Optional[Any] = None
+    # P0-1 路由判定链真实字段；等级字段属于 Patch/diff，不属于 Router。
+    hit_layer: Optional[str] = None
+    verdict: Optional[str] = None
+    matched_keywords: list[str] = field(default_factory=list)
+    routing_notes: Optional[str] = None
+    route_result: Optional[RouteResult] = None
+    route_error: Optional[str] = None
 
 
 @dataclass
