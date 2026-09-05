@@ -133,7 +133,9 @@ def main() -> int:
 
     targets = []
     if args.all:
-        targets = [(c, s) for c in CONFIGS for s in SKILLS]
+        for c in CONFIGS:  # 每配置 runs 次，4/3/3 轮转（与 --config 同逻辑）
+            per = [args.runs // 3 + (1 if i < args.runs % 3 else 0) for i in range(3)]
+            targets += [(c, s) for s, cnt in zip(SKILLS, per) for _ in range(cnt)]
     elif args.config:
         n = args.runs
         per = [n // 3 + (1 if i < n % 3 else 0) for i in range(3)]
