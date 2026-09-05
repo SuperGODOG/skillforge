@@ -32,6 +32,8 @@ def _judge_json(verdict: str) -> str:
 
 
 def _provenance(*, authentic: bool = True) -> ToolCallProvenance:
+    snapshot_content = '{"forecasts":[],"status":"1"}'
+    snapshot_id = hashlib.sha256(snapshot_content.encode("utf-8")).hexdigest()
     item = ToolCallProvenance(
         tool_name="weather",
         fixture_case_id="weather.v1",
@@ -44,10 +46,12 @@ def _provenance(*, authentic: bool = True) -> ToolCallProvenance:
         authenticity_pass=authentic,
         input_params={},
         output_status="SUCCESS",
-        output_summary="ok",
+        output_summary=f"[snapshot:{snapshot_id}] ok",
         latency_ms=1.0,
         timestamp="2026-09-04T00:00:00+00:00",
         signature="",
+        snapshot_id=snapshot_id,
+        snapshot_content=snapshot_content,
     )
     canonical = json.dumps(
         {key: value for key, value in vars(item).items() if key != "signature"},
