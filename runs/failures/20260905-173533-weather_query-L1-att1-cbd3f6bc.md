@@ -1,0 +1,102 @@
+# [DECLINED / L1] weather_query
+
+- ts: 2026-09-05T17:35:33.752647+00:00
+- attempt_no: 1
+- round_no: 1
+- candidate_digest: cbd3f6bcc93e9d46c2a2e3685b7cb3fc73e055fb5a9352617a9a5d0430bb20ea
+- shadow_mode: true
+- level: L1
+- declared_level: L1
+- computed_level: L1
+- downgrade_attempt: false
+- level_decision: 模型声明与确定性计算一致（L1）
+- rationale: 在 examples 中加入与失败样本同型的“出差 + 这几天 + 穿衣”查询，低成本提高此类意图的识别命中率，只改 frontmatter examples。
+- new_score: 55.00 / 100
+- ratchet: DECLINED
+- reasons:
+  - 基线未通过 P0 门或评估无效，按 fail-closed 拒绝放行 L1 补丁
+- reason_codes:
+  - 基线未通过 P0 门或评估无效，按 fail-closed 拒绝放行 L1 补丁
+- baseline_body_stats: {"Overview": 83, "Instructions": 362, "Examples": 78, "Constraints": 105, "total": 693}
+- candidate_body_stats: {"Overview": 83, "Instructions": 362, "Examples": 78, "Constraints": 105, "total": 693}
+
+## 差异对比 (Unified Diff)
+````diff
+--- old/SKILL.md
++++ new/SKILL.md
+@@ -1,6 +1,6 @@
+ ---
+ name: weather_query
+-version: 1.0.0
++version: 1.0.1
+ description: 查询指定城市的实时天气与未来 3 天预报
+ use_when: 用户询问某城市当前或未来几天的天气、温度、降水情况
+ not_for:
+@@ -20,6 +20,8 @@
+ - 北京今天天气
+ - 上海明天会下雨吗
+ - 广州这周末温度多少
++- 我要去南京出差，看下这几天穿衣建议
++- 深圳明天穿什么
+ ---
+ 
+ ## Overview
+````
+
+## 完整新 SKILL.md
+````markdown
+---
+name: weather_query
+version: 1.0.1
+description: 查询指定城市的实时天气与未来 3 天预报
+use_when: 用户询问某城市当前或未来几天的天气、温度、降水情况
+not_for:
+- 历史天气查询（早于今天的日期）
+- 气候趋势、平均温度等气候学分析
+- 天气原理、气象学知识讲解
+dependencies:
+- amap_weather_api
+trigger:
+  keywords:
+  - 天气
+  - 温度
+  - 下雨
+  - 降水
+  - 气温
+examples:
+- 北京今天天气
+- 上海明天会下雨吗
+- 广州这周末温度多少
+- 我要去南京出差，看下这几天穿衣建议
+- 深圳明天穿什么
+---
+
+## Overview
+
+查询指定城市的实时与短期预报天气。返回结构化天气数据（温度 / 天气现象 / 湿度 / 风力）。
+
+**能力边界**：只覆盖今天起未来 3 天，超出范围明确降级说明。
+
+## Instructions
+
+1. 从用户查询中抽取 **城市名** 和 **时间窗口**（今天 / 明天 / 后天 / 这周末）。
+2. 调用 `amap_weather_api`，参数：
+   - `city`: 抽取到的城市（转成标准行政区名，"上海" → "上海市"）
+   - `extensions`: `"all"`（返回预报）
+3. 从返回 JSON 中提取 `forecasts[0].casts[i]`，`i` 对应目标时间窗口。
+4. 组装为自然语言回答：**日期 + 白天/夜间天气 + 温度区间 + 风力**；若询问降水概率，提取对应 cast 的 `precipitation_probability` 并标明百分号。
+5. 若请求穿衣建议，必须基于目标日期的温度回答；若询问出海，只依据风向/风力给谨慎建议，不替代海事判断。
+
+## Examples
+
+**Q**：北京明天天气？
+
+**A**：
+> 明天（次日）北京：白天晴，最高 32°C；夜间多云，最低 24°C；南风 3-4 级。建议户外活动注意防晒。
+
+## Constraints
+
+- 用户问的日期若超出未来 3 天：明确告知"我只能查未来 3 天，更长期需别的气象服务"。
+- 城市名解析失败：先向用户确认，不要瞎猜。
+- API 返回错误：告知"当前无法获取该城市天气"，不生成虚构数据。
+````
