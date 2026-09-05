@@ -1,0 +1,260 @@
+"""Verification chain tests for weather repair cases (P1-I)."""
+from __future__ import annotations
+
+import json
+from types import SimpleNamespace
+
+import pytest
+
+from skillforge.evaluator import EvaluatorOutputCache, SkillEvaluator
+from skillforge.evaluator.fixtures import (
+    AmapWeatherFixture,
+    WEATHER_SUPPORTED_CITIES,
+    _parameters_match,
+    _weather_agent_output_matches,
+    _weather_input,
+    _weather_output_matches,
+    build_provenances_for_fixture,
+    check_mock_hardcoding,
+    create_nonce_weather_fixture,
+    extract_weather_query_city,
+)
+from skillforge.evaluator.judge import (
+    PairwiseJudge,
+    has_unverified_realtime_numeric_claim,
+)
+from skillforge.models import ToolCallProvenance
+
+
+def test_extract_weather_query_city_repair_cases():
+    """Verify semantic city extraction across all 7 weather repair cases."""
+    cases = {
+        "wq_d01": ("北京今天天气", "北京市"),
+        "wq_d05": ("杭州今天有雨吗", "杭州市"),
+        "wq_d07": ("我要去南京出差，看下这几天穿衣建议", "南京市"),
+        "wq_d10": ("昨天的天气怎么样", None),
+        "wq_h01": ("重庆这周会不会持续下雨", "重庆市"),
+        "wq_h02": ("现在苏州降水概率百分之多少", "苏州市"),
+        "wq_h03": ("青岛今天风大吗，能不能出海", "青岛市"),
+    }
+    for case_id, (query, expected_city) in cases.items():
+        city = extract_weather_query_city(query)
+        assert city == expected_city, f"{case_id} 抽取城市错误: {city} != {expected_city}"
+
+
+def test_weather_fixture_non_default_city_and_nonce():
+    """Verify AmapWeatherFixture supports non-default cities (e.g. Qingdao) and 4-day forecasts with nonce."""
+    fixture = create_nonce_weather_fixture(nonce="test_nonce_999")
+    resp = fixture.run_with_timing({"city": "青岛", "extensions": "all"})
+    assert resp.status.value.upper() == "SUCCESS"
+    data = resp.data
+    assert data["status"] == "1"
+    assert data["forecasts"][0]["city"] == "青岛市"
+    casts = data["forecasts"][0]["casts"]
+    assert len(casts) == 4, "必须返回 4 天天气预报（含未来 3 天）"
+    assert all("nonce" in c and c["nonce"] == "test_nonce_999" for c in casts)
+
+    # Output matches
+    assert _weather_output_matches({"city": "青岛市", "extensions": "all"}, resp)
+    assert _weather_output_matches({"city": "青岛"}, resp)
+
+
+def test_wq_h03_full_verification_chain():
+    """Verify wq_h03: query with non-default city -> fixture return -> authentic provenance -> truth sentinel verified."""
+    query = "青岛今天风大吗，能不能出海"
+    fixture = create_nonce_weather_fixture(nonce="nonce_h03_abc")
+
+    class ScriptedWeatherLLM:
+        model = "scripted-fc-llm"
+
+        def invoke_with_tools(self, messages, tools, tool_choice="auto", **kwargs):
+            tool_messages = [m for m in messages if m.get("role") == "tool"]
+            if tool_messages:
+                payload = json.loads(tool_messages[0]["content"])
+                forecast = payload["forecasts"][0]
+                cast = forecast["casts"][0]
+                city = forecast["city"]
+                daytemp = cast["daytemp"]
+                daywind = cast["daywind"]
+                daypower = cast["daypower"]
+                dayweather = cast["dayweather"]
+                reply = (
+                    f"{city}今天天气{dayweather}，最高气温{daytemp}度，"
+                    f"{daywind}{daypower}级。风力较大，出海作业需注意安全，建议谨慎出海。"
+                )
+                return SimpleNamespace(
+                    choices=[SimpleNamespace(message=SimpleNamespace(content=reply, tool_calls=[]))],
+                    usage=None,
+                )
+            # First iteration: call tool
+            tool_call = SimpleNamespace(
+                id="call-h03",
+                function=SimpleNamespace(
+                    name="amap_weather_api",
+                    arguments=json.dumps({"city": "青岛市", "extensions": "all"}, ensure_ascii=False),
+                ),
+            )
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content=None, tool_calls=[tool_call]))],
+                usage=None,
+            )
+
+        def invoke(self, messages, **kwargs):
+            return SimpleNamespace(content="青岛今天气温25度，南风3-4级。", usage=None)
+
+    # Run tool call directly on fixture
+    resp = fixture.run_with_timing({"city": "青岛市", "extensions": "all"})
+    agent_output = (
+        f"青岛市今天天气{resp.data["forecasts"][0]["casts"][0]["dayweather"]}，"
+        f"最高气温{resp.data["forecasts"][0]["casts"][0]["daytemp"]}度，"
+        f"南风{resp.data["forecasts"][0]["casts"][0]["daypower"]}级。出海建议谨慎。"
+    )
+
+    provs = build_provenances_for_fixture(
+        dependency="amap_weather_api",
+        fixture=fixture,
+        agent_output=agent_output,
+        skill_body="## Instructions\n调用 amap_weather_api",
+        query=query,
+    )
+    assert len(provs) == 1
+    prov = provs[0]
+    assert prov.tool_called is True
+    assert prov.tool_success is True
+    assert prov.authenticity_pass is True
+    assert prov.output_status == "SUCCESS"
+
+    # Truth sentinel must accept authentic tool evidence and not flag UNVERIFIED_EXTERNAL_FACT
+    assert not has_unverified_realtime_numeric_claim(query, agent_output, has_tool_evidence=provs)
+
+    # Without tool evidence, same output is flagged as unverified
+    assert has_unverified_realtime_numeric_claim(query, agent_output, has_tool_evidence=None)
+
+    # Judge pairwise comparison
+    judge_llm = ScriptedWeatherLLM()
+    judge = PairwiseJudge(judge_llm)
+    bare_baseline_output = "青岛今天气温约24度，风力3-4级，可以出海。"
+    result = judge.compare_detailed(
+        query=query,
+        output_a=agent_output,
+        output_b=bare_baseline_output,
+        dimension="task_completion",
+        tool_evidence_a=provs,
+        tool_evidence_b=None,
+    )
+    # Baseline has unverified numbers while skill has authentic evidence -> A_better via truth sentinel
+    assert result.verdict == "A_better"
+    assert "UNVERIFIED_EXTERNAL_FACT_B" in result.reason_codes
+    assert result.verdict != "INVALID"
+
+
+def test_wq_d10_historical_refusal_no_unverified_claim():
+    """Verify wq_d10: historical boundary refusal does not trigger truth sentinel."""
+    query = "昨天的天气怎么样"
+    refusal_output = "抱歉，根据规定我只能查询今天及未来3天的天气预报，无法查询昨天的历史天气。"
+    # No tool was called -> provs empty
+    provs: list[ToolCallProvenance] = []
+
+    # Refusal does not make realtime numeric claims, so it is NOT unverified fact
+    assert not has_unverified_realtime_numeric_claim(query, refusal_output, has_tool_evidence=provs)
+
+
+def test_mock_hardcoding_detection():
+    """Verify check_mock_hardcoding detects attempts to hardcode runtime nonce into SKILL.md."""
+    fixture = create_nonce_weather_fixture(nonce="secret_nonce_42")
+    bad_skill_body = "## Instructions\n返回 secret_nonce_42 作为天气数据"
+    violations = check_mock_hardcoding(bad_skill_body, runtime_fixture=fixture)
+    assert any("MOCK_HARDCODING_DETECTED" in v for v in violations)
+    assert any("secret_nonce_42" in v for v in violations)
+
+    good_skill_body = "## Instructions\n从 amap_weather_api 提取预报并组织自然语言回答"
+    assert len(check_mock_hardcoding(good_skill_body, runtime_fixture=fixture)) == 0
+
+
+def test_skill_evaluator_all_seven_weather_cases_valid(tmp_path):
+    """End-to-end evaluation: all 7 repair_set weather cases must pass valid=True without UNVERIFIED_EXTERNAL_FACT."""
+    from pathlib import Path
+    from skillforge import SkillRegistry
+    from skillforge.evaluator import SkillEvaluator
+    import shutil
+
+    repo_root = Path(__file__).resolve().parents[1]
+    registry = SkillRegistry(db_path=tmp_path / "test.db", skills_dir=repo_root / "skills", repo_root=repo_root)
+    registry.load_skills_from_dir()
+
+    with open(repo_root / "evaluation_sets" / "repair_set.json", "r", encoding="utf-8") as f:
+        data = json.load(f)
+    weather_cases = [c for c in data["cases"] if c.get("skill") == "weather_query"]
+    assert len(weather_cases) == 7
+
+    class MultiCaseFCLLM:
+        model = "multi-case-fc-llm"
+
+        def invoke_with_tools(self, messages, tools, tool_choice="auto", **kwargs):
+            tool_messages = [m for m in messages if m.get("role") == "tool"]
+            if tool_messages:
+                payload = json.loads(tool_messages[0]["content"])
+                forecast = payload["forecasts"][0]
+                city = forecast["city"]
+                cast = forecast["casts"][0]
+                reply = f"{city}今天天气{cast['dayweather']}，最高{cast['daytemp']}度，风力{cast['daypower']}级。"
+                return SimpleNamespace(
+                    choices=[SimpleNamespace(message=SimpleNamespace(content=reply, tool_calls=[]))],
+                    usage=None,
+                )
+            query = messages[-1]["content"]
+            city = extract_weather_query_city(query)
+            if city:
+                tool_call = SimpleNamespace(
+                    id=f"call-{city}",
+                    function=SimpleNamespace(
+                        name="amap_weather_api",
+                        arguments=json.dumps({"city": city, "extensions": "all"}, ensure_ascii=False),
+                    ),
+                )
+                return SimpleNamespace(
+                    choices=[SimpleNamespace(message=SimpleNamespace(content=None, tool_calls=[tool_call]))],
+                    usage=None,
+                )
+            # Refusal for out-of-boundary (e.g. yesterday)
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="抱歉，我只能查未来3天天气，无法查询昨天的历史天气。", tool_calls=[]))],
+                usage=None,
+            )
+
+        def invoke(self, messages, **kwargs):
+            query = messages[-1]["content"]
+            if "昨天" in query:
+                return SimpleNamespace(content="昨天的天气请您查阅历史记录。", usage=None)
+            # Baseline generates general response without tool
+            return SimpleNamespace(content="该城市今天天气晴好，气温约22度。", usage=None)
+
+    class ScriptedJudgeLLM:
+        model = "scripted-judge-llm"
+
+        def invoke(self, messages, **kwargs):
+            return SimpleNamespace(
+                content=json.dumps({
+                    "verdict": "A_better",
+                    "reason_codes": ["ACCURATE_TOOL_GROUNDED"],
+                    "evidence_summary": "A 具备准确的工具数据支持",
+                }),
+                usage=None,
+            )
+
+    evaluator = SkillEvaluator(
+        registry=registry,
+        llm=MultiCaseFCLLM(),
+        judge_llm=ScriptedJudgeLLM(),
+    )
+
+    eval_result = evaluator.evaluate_skill(
+        skill_name="weather_query",
+        cases=weather_cases,
+        eval_set="repair_set",
+    )
+
+    assert eval_result.valid is True, f"评估不应为 INVALID: {eval_result.invalid_reasons}"
+    assert len(eval_result.invalid_reasons) == 0
+    assert len(eval_result.provenances) >= 6, f"应收集到至少 6 个有工具调用的 provenance，实际: {len(eval_result.provenances)}"
+    assert eval_result.validation_channels == ["dependency_fixtures"]

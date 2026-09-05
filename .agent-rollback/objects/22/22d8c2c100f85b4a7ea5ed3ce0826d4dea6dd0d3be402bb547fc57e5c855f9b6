@@ -1,0 +1,149 @@
+# [SHADOW / REVIEW / L2] weather_query
+
+- ts: 2026-09-05T11:46:53.869589+00:00
+- attempt_no: 2
+- round_no: 1
+- candidate_digest: 31a466845fa4eb4ccc6cd015489fbff474a1b20e824d815c3f3219ef5074c46f
+- shadow_mode: true
+- final_audit_gate_passed: true
+- final_audit_gate_verdict: PASS
+- final_audit_gate_score: 90.00
+- final_audit_gate_reasons:
+  - final_audit 独立终审门通过
+- level: L2
+- declared_level: L2
+- computed_level: L2
+- downgrade_attempt: false
+- level_decision: 模型声明与确定性计算一致（L2）
+- rationale: 把失败样本对应的时间窗口和查询意图解析补全到 Instructions：有雨判断、降水概率降级、穿衣建议、多日持续降雨总结；提升 robustness 与 readability。
+- new_score: 78.92 / 100
+- ratchet: REVIEW
+- reasons:
+  - NEIGHBOR_VARIANT_MISMATCH: 失败 query 邻近变体 '上海市今天天气' 未路由到 weather_query (chosen=None)
+  - NEIGHBOR_VARIANT_MISMATCH: 失败 query 邻近变体 '广州市今天天气' 未路由到 weather_query (chosen=None)
+  - NEIGHBOR_VARIANT_MISMATCH: 失败 query 邻近变体 '北京明天天气' 未路由到 weather_query (chosen=None)
+  - NEIGHBOR_VARIANT_MISMATCH: 失败 query 邻近变体 '北京后天天气' 未路由到 weather_query (chosen=None)
+  - NEIGHBOR_VARIANT_MISMATCH: 失败 query 邻近变体 '北京本周六天气' 未路由到 weather_query (chosen=None)
+  - NEIGHBOR_VARIANT_MISMATCH: 失败 query 邻近变体 '请详细解答：北京今天天气' 未路由到 weather_query (chosen=None)
+- reason_codes:
+  - NEIGHBOR_VARIANT_MISMATCH: 失败 query 邻近变体 '上海市今天天气' 未路由到 weather_query (chosen=None)
+  - NEIGHBOR_VARIANT_MISMATCH: 失败 query 邻近变体 '广州市今天天气' 未路由到 weather_query (chosen=None)
+  - NEIGHBOR_VARIANT_MISMATCH: 失败 query 邻近变体 '北京明天天气' 未路由到 weather_query (chosen=None)
+  - NEIGHBOR_VARIANT_MISMATCH: 失败 query 邻近变体 '北京后天天气' 未路由到 weather_query (chosen=None)
+  - NEIGHBOR_VARIANT_MISMATCH: 失败 query 邻近变体 '北京本周六天气' 未路由到 weather_query (chosen=None)
+  - NEIGHBOR_VARIANT_MISMATCH: 失败 query 邻近变体 '请详细解答：北京今天天气' 未路由到 weather_query (chosen=None)
+- distillation_prompt: 段落 'Instructions' 超限：增长 +810 字符（320.2%，基线 253→1063），触发软门槛（>25% 且 >100 字符）；建议精简收敛 'Instructions' 段，去除冗余说明并保持核心语义约束。; 整体 Body 文本膨胀超限：净增 +810 字符（2.39x，基线 584→1394），触发全 Body 倍数门（>1.20x 且净增 >100 字符）；建议跨段落综合精简压缩。
+- baseline_body_stats: {"Overview": 83, "Instructions": 253, "Examples": 78, "Constraints": 105, "total": 584}
+- candidate_body_stats: {"Overview": 83, "Instructions": 1063, "Examples": 78, "Constraints": 105, "total": 1394}
+
+## 差异对比 (Unified Diff)
+````diff
+--- old/SKILL.md
++++ new/SKILL.md
+@@ -1,6 +1,6 @@
+ ---
+ name: weather_query
+-version: 1.0.0
++version: 1.0.1
+ description: 查询指定城市的实时天气与未来 3 天预报
+ use_when: 用户询问某城市当前或未来几天的天气、温度、降水情况
+ not_for:
+@@ -30,12 +30,24 @@
+ 
+ ## Instructions
+ 
+-1. 从用户查询中抽取 **城市名** 和 **时间窗口**（今天 / 明天 / 后天 / 这周末）。
+-2. 调用 `amap_weather_api`，参数：
+-   - `city`: 抽取到的城市（转成标准行政区名，"上海" → "上海市"）
+-   - `extensions`: `"all"`（返回预报）
+-3. 从返回 JSON 中提取 `forecasts[0].casts[i]`，`i` 对应目标时间窗口。
+-4. 组装为自然语言回答：**日期 + 白天/夜间天气 + 温度区间 + 风力**。
++1. 从用户查询中抽取 **城市名** 和 **时间窗口**，先把时间口语映射到 `casts` 下标：
++   - “当前/现在/今天” → `casts[0]`；“明天” → `casts[1]`；“后天” → `casts[2]`
++   - “这几天/这周/未来3天” → `casts[0]`、`casts[1]`、`casts[2]`
++   - “这周末”如果落在 3 天能力范围内则取对应日期；否则按“超出可查范围”引导
++2. 识别用户的**天气问题形态**：
++   - “有雨吗 / 下雨吗 / 会不会下雨”：检查目标日期的 `dayweather`、`nightweather` 是否含“雨”。白天/夜间任一含“雨”即回答“有雨”；否则回答“无雨”。
++   - “降水概率”：若 API 返回数据中没有明确的概率字段，不编造百分比；回答“天气预报未提供降水概率，只能告诉您是否有降水及天气现象”。
++   - “穿衣建议/出差/这几天适合穿什么”：先给出对应日期的天气事实，再给一句由温差和天气现象推导的通用建议（如有雨带伞/高温防晒/早晚加衣）。
++3. 调用 `amap_weather_api`，参数：
++   - `city`: 抽取到的城市（转成标准行政区名，如 `上海` → `上海市`）
++   - `extensions`: `all`（返回预报）
++4. 从返回 JSON 中提取数据：
++   - 当前实时优先：若用户问“现在/实时”且返回含 `lives[0]`，使用 `lives[0]` 的 `weather`、`temperature`、`humidity`、`windpower`，并说明是“实时实况”。
++   - 预报日期：单日取 `forecasts[0].casts[下标]`；多日则遍历对应多个 `casts`，读取 `date`、`dayweather`、`nightweather`、`daytemp`、`nighttemp`、`daywind`、`daypower`、`nightwind`、`nightpower`。
++5. 组装为自然语言回答：
++   - 单日模板：**{对应日期}{城市}：白天{白天天气}，最高{日温}°C；夜间{夜间天气}，最低{夜温}°C；{风力}。**
++   - 多日模板：按日期逐条列出；若问“是否持续下雨”，在列表后总结“未来几天{都有/部分有/基本没有}降水”。
++   - 回答中保留“当前实况”与“今日预报”的区别，不把实时信息描述成未来预报。
+ 
+ ## Examples
+ 
+````
+
+## 完整新 SKILL.md
+````markdown
+---
+name: weather_query
+version: 1.0.1
+description: 查询指定城市的实时天气与未来 3 天预报
+use_when: 用户询问某城市当前或未来几天的天气、温度、降水情况
+not_for:
+- 历史天气查询（早于今天的日期）
+- 气候趋势、平均温度等气候学分析
+- 天气原理、气象学知识讲解
+dependencies:
+- amap_weather_api
+trigger:
+  keywords:
+  - 天气
+  - 温度
+  - 下雨
+  - 降水
+  - 气温
+examples:
+- 北京今天天气
+- 上海明天会下雨吗
+- 广州这周末温度多少
+---
+
+## Overview
+
+查询指定城市的实时与短期预报天气。返回结构化天气数据（温度 / 天气现象 / 湿度 / 风力）。
+
+**能力边界**：只覆盖今天起未来 3 天，超出范围明确降级说明。
+
+## Instructions
+
+1. 从用户查询中抽取 **城市名** 和 **时间窗口**，先把时间口语映射到 `casts` 下标：
+   - “当前/现在/今天” → `casts[0]`；“明天” → `casts[1]`；“后天” → `casts[2]`
+   - “这几天/这周/未来3天” → `casts[0]`、`casts[1]`、`casts[2]`
+   - “这周末”如果落在 3 天能力范围内则取对应日期；否则按“超出可查范围”引导
+2. 识别用户的**天气问题形态**：
+   - “有雨吗 / 下雨吗 / 会不会下雨”：检查目标日期的 `dayweather`、`nightweather` 是否含“雨”。白天/夜间任一含“雨”即回答“有雨”；否则回答“无雨”。
+   - “降水概率”：若 API 返回数据中没有明确的概率字段，不编造百分比；回答“天气预报未提供降水概率，只能告诉您是否有降水及天气现象”。
+   - “穿衣建议/出差/这几天适合穿什么”：先给出对应日期的天气事实，再给一句由温差和天气现象推导的通用建议（如有雨带伞/高温防晒/早晚加衣）。
+3. 调用 `amap_weather_api`，参数：
+   - `city`: 抽取到的城市（转成标准行政区名，如 `上海` → `上海市`）
+   - `extensions`: `all`（返回预报）
+4. 从返回 JSON 中提取数据：
+   - 当前实时优先：若用户问“现在/实时”且返回含 `lives[0]`，使用 `lives[0]` 的 `weather`、`temperature`、`humidity`、`windpower`，并说明是“实时实况”。
+   - 预报日期：单日取 `forecasts[0].casts[下标]`；多日则遍历对应多个 `casts`，读取 `date`、`dayweather`、`nightweather`、`daytemp`、`nighttemp`、`daywind`、`daypower`、`nightwind`、`nightpower`。
+5. 组装为自然语言回答：
+   - 单日模板：**{对应日期}{城市}：白天{白天天气}，最高{日温}°C；夜间{夜间天气}，最低{夜温}°C；{风力}。**
+   - 多日模板：按日期逐条列出；若问“是否持续下雨”，在列表后总结“未来几天{都有/部分有/基本没有}降水”。
+   - 回答中保留“当前实况”与“今日预报”的区别，不把实时信息描述成未来预报。
+
+## Examples
+
+**Q**：北京明天天气？
+
+**A**：
+> 明天（次日）北京：白天晴，最高 32°C；夜间多云，最低 24°C；南风 3-4 级。建议户外活动注意防晒。
+
+## Constraints
+
+- 用户问的日期若超出未来 3 天：明确告知"我只能查未来 3 天，更长期需别的气象服务"。
+- 城市名解析失败：先向用户确认，不要瞎猜。
+- API 返回错误：告知"当前无法获取该城市天气"，不生成虚构数据。
+````
