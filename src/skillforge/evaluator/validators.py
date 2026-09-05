@@ -9,7 +9,7 @@ from typing import Optional
 from ..models import RatchetVerdict, ToolCallProvenance
 from ..router import IntentRouter
 from ..router.evaluation import evaluate_router_cases
-from .fixtures import execute_dependency_fixtures
+from .fixtures import execute_dependency_fixtures, _FIXTURE_FACTORIES, check_mock_hardcoding
 
 
 def validate_router_patch(
@@ -186,6 +186,16 @@ def validate_dependency_patch(
         reasons.append(
             "已移除的 dependency 仍被 Body 引用: " + ", ".join(referenced_removed)
         )
+    for dep in dependencies:
+        factory = _FIXTURE_FACTORIES.get(dep)
+        if factory:
+            sample_fix = factory()
+            mock_reasons = check_mock_hardcoding(candidate_body, runtime_fixture=sample_fix)
+            if mock_reasons:
+                reasons.extend(mock_reasons)
+                passed = False
+    if any("MOCK_HARDCODING_DETECTED" in r for r in reasons):
+        passed = False
     if not provenances:
         passed = False
         reasons.append("dependency 改动未产生验证凭证，按 fail-closed 拒绝")

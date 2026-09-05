@@ -18,12 +18,13 @@ from ..models import BudgetExceededError, ToolCallProvenance
 class AmapWeatherFixture(Tool):
     """Offline adapter for the ``amap_weather_api`` dependency contract."""
 
-    def __init__(self) -> None:
+    def __init__(self, nonce: Optional[str | int] = None) -> None:
         super().__init__(
             name="amap_weather_api",
             description="受控的高德天气 API 验证 fixture",
         )
         self.call_history: list[dict[str, Any]] = []
+        self.nonce = nonce
 
     def get_parameters(self) -> list[ToolParameter]:
         return [
@@ -49,24 +50,28 @@ class AmapWeatherFixture(Tool):
 
         normalized_city = city.strip()
         seed = int(hashlib.sha256(normalized_city.encode("utf-8")).hexdigest()[:4], 16)
-        high = 20 + seed % 13
+        nonce_val = 0
+        if self.nonce is not None:
+            nonce_val = int(hashlib.sha256(str(self.nonce).encode("utf-8")).hexdigest()[:4], 16) % 11
+        high = 20 + (seed + nonce_val) % 13
         low = high - (5 + seed % 4)
+        cast_data = {
+            "date": date.today().isoformat(),
+            "dayweather": "晴",
+            "nightweather": "多云",
+            "daytemp": str(high),
+            "nighttemp": str(low),
+            "daywind": "南风",
+            "daypower": "3-4",
+        }
+        if self.nonce is not None:
+            cast_data["nonce"] = str(self.nonce)
         payload = {
             "status": "1",
             "forecasts": [
                 {
                     "city": normalized_city,
-                    "casts": [
-                        {
-                            "date": date.today().isoformat(),
-                            "dayweather": "晴",
-                            "nightweather": "多云",
-                            "daytemp": str(high),
-                            "nighttemp": str(low),
-                            "daywind": "南风",
-                            "daypower": "3-4",
-                        }
-                    ],
+                    "casts": [cast_data],
                 }
             ],
         }
@@ -83,7 +88,36 @@ class AmapWeatherFixture(Tool):
         return response
 
 
-_FIXTURE_FACTORIES = {"amap_weather_api": AmapWeatherFixture}
+def create_nonce_weather_fixture(nonce: Optional[str | int] = None) -> AmapWeatherFixture:
+    """Factory creating an AmapWeatherFixture with runtime nonce variation to prevent mock hardcoding."""
+    if nonce is None:
+        nonce = f"nonce_{time.time_ns()}"
+    return AmapWeatherFixture(nonce=nonce)
+
+
+def check_mock_hardcoding(
+    patch_text: str,
+    fixture_values: Optional[list[str]] = None,
+    runtime_fixture: Optional[Any] = None,
+) -> list[str]:
+    """Scan candidate SKILL.md to detect if runtime fixture values or static mock results were hardcoded."""
+    vals = list(fixture_values or [])
+    if runtime_fixture is not None:
+        if hasattr(runtime_fixture, "nonce") and runtime_fixture.nonce:
+            vals.append(str(runtime_fixture.nonce))
+        for pat in ("nonce_", "MockWeather", "mock_weather"):
+            vals.append(pat)
+    violations = []
+    seen = set()
+    for val in vals:
+        val_str = str(val).strip()
+        if val_str and val_str in patch_text and val_str not in seen:
+            seen.add(val_str)
+            violations.append(f"MOCK_HARDCODING_DETECTED: fixture value '{val_str}' hardcoded into SKILL.md")
+    return violations
+
+
+_FIXTURE_FACTORIES = {"amap_weather_api": create_nonce_weather_fixture}
 
 
 @dataclass(frozen=True)
@@ -303,6 +337,21 @@ def execute_dependency_fixtures(
                     contract_pass
                     and fixture_case.verify_agent_output(agent_output, response)
                 )
+                # 防自嗨防线 4: mock-hardcoding 检查接入真实验证链
+                fixture_mock_values = []
+                if getattr(fixture, "nonce", None):
+                    fixture_mock_values.append(str(fixture.nonce))
+                if getattr(response, "data", None) and isinstance(response.data, dict):
+                    forecasts = response.data.get("forecasts", [])
+                    for f in forecasts:
+                        for cast in f.get("casts", []):
+                            if "nonce" in cast and str(cast["nonce"]).strip():
+                                fixture_mock_values.append(str(cast["nonce"]))
+                mock_violations = check_mock_hardcoding(skill_body, fixture_mock_values)
+                if mock_violations:
+                    authenticity_pass = False
+                    for mv in mock_violations:
+                        reasons.append(mv)
                 status = "SUCCESS" if authenticity_pass else "ERROR"
                 summary = f"tool={response.text[:150]} | agent={agent_output[:150]}"
                 latency_ms = float((response.stats or {}).get("time_ms", 0.0))

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -211,6 +212,10 @@ def test_only_trusted_l1_can_auto_publish(
         return "release-1"
 
     monkeypatch.setattr("skillforge.evolver._apply_and_publish_L1", record_publish)
+    monkeypatch.setattr(
+        "skillforge.evolver.run_final_audit_gate",
+        lambda **_: SimpleNamespace(passed=True, verdict="PASS", reasons=[], audit_score=1.0),
+    )
     patch = Patch(
         skill_name="explain_regex",
         level="L1",

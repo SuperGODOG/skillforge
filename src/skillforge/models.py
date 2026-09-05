@@ -147,14 +147,64 @@ class Patch:
 
 
 @dataclass
+class AttemptRecord:
+    """Record of an evolution candidate attempt in an evolution round."""
+
+    attempt_no: int
+    strategy: str
+    candidate_digest: str
+    computed_level: str
+    verdict: str
+    reason_codes: list[str] = field(default_factory=list)
+    calls: Optional[int] = None  # 接入 ledger 真实统计（未接入时明确标注为 None 预留字段，禁止默认 0 装真值）
+    tokens: Optional[int] = None # 接入 ledger 真实统计（未接入时明确标注为 None 预留字段，禁止默认 0 装真值）
+    round_no: int = 1
+    status: Optional[str] = None
+    patch: Optional[Patch] = None
+
+
+@dataclass
+class AttemptFeedback:
+    """Strongly-typed feedback object passed into reflection per codex2 §4.2."""
+
+    attempt_no: int
+    original_skill_digest: str
+    candidate_digest: str
+    declared_level: str
+    computed_level: str
+    strategy: str
+    candidate_diff: str
+    failed_cases: list[dict[str, Any]]
+    ratchet_reasons: list[str]
+    p0_status: Any
+    authenticity_status: Any
+    prompt_budget_status: Any
+    repeated_patch_fingerprints: list[str]
+    remaining_budget: Any
+
+
+@dataclass
 class EvolveContext:
-    """Runtime context for an evolution run, tracking baseline body and stats (P1-E / P1-H)."""
+    """Runtime blackboard tracking evolution context and attempt history across rounds (P1-E / P1-H)."""
 
     skill_name: str
+    original_digest: str = ""
+    repair_set: str = "repair_set"
+    baseline_result: Optional[EvalResult] = None
+    failures: list[Any] = field(default_factory=list)
+    attempts: list[AttemptRecord] = field(default_factory=list)
+    calls_used: int = 0
+    tokens_used: int = 0
+    stop_reason: Optional[str] = None
+    # P1-E fields
     baseline_meta: Optional[SkillMeta] = None
     baseline_body: str = ""
     baseline_body_stats: dict[str, int] = field(default_factory=dict)
     active_budget: Optional[EvolveBudget] = None
+    # P1-H fields
+    round_no: int = 1
+    seen_fingerprints: set[str] = field(default_factory=set)
+    shadow_mode: bool = True
 
 
 @dataclass
@@ -185,7 +235,7 @@ class Release:
 
 @dataclass
 class EvolveBudget:
-    """Configurable budget and randomness guardrails (P1-F), plus prompt bloat guardrails (P1-E)."""
+    """Configurable budget and randomness guardrails (P1-F), prompt bloat guardrails (P1-E), and controlled rounds (P1-H)."""
 
     max_candidates: Optional[int] = 3
     max_calls: Optional[int] = None
@@ -197,6 +247,12 @@ class EvolveBudget:
     max_candidates_first_round: Optional[int] = None
     max_candidates_retry: Optional[int] = None
     max_candidates_total: Optional[int] = None
+
+    # P1-H Controlled Reflection Loop Guardrails
+    max_rounds: int = 2
+    enable_reflection: bool = False
+    shadow_mode: bool = True
+    auto_publish_enabled: bool = False
 
     # Prompt Bloat Guardrails (P1-E)
     section_growth_ratio: float = 0.25      # 单段相对 baseline 字符增长门槛 (>25%)

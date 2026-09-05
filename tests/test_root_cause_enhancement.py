@@ -662,7 +662,9 @@ def test_archive_dependency_diagnostic_creates_valid_report(tmp_path: Path):
 # 4. probability 定位 (只进诊断报告辅助阅读，不参与自动发布决策)
 # =======================================================================
 
-def test_probability_does_not_affect_publish_decision(tmp_path: Path):
+def test_probability_does_not_affect_publish_decision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     """验证自动发布门仅受 L1+computed L1+PASS 约束，完全不受 root cause probability 影响"""
     patch = Patch(
         skill_name="s1",
@@ -689,6 +691,10 @@ def test_probability_does_not_affect_publish_decision(tmp_path: Path):
 
     sm = MockStateMachine()
     (tmp_path / "skills" / "s1").mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(
+        "skillforge.evolver.run_final_audit_gate",
+        lambda **_: SimpleNamespace(passed=True, verdict="PASS", reasons=[], audit_score=1.0),
+    )
 
     # 1. 即使 root cause prob 极低 (0.01) 或很高 (0.99)，只要满足 L1+PASS，仍然正常自动发布
     rc_low_prob = [RootCause(label="prompt_vague", prob=0.01, why="")]

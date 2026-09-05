@@ -23,6 +23,8 @@ from .models import (
     BodySectionStats,
     EvolveContext,
     EvolveRecord,
+    AttemptRecord,
+    AttemptFeedback,
 )
 from .registry import SkillRegistry
 from .router import IntentRouter
@@ -42,6 +44,7 @@ __all__ = [
     "SkillMeta", "Trigger", "Evaluation",
     "RouteResult", "EvalResult", "RatchetVerdict", "Patch", "PatchStatus", "Release",
     "EvolveBudget", "BudgetExceededError", "BodySectionStats", "EvolveContext", "EvolveRecord",
+    "AttemptRecord", "AttemptFeedback",
     "LLMLedger", "EvaluatorOutputCache",
     "PromptBloatResult", "check_prompt_bloat", "compute_body_section_stats",
     "SkillRegistry",
