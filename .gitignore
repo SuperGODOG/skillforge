@@ -35,3 +35,8 @@ htmlcov/
 
 # Claude Code 本地会话追踪（不入库）
 memory/
+
+# 运行时产物与回滚缓存（不入库）
+runs/p1i/
+runs/suggestions/
+.agent-rollback/
