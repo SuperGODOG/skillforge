@@ -33,6 +33,9 @@ WEATHER_SUPPORTED_CITIES = (
 )
 DEPENDENCY_FIXTURE_CONTRACT_VERSIONS = {"amap_weather_api": "weather-v2"}
 
+_WEATHER_ISO_DATE_RE = re.compile(r"(?<!\d)(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?!\d)")
+_WEATHER_CN_DATE_RE = re.compile(r"(?<!\d)(?:(\d{4})年)?(\d{1,2})月(\d{1,2})日")
+
 
 def extract_weather_query_city(query: str) -> Optional[str]:
     """从用户 query 语义中抽取标准行政区城市名（优先匹配长词全名）。"""
@@ -85,6 +88,23 @@ def _weather_query_intent(query: Optional[str]) -> dict[str, Any]:
         "requires_advice": "出海" in text,
         "requires_clothing": "穿衣" in text,
     }
+
+
+def _extract_weather_explicit_dates(output: str) -> set[date] | None:
+    """Extract explicit dates so relative markers cannot mask a contradictory date."""
+    current_year = date.today().year
+    dates: set[date] = set()
+    for match in _WEATHER_ISO_DATE_RE.finditer(output):
+        try:
+            dates.add(date(int(match.group(1)), int(match.group(2)), int(match.group(3))))
+        except ValueError:
+            return None
+    for match in _WEATHER_CN_DATE_RE.finditer(output):
+        try:
+            dates.add(date(int(match.group(1) or current_year), int(match.group(2)), int(match.group(3))))
+        except ValueError:
+            return None
+    return dates
 
 
 class AmapWeatherFixture(Tool):
@@ -310,20 +330,36 @@ def _weather_agent_output_matches(
         intent = _weather_query_intent(query)
         if intent["historical"] or not casts or len(casts) <= max(intent["offsets"]):
             return False
+        requested_dates = {
+            date.today() + timedelta(days=offset) for offset in intent["offsets"]
+        }
+        explicit_dates = _extract_weather_explicit_dates(output)
+        if explicit_dates is None or (
+            explicit_dates and not explicit_dates.issubset(requested_dates)
+        ):
+            return False
         for offset in intent["offsets"]:
             cast = casts[offset]
             if not all(str(cast.get(field, "")).strip() in output for field in intent["required_fields"]):
                 return False
             date_str = str(cast.get("date", "")).strip()
-            if date_str != (date.today() + timedelta(days=offset)).isoformat():
+            cur_date = date.today() + timedelta(days=offset)
+            if date_str != cur_date.isoformat():
                 return False
-            if len(intent["offsets"]) > 1:
-                if date_str not in output:
-                    return False
-            elif date_str not in output and not any(
-                marker in output
-                for marker in (("今天", "现在") if offset == 0 else ("明天",) if offset == 1 else ("后天",))
-            ):
+            date_markers = [
+                cur_date.isoformat(),
+                f"{cur_date.month}月{cur_date.day}日",
+                f"{cur_date.month:02d}-{cur_date.day:02d}",
+            ]
+            if offset == 0:
+                date_markers.extend(["今天", "今日", "现在", "当前"])
+            elif offset == 1:
+                date_markers.extend(["明天", "次日"])
+            elif offset == 2:
+                date_markers.extend(["后天"])
+            elif offset == 3:
+                date_markers.extend(["大后天"])
+            if not any(marker in output for marker in date_markers):
                 return False
         if intent["requires_advice"] and "出海" not in output:
             return False
@@ -377,6 +413,8 @@ def build_provenances_for_fixture(
     for call_index, call in enumerate(calls, start=1):
         actual_parameters = call.get("parameters", {})
         response = call.get("response")
+        snapshot_id = ""
+        snapshot_content = ""
         try:
             raw_status = getattr(
                 response.status, "value", str(response.status)
@@ -414,7 +452,21 @@ def build_provenances_for_fixture(
 
             status = "SUCCESS" if authenticity_pass else "ERROR"
             resp_text = getattr(response, "text", str(response))
-            summary = f"tool={resp_text[:150]} | agent={agent_output[:150]}"
+            if getattr(response, "data", None) and isinstance(response.data, dict):
+                try:
+                    snapshot_content = json.dumps(
+                        response.data,
+                        sort_keys=True,
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    )
+                    snapshot_id = hashlib.sha256(
+                        snapshot_content.encode("utf-8")
+                    ).hexdigest()
+                except Exception:
+                    pass
+            snap_tag = f"[snapshot:{snapshot_id}] " if snapshot_id else ""
+            summary = f"{snap_tag}tool={resp_text[:130]} | agent={agent_output[:130]}"
             latency_ms = float((getattr(response, "stats", None) or {}).get("time_ms", 0.0))
         except Exception as exc:
             tool_success = False
@@ -439,6 +491,8 @@ def build_provenances_for_fixture(
                 summary,
                 latency_ms,
                 timestamp,
+                snapshot_id=snapshot_id,
+                snapshot_content=snapshot_content,
             )
         )
     return provenances
@@ -633,6 +687,8 @@ def _provenance(
     output_summary: str,
     latency_ms: float,
     timestamp: str,
+    snapshot_id: str = "",
+    snapshot_content: str = "",
 ) -> ToolCallProvenance:
     canonical = json.dumps(
         {
@@ -650,6 +706,8 @@ def _provenance(
             "output_summary": output_summary,
             "timestamp": timestamp,
             "latency_ms": latency_ms,
+            "snapshot_id": snapshot_id,
+            "snapshot_content": snapshot_content,
         },
         ensure_ascii=False,
         sort_keys=True,
@@ -672,6 +730,8 @@ def _provenance(
         latency_ms=latency_ms,
         timestamp=timestamp,
         signature=signature,
+        snapshot_id=snapshot_id,
+        snapshot_content=snapshot_content,
     )
 
 

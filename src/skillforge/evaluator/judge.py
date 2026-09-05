@@ -105,6 +105,8 @@ PROVENANCE_SIGNATURE_FIELDS = (
     "tool_name",
     "tool_required",
     "tool_success",
+    "snapshot_id",
+    "snapshot_content",
 )
 
 PROVENANCE_SIGNATURE_ALGORITHM = "sha256_canonical"
@@ -120,6 +122,7 @@ PROVENANCE_VALIDATION_RULES = {
     "min_call_count": 1,
     "call_index_range": "1..call_count",
     "signature_algorithm": PROVENANCE_SIGNATURE_ALGORITHM,
+    "snapshot_binding": "sha256(snapshot_content) == snapshot_id",
 }
 
 TRUTH_SENTINEL_GATING_RULES = {
@@ -291,8 +294,40 @@ def _has_authentic_tool_evidence(
         and item.call_count > 0
         and 1 <= item.call_index <= item.call_count
         and hmac.compare_digest(item.signature, _provenance_signature(item))
+        and _snapshot_binding_is_valid(item)
         for item in items
     )
+
+
+def _snapshot_binding_is_valid(item: ToolCallProvenance) -> bool:
+    """Validate the response content/ID pair before it can suppress the truth sentinel."""
+    content = getattr(item, "snapshot_content", "")
+    snapshot_id = getattr(item, "snapshot_id", "")
+    if not content or not snapshot_id:
+        return False
+    try:
+        payload = json.loads(content)
+        if not isinstance(payload, dict):
+            return False
+        canonical = json.dumps(
+            payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        )
+        expected_id = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    except (TypeError, ValueError):
+        return False
+    if not hmac.compare_digest(snapshot_id, expected_id):
+        return False
+    return f"[snapshot:{snapshot_id}]" in (item.output_summary or "")
+
+
+def _verified_snapshot_line(label: str, item: ToolCallProvenance) -> str | None:
+    """Return only independently verified fixture content for Judge context."""
+    if not _snapshot_binding_is_valid(item):
+        return None
+    content = getattr(item, "snapshot_content", "")
+    if not content:
+        return None
+    return f"[{label}侧工具核验快照 id={item.snapshot_id}] {content}"
 
 
 def _provenance_signature(item: ToolCallProvenance) -> str:
@@ -312,8 +347,9 @@ def _provenance_signature(item: ToolCallProvenance) -> str:
 class PairwiseJudge:
     """Judge isolated from execution agents by accepting its own LLM client."""
 
-    def __init__(self, llm):
+    def __init__(self, llm, max_retries: int = 0):
         self.llm = llm
+        self.max_retries = max_retries
         self._log = logging.getLogger(__name__)
 
     def compare(
@@ -326,6 +362,7 @@ class PairwiseJudge:
         *,
         tool_evidence_a: ToolCallProvenance | list[ToolCallProvenance] | None = None,
         tool_evidence_b: ToolCallProvenance | list[ToolCallProvenance] | None = None,
+        max_retries: Optional[int] = None,
     ) -> Verdict:
         return self.compare_detailed(
             query,
@@ -335,6 +372,7 @@ class PairwiseJudge:
             reference,
             tool_evidence_a=tool_evidence_a,
             tool_evidence_b=tool_evidence_b,
+            max_retries=max_retries,
         ).verdict
 
     def compare_detailed(
@@ -347,6 +385,7 @@ class PairwiseJudge:
         *,
         tool_evidence_a: ToolCallProvenance | list[ToolCallProvenance] | None = None,
         tool_evidence_b: ToolCallProvenance | list[ToolCallProvenance] | None = None,
+        max_retries: Optional[int] = None,
     ) -> JudgeResult:
         missing = []
         if not output_a.strip():
@@ -377,6 +416,22 @@ class PairwiseJudge:
             return sentinel
 
         ref_block = f"参考期望：<reference>{reference}</reference>\n" if reference else ""
+        tool_evidence_lines = []
+        for label, ev in [("A", tool_evidence_a), ("B", tool_evidence_b)]:
+            if ev:
+                items = ev if isinstance(ev, list) else [ev]
+                for item in items:
+                    if isinstance(item, ToolCallProvenance):
+                        line = _verified_snapshot_line(label, item)
+                        if line:
+                            tool_evidence_lines.append(line)
+        if tool_evidence_lines:
+            evidence_str = "\n".join(tool_evidence_lines)
+            if ref_block:
+                ref_block += f"工具核验快照：\n{evidence_str}\n"
+            else:
+                ref_block = f"工具核验快照：\n{evidence_str}\n"
+
         prompt = _PROMPT_TEMPLATE.format(
             dimension=dimension,
             dimension_hint=DIMENSION_HINTS.get(dimension, dimension),
@@ -392,21 +447,56 @@ class PairwiseJudge:
             },
             {"role": "user", "content": prompt},
         ]
-        try:
-            resp = self.llm.invoke(messages)
-        except BudgetExceededError:
-            raise
-        except Exception as exc:
-            self._log.warning("Judge 调用失败，评估标记 INVALID：%s", exc)
-            return JudgeResult(
-                verdict="INVALID",
-                reason_codes=("JUDGE_CALL_FAILED",),
-                evidence_summary=f"{type(exc).__name__}: {exc}",
-                source="infrastructure",
-            )
 
-        content = str(getattr(resp, "content", resp) or "")
-        return self._parse_detailed(content)
+        retries = (
+            max_retries
+            if max_retries is not None
+            else max(0, int(getattr(self, "max_retries", 0)))
+        )
+        last_result = None
+        malformed_codes = {
+            JUDGE_PARSER_CONTRACT.get("malformed_reason_code", "MALFORMED_JUDGE_RESPONSE"),
+            JUDGE_PARSER_CONTRACT.get("invalid_schema_reason_code", "INVALID_JUDGE_SCHEMA"),
+        }
+
+        for attempt in range(1 + retries):
+            try:
+                resp = self.llm.invoke(messages)
+            except BudgetExceededError:
+                raise
+            except Exception as exc:
+                self._log.warning("Judge 调用失败，评估标记 INVALID：%s", exc)
+                return JudgeResult(
+                    verdict="INVALID",
+                    reason_codes=("JUDGE_CALL_FAILED",),
+                    evidence_summary=f"{type(exc).__name__}: {exc}",
+                    source="infrastructure",
+                )
+
+            content = str(getattr(resp, "content", resp) or "")
+            parsed = self._parse_detailed(content)
+            is_malformed = (
+                parsed.source == "infrastructure"
+                and any(code in malformed_codes for code in parsed.reason_codes)
+            )
+            if not is_malformed:
+                return parsed
+
+            last_result = parsed
+            if attempt < retries:
+                self._log.info(
+                    "Judge 响应格式异常 (%s)，正在自动重试 (%d/%d)...",
+                    ",".join(parsed.reason_codes),
+                    attempt + 1,
+                    retries,
+                )
+
+        return last_result if last_result is not None else JudgeResult(
+            verdict="INVALID",
+            reason_codes=(JUDGE_PARSER_CONTRACT.get("malformed_reason_code", "MALFORMED_JUDGE_RESPONSE"),),
+            evidence_summary="Judge 重试后仍返回异常格式",
+            source="infrastructure",
+        )
 
     @staticmethod
     def _truth_sentinel(

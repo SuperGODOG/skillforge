@@ -40,3 +40,4 @@ memory/
 runs/p1i/
 runs/suggestions/
 .agent-rollback/
+runs/p1i_progress.json

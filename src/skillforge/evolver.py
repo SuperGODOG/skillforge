@@ -100,6 +100,7 @@ class EvolveOutcome:
     records: list[EvolveRecord] = field(default_factory=list)
     rounds_executed: int = 1
     attempts: list[AttemptRecord] = field(default_factory=list)
+    skipped_cases: list[dict[str, Any]] = field(default_factory=list)  # P1-I baseline 容错跳过的用例归档记录
 
 
 # =============== 数据与防线辅助函数 ===============
@@ -188,6 +189,63 @@ def is_candidate_eval_invalid(
                 return True, f"RATCHET_INVALID: {r}"
 
     return False, ""
+
+
+def _is_judge_infrastructure_error(
+    reason_codes: list[str], val: Optional[str] = None, audit: Optional[dict] = None
+) -> bool:
+    """判定是否属于 Judge 自身或基础设施异常（格式坏/超时/依赖不可用等）。属于 A 项容错跳过。"""
+    if val in ("TIMEOUT", "FIXTURE_ERROR"):
+        return True
+    if isinstance(audit, dict) and audit.get("status") == "ERROR":
+        return True
+    bad_markers = (
+        "MALFORMED_JUDGE_RESPONSE",
+        "INVALID_JUDGE_SCHEMA",
+        "JUDGE_CALL_FAILED",
+        "INFRASTRUCTURE_ERROR",
+        "TIMEOUT",
+        "FIXTURE_ERROR",
+        "MISSING_ANSWER_A",
+        "MISSING_ANSWER_B",
+        "503",
+        "DEPENDENCY_ERROR",
+        "NETWORK_ERROR",
+    )
+    for code in reason_codes:
+        c_up = str(code).upper()
+        if any(bad in c_up for bad in bad_markers):
+            return True
+    return False
+
+
+def _is_effective_failure(
+    reason_codes: list[str], val: Optional[str] = None, audit: Optional[dict] = None
+) -> bool:
+    """判定 baseline 是否出现了有侧别的外部事实失真。
+
+    ``INSUFFICIENT_EVIDENCE`` 只说明 Judge 无法判定，可能是 reference 模糊，
+    不能单独把 case 送进修复流。只有 truth sentinel 产生的、带 A/B 侧别的
+    ``UNVERIFIED_EXTERNAL_FACT_*``，并且该侧映射到 baseline，才是有效失败。
+    """
+    if _is_judge_infrastructure_error(reason_codes, val, audit):
+        return False
+    if val not in (None, "INVALID"):
+        return False
+    effective_codes = {
+        "UNVERIFIED_EXTERNAL_FACT_A",
+        "UNVERIFIED_EXTERNAL_FACT_B",
+    }
+    presented_order = audit.get("presented_order", {}) if isinstance(audit, dict) else {}
+    for code in reason_codes:
+        c_up = str(code).strip().upper()
+        if c_up not in effective_codes:
+            continue
+        presented_side = c_up.rsplit("_", 1)[-1]
+        actual_side = presented_order.get(presented_side)
+        if actual_side == "baseline":
+            return True
+    return False
 
 
 @dataclass
@@ -595,6 +653,8 @@ class SkillEvolver(SimpleAgent):
         # ---- 前置：跑一次 baseline 评估拿失败样本 ----
         if verbose:
             print(f"\n▶ [Evolve/1-baseline] 跑 baseline 评估 {skill_name} on {eval_set_for_iter}")
+        if hasattr(self.evaluator, "judge") and hasattr(self.evaluator.judge, "max_retries"):
+            self.evaluator.judge.max_retries = getattr(active_budget, "judge_max_retries", 2)
         try:
             old_result = self.evaluator.evaluate_skill(
                 skill_name, eval_set=eval_set_for_iter, verbose=False,
@@ -644,17 +704,102 @@ class SkillEvolver(SimpleAgent):
                         status="REVIEW",
                     ))
                     return outcome
-            details = "; ".join(old_result.invalid_reasons) or "未知 INVALID 原因"
-            outcome.error = f"baseline 评估无效，停止迭代：{details}"
-            return outcome
+
+        # P1-I A/D 细化粒度：判定 case 级状态（正常 / 有效失败 / 基础设施异常跳过）
+        case_verdicts = getattr(old_result, "case_verdicts", []) or []
+        total_cases = len(case_verdicts)
+
+        critical_cids = set(getattr(active_budget, "critical_case_ids", None) or [])
+        if not critical_cids and self.repo_root:
+            p0_file = self.repo_root / "evaluation_sets" / "p0_cases.json"
+            if p0_file.exists():
+                try:
+                    p0_data = json.loads(p0_file.read_text(encoding="utf-8"))
+                    critical_cids = set(p0_data.get("p0_ids", []))
+                except Exception:
+                    pass
+
+        skipped_cases: list[dict[str, Any]] = []
+        effective_failed_cases: set[str] = set()
+
+        for cv in case_verdicts:
+            cid = cv.get("case_id", "")
+            ja = cv.get("judge_audit", {})
+            case_is_infra_bad = False
+            infra_reasons: list[str] = []
+
+            for dim in ("task_completion", "robustness", "readability"):
+                val = cv.get(dim)
+                dim_audit = ja.get(dim, {}) if isinstance(ja, dict) else {}
+                codes = [str(c) for c in dim_audit.get("reason_codes", [])]
+
+                if val == "INVALID" or val in ("TIMEOUT", "FIXTURE_ERROR"):
+                    if _is_judge_infrastructure_error(codes, val, dim_audit):
+                        case_is_infra_bad = True
+                        infra_reasons.append(f"{dim}: {','.join(codes) or val}")
+                    elif _is_effective_failure(codes, val, dim_audit):
+                        effective_failed_cases.add(cid)
+                    else:
+                        case_is_infra_bad = True
+                        infra_reasons.append(f"{dim}: {','.join(codes) or val}")
+
+            if case_is_infra_bad:
+                skipped_cases.append({
+                    "case_id": cid,
+                    "reasons": infra_reasons,
+                })
+
+        skipped_cids = {sc["case_id"] for sc in skipped_cases}
+        effective_failed_cases = effective_failed_cases - skipped_cids
+        outcome.skipped_cases = skipped_cases
+
+        # 仅当旧结果不完全 valid 或有跳过用例时才做停止判断
+        if not old_result.valid or skipped_cases:
+            # 1. P0 关键 case 检查：如果 P0 关键用例遭遇 Judge 自身异常，坚决 fail-closed 停止整链
+            if getattr(active_budget, "p0_fail_on_invalid", True):
+                for sc in skipped_cases:
+                    sc_cid = sc["case_id"]
+                    if sc_cid in critical_cids:
+                        reasons_str = "; ".join(sc["reasons"])
+                        outcome.error = f"baseline 评估无效，P0 关键用例 '{sc_cid}' 发生 Judge/基础设施异常: {reasons_str}"
+                        return outcome
+
+            # 2. 容错阈值检查：跳过的用例数超过预算上限则停止
+            max_allowed = (
+                active_budget.max_invalid_cases
+                if getattr(active_budget, "max_invalid_cases", None) is not None
+                else int(total_cases * getattr(active_budget, "invalid_case_ratio_threshold", 0.20))
+            )
+            if len(skipped_cids) > max_allowed:
+                ratio = len(skipped_cids) / max(1, total_cases)
+                outcome.error = (
+                    f"baseline 评估无效用例数超阈值 ({len(skipped_cids)}/{total_cases} = {ratio:.1%} "
+                    f"> {active_budget.invalid_case_ratio_threshold:.0%})，停止迭代: "
+                    + "; ".join(f"{s['case_id']}({','.join(s['reasons'])})" for s in skipped_cases)
+                )
+                return outcome
+
+            # 3. 如果整结果无效且没有用例明细（如空集等非 case 级错误）
+            if not old_result.valid and not case_verdicts:
+                details = "; ".join(old_result.invalid_reasons) or "未知 INVALID 原因"
+                outcome.error = f"baseline 评估无效，停止迭代：{details}"
+                return outcome
+
+        if skipped_cases and verbose:
+            print(f"  ⚡ baseline 触发 case 级容错：跳过 {len(skipped_cases)} 个异常用例并归档: {[s['case_id'] for s in skipped_cases]}")
+
         outcome.baseline_score = sum(old_result.structure_score.values()) + sum(old_result.effect_score.values())
         if verbose:
             print(f"  baseline 总分 = {outcome.baseline_score:.2f}")
 
         # ---- Step 1：收集失败 ----
-        failures = _collect_failures(old_result)
+        failures = _collect_failures(
+            old_result,
+            effective_failed_case_ids=effective_failed_cases,
+            skipped_case_ids=skipped_cids,
+        )
         if verbose:
-            print(f"\n▶ [Evolve/2-collect] 收集失败样本 {len(failures)} 条")
+            print(f"\n▶ [Evolve/2-collect] 收集失败样本 {len(failures)} 条 (含有效失败 {len(effective_failed_cases)} 条，已隔离跳过用例 {len(skipped_cids)} 条)")
         if not failures:
             outcome.error = "无 B_better 失败样本，Skill 已达最优 → 跳过迭代"
             return outcome
@@ -1255,21 +1400,43 @@ class SkillEvolver(SimpleAgent):
 # =============== Step 1: 收集失败 ===============
 
 
-def _collect_failures(result: EvalResult) -> list[Failure]:
-    """从 EvalResult.case_verdicts 拉出 skill 版被判 B_better 的 case"""
+def _collect_failures(
+    result: EvalResult,
+    effective_failed_case_ids: Optional[set[str]] = None,
+    skipped_case_ids: Optional[set[str]] = None,
+) -> list[Failure]:
+    """从 EvalResult.case_verdicts 拉出失败样本（支持 B_better 与 D 项有效失败；严格排除 skipped 用例）"""
     fail_list: list[Failure] = []
     outputs_by_id = {c["case_id"]: c for c in (result.case_outputs or [])}
+    eff_ids = set(effective_failed_case_ids or [])
+    skip_ids = set(skipped_case_ids or [])
 
     for v in (result.case_verdicts or []):
+        cid = v.get("case_id")
+        # 红线隔离断言：跳过的 case 绝对不能进失败分析/反思输入
+        if cid in skip_ids:
+            continue
+
         losing = [
             dim for dim in ("task_completion", "robustness", "readability")
             if v.get(dim) == "B_better"
         ]
+        # D 项：如果是有效失败（真实差/编造），将其对应维度纳入失败样本
+        if cid in eff_ids:
+            ja = v.get("judge_audit", {})
+            for dim in ("task_completion", "robustness", "readability"):
+                if dim not in losing:
+                    val = v.get(dim)
+                    dim_audit = ja.get(dim, {}) if isinstance(ja, dict) else {}
+                    codes = [str(c) for c in dim_audit.get("reason_codes", [])]
+                    if _is_effective_failure(codes, val, dim_audit):
+                        losing.append(dim)
+
         if not losing:
             continue
-        out = outputs_by_id.get(v["case_id"], {})
+        out = outputs_by_id.get(cid, {})
         fail_list.append(Failure(
-            case_id=v["case_id"],
+            case_id=cid,
             query=v.get("query") or out.get("query", ""),
             reference=out.get("reference", ""),
             output_skill=out.get("output_skill", ""),

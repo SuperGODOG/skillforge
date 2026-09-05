@@ -45,7 +45,7 @@ class RouteResult:
 
 @dataclass(frozen=True)
 class ToolCallProvenance:
-    """Canonical SHA-256 integrity record of a dependency fixture invocation."""
+    """Integrity record of a dependency fixture invocation and its response snapshot."""
 
     tool_name: str
     fixture_case_id: str
@@ -62,6 +62,10 @@ class ToolCallProvenance:
     latency_ms: float
     timestamp: str
     signature: str
+    # The Judge needs the actual immutable response bytes, not only a display hash.
+    # Defaults preserve compatibility with hand-built non-fixture provenance records.
+    snapshot_id: str = ""
+    snapshot_content: str = ""
 
 
 @dataclass
@@ -264,6 +268,13 @@ class EvolveBudget:
     max_body_multiplier: float = 1.20      # 整 Body 字符数倍数门限 (>1.20x)
     max_body_chars: Optional[int] = None   # 整 Body 绝对字符数上限（可选）
     on_body_bloat: Literal["REVIEW", "DECLINED"] = "REVIEW"  # 全 body 门控动作
+
+    # P1-I Fail-Closed Granularity & Case-level Fault Tolerance (A/D)
+    invalid_case_ratio_threshold: float = 0.20   # baseline invalid case 容错比例阈值（默认 >20% 停止）
+    max_invalid_cases: Optional[int] = None      # baseline invalid case 容错最大数量（可选，优先级高于 ratio）
+    p0_fail_on_invalid: bool = True              # P0 关键 case invalid 时是否整次停止（默认 True）
+    critical_case_ids: Optional[list[str]] = None # 自定义关键 case ID 列表（默认读取 p0_ids）
+    judge_max_retries: int = 2                   # Judge 偶发 MALFORMED 自动重试次数（默认 2 次）
 
     def __post_init__(self) -> None:
         if self.max_calls is None and self.max_llm_calls is not None:
