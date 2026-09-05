@@ -14,7 +14,7 @@ import hashlib
 import time
 from pathlib import Path
 from statistics import mean
-from typing import Optional
+from typing import Any, Optional
 
 from hello_agents.tools import Tool, ToolParameter
 
@@ -57,7 +57,7 @@ class EvaluatorOutputCache:
     """Cache for bare and current outputs to eliminate baseline drift across evaluations."""
 
     def __init__(self) -> None:
-        self._cache: dict[str, tuple[str, dict]] = {}
+        self._cache: dict[str, tuple[Any, ...]] = {}
         self.hits: int = 0
         self.misses: int = 0
 
@@ -74,8 +74,14 @@ class EvaluatorOutputCache:
         key = self._make_bare_key(query, config_fingerprint)
         self._cache[key] = (output, metrics)
 
-    def get_with_skill(self, query: str, body: str, config_fingerprint: str) -> Optional[tuple[str, dict]]:
-        key = self._make_skill_key(query, body, config_fingerprint)
+    def get_with_skill(
+        self,
+        query: str,
+        body: str,
+        config_fingerprint: str,
+        dependencies: Optional[list[str]] = None,
+    ) -> Optional[Any]:
+        key = self._make_skill_key(query, body, config_fingerprint, dependencies)
         val = self._cache.get(key)
         if val is not None:
             self.hits += 1
@@ -83,9 +89,18 @@ class EvaluatorOutputCache:
         self.misses += 1
         return None
 
-    def set_with_skill(self, query: str, body: str, config_fingerprint: str, output: str, metrics: dict) -> None:
-        key = self._make_skill_key(query, body, config_fingerprint)
-        self._cache[key] = (output, metrics)
+    def set_with_skill(
+        self,
+        query: str,
+        body: str,
+        config_fingerprint: str,
+        output: str,
+        metrics: dict,
+        provenances: Optional[list[Any]] = None,
+        dependencies: Optional[list[str]] = None,
+    ) -> None:
+        key = self._make_skill_key(query, body, config_fingerprint, dependencies)
+        self._cache[key] = (output, metrics, list(provenances or []))
 
     @staticmethod
     def _make_bare_key(query: str, config_fingerprint: str) -> str:
@@ -93,10 +108,22 @@ class EvaluatorOutputCache:
         return f"bare:{config_fingerprint}:{q_hash}"
 
     @staticmethod
-    def _make_skill_key(query: str, body: str, config_fingerprint: str) -> str:
+    def _make_skill_key(
+        query: str,
+        body: str,
+        config_fingerprint: str,
+        dependencies: Optional[list[str]] = None,
+    ) -> str:
         q_hash = hashlib.sha256(query.encode("utf-8")).hexdigest()
         b_hash = hashlib.sha256(body.encode("utf-8")).hexdigest()
-        return f"skill:{config_fingerprint}:{b_hash}:{q_hash}"
+        from .fixtures import DEPENDENCY_FIXTURE_CONTRACT_VERSIONS
+
+        dep_key = ",".join(
+            f"{dependency}:{DEPENDENCY_FIXTURE_CONTRACT_VERSIONS.get(dependency, 'v1')}"
+            for dependency in sorted(set(dependencies or []))
+        )
+        d_hash = hashlib.sha256(dep_key.encode("utf-8")).hexdigest()
+        return f"skill:{config_fingerprint}:{d_hash}:{b_hash}:{q_hash}"
 
     def clear(self) -> None:
         self._cache.clear()
@@ -277,6 +304,9 @@ class SkillEvaluator(Tool):
         if p0_ids is None:
             p0_ids = self._load_p0_ids()
 
+        dependencies = list(getattr(meta, "dependencies", []) or [])
+        all_provenances: list[Any] = []
+
         # 2. 效果分（3 维 Judge 配对 + 1 维客观效率）
         verdicts = {"task_completion": [], "robustness": [], "readability": []}
         base_metrics_list = []
@@ -297,7 +327,11 @@ class SkillEvaluator(Tool):
                 print(f"  [{i + 1}/{len(cases)}] {case_id}: {query[:40]}...")
 
             base_out, base_m = self._run_bare(query)
-            skill_out, skill_m = self._run_with_skill(query, body)
+            skill_out, skill_m = self._run_with_skill(
+                query, body, dependencies=dependencies, skill_name=skill_name
+            )
+            case_provs = list(getattr(self, "_last_skill_provenances", []) or [])
+            all_provenances.extend(case_provs)
             base_metrics_list.append(base_m)
             skill_metrics_list.append(skill_m)
 
@@ -306,13 +340,25 @@ class SkillEvaluator(Tool):
                 skill_as_a = skill_is_presented_as_a(i, dim_index, ordering_run_id)
                 if skill_as_a:
                     judged = self.judge.compare_detailed(
-                        query, skill_out, base_out, dim, reference=ref
+                        query,
+                        skill_out,
+                        base_out,
+                        dim,
+                        reference=ref,
+                        tool_evidence_a=case_provs,
+                        tool_evidence_b=None,
                     )
                     v = judged.verdict
                     presented_order = {"A": "skill", "B": "baseline"}
                 else:
                     judged = self.judge.compare_detailed(
-                        query, base_out, skill_out, dim, reference=ref
+                        query,
+                        base_out,
+                        skill_out,
+                        dim,
+                        reference=ref,
+                        tool_evidence_a=None,
+                        tool_evidence_b=case_provs,
                     )
                     v = invert_verdict(judged.verdict)
                     presented_order = {"A": "baseline", "B": "skill"}
@@ -347,6 +393,10 @@ class SkillEvaluator(Tool):
                 "reference": ref,
                 "output_skill": skill_out,
                 "output_baseline": base_out,
+                "provenances": [
+                    p.to_dict() if hasattr(p, "to_dict") else vars(p)
+                    for p in case_provs
+                ],
             })
 
         # 效果分：胜=1 平=0.5 负=0 加权
@@ -420,6 +470,8 @@ class SkillEvaluator(Tool):
             p0_pass=p0_pass,
             case_verdicts=case_verdicts,
             case_outputs=case_outputs,
+            validation_channels=["dependency_fixtures"] if all_provenances else [],
+            provenances=all_provenances,
             valid=not invalid_reasons,
             invalid_reasons=invalid_reasons,
             hit_layer=hit_layer,
@@ -477,15 +529,102 @@ class SkillEvaluator(Tool):
             self.output_cache.set_bare(query, fingerprint, res[0], res[1])
         return res
 
-    def _run_with_skill(self, query: str, body: str) -> tuple[str, dict]:
-        """有 Skill 的 Agent 跑：Skill Body 作为 system prompt"""
+    def _run_with_skill(
+        self,
+        query: str,
+        body: str,
+        dependencies: Optional[list[str]] = None,
+        skill_name: Optional[str] = None,
+    ) -> tuple[str, dict]:
+        """有 Skill 的 Agent 跑：若具备依赖且支持工具调用，则挂载受控 fixture 生成 provenance"""
         fingerprint = self.get_config_fingerprint()
         if self.output_cache is not None:
-            cached = self.output_cache.get_with_skill(query, body, fingerprint)
+            cached = self.output_cache.get_with_skill(query, body, fingerprint, dependencies)
             if cached is not None:
-                return cached
+                if len(cached) >= 3:
+                    self._last_skill_provenances = cached[2]
+                else:
+                    self._last_skill_provenances = []
+                return cached[0], cached[1]
 
+        self._last_skill_provenances = []
         started = time.perf_counter()
+
+        if dependencies and hasattr(self.llm, "invoke_with_tools"):
+            from hello_agents import SimpleAgent
+            from hello_agents.core.config import Config
+            from hello_agents.tools import ToolRegistry
+            from .fixtures import _FIXTURE_FACTORIES, build_provenances_for_fixture
+
+            active_fixtures: dict[str, Any] = {}
+            tool_registry = ToolRegistry()
+            for dep in dependencies:
+                factory = _FIXTURE_FACTORIES.get(dep)
+                if factory is not None:
+                    fixture = factory()
+                    active_fixtures[dep] = fixture
+                    tool_registry.register_tool(fixture)
+
+            if active_fixtures:
+                agent = SimpleAgent(
+                    name=f"skill_agent_{skill_name or 'eval'}",
+                    llm=self.llm,
+                    system_prompt=DEFAULT_SYSTEM_PROMPT_HEADER + body,
+                    config=Config(
+                        trace_enabled=False,
+                        skills_enabled=False,
+                        session_enabled=False,
+                        subagent_enabled=False,
+                        todowrite_enabled=False,
+                        devlog_enabled=False,
+                    ),
+                    tool_registry=tool_registry,
+                    enable_tool_calling=True,
+                    max_tool_iterations=3,
+                )
+                try:
+                    content = agent.run(query)
+                except BudgetExceededError:
+                    raise
+                except Exception as exc:
+                    content = f"AGENT_EXEC_ERROR: {type(exc).__name__}: {exc}"
+
+                latency_ms = (time.perf_counter() - started) * 1000
+
+                case_provs: list[Any] = []
+                for dep, fix in active_fixtures.items():
+                    provs = build_provenances_for_fixture(
+                        dependency=dep,
+                        fixture=fix,
+                        agent_output=content,
+                        skill_body=body,
+                        query=query,
+                    )
+                    case_provs.extend(provs)
+
+                self._last_skill_provenances = case_provs
+
+                run_log = {
+                    "messages": [
+                        {"role": "user", "content": query},
+                        {"role": "assistant", "content": content},
+                    ],
+                    "usage": {},
+                    "latency_ms": latency_ms,
+                }
+                res = content, collect_objective_metrics(run_log)
+                if self.output_cache is not None:
+                    self.output_cache.set_with_skill(
+                        query,
+                        body,
+                        fingerprint,
+                        res[0],
+                        res[1],
+                        provenances=self._last_skill_provenances,
+                        dependencies=dependencies,
+                    )
+                return res
+
         messages = [
             {"role": "system", "content": DEFAULT_SYSTEM_PROMPT_HEADER + body},
             {"role": "user", "content": query},
@@ -502,7 +641,15 @@ class SkillEvaluator(Tool):
         }
         res = content, collect_objective_metrics(run_log)
         if self.output_cache is not None:
-            self.output_cache.set_with_skill(query, body, fingerprint, res[0], res[1])
+            self.output_cache.set_with_skill(
+                query,
+                body,
+                fingerprint,
+                res[0],
+                res[1],
+                provenances=[],
+                dependencies=dependencies,
+            )
         return res
 
     @staticmethod

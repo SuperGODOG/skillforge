@@ -59,6 +59,8 @@ def save_progress(p: dict) -> None:
 
 def run_evolve(cfg_name: str, skill: str, run_no: int, head: str, dry: bool = False) -> dict:
     """单次 top-level evolve，返回结果字典。"""
+    from dotenv import load_dotenv
+    load_dotenv(ROOT / ".env")
     from skillforge.evaluator.llm_factory import build_llm_pair
     from skillforge.models import EvolveBudget
     from skillforge import SkillRegistry, SkillEvaluator, SkillEvolver
@@ -120,7 +122,7 @@ def main() -> int:
     args = ap.parse_args()
 
     head = git_head()
-    if git_dirty():
+    if not args.smoke and git_dirty():
         print(f"REFUSE: 工作区 dirty（HEAD={head}），需同 commit 起跑——先 commit/stash")
         return 1
 

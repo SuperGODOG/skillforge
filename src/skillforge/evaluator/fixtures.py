@@ -3,16 +3,88 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import time
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
-from typing import Any, Callable
+from datetime import date, datetime, timedelta, timezone
+from typing import Any, Callable, Optional
 
 from hello_agents import SimpleAgent
 from hello_agents.core.config import Config
 from hello_agents.tools import Tool, ToolParameter, ToolRegistry, ToolResponse
 
 from ..models import BudgetExceededError, ToolCallProvenance
+
+
+WEATHER_SUPPORTED_CITIES = (
+    ("北京", "北京市"),
+    ("上海", "上海市"),
+    ("广州", "广州市"),
+    ("深圳", "深圳市"),
+    ("杭州", "杭州市"),
+    ("南京", "南京市"),
+    ("重庆", "重庆市"),
+    ("苏州", "苏州市"),
+    ("青岛", "青岛市"),
+    ("成都", "成都市"),
+    ("武汉", "武汉市"),
+    ("昆明", "昆明市"),
+    ("拉萨", "拉萨市"),
+)
+DEPENDENCY_FIXTURE_CONTRACT_VERSIONS = {"amap_weather_api": "weather-v2"}
+
+
+def extract_weather_query_city(query: str) -> Optional[str]:
+    """从用户 query 语义中抽取标准行政区城市名（优先匹配长词全名）。"""
+    for short_name, full_name in WEATHER_SUPPORTED_CITIES:
+        if full_name in query:
+            return full_name
+    for short_name, full_name in WEATHER_SUPPORTED_CITIES:
+        if short_name in query:
+            return full_name
+    return None
+
+
+def _weather_query_intent(query: Optional[str]) -> dict[str, Any]:
+    """Extract the deterministic semantic contract used by the fixture."""
+    text = query or ""
+    historical = bool(re.search(r"昨天|前天|历史天气|上周|去年", text))
+    if historical:
+        return {
+            "historical": True,
+            "offsets": (),
+            "required_fields": (),
+            "requires_advice": False,
+            "requires_clothing": False,
+        }
+    if re.search(r"这几天|这周|本周|未来\s*3\s*天", text):
+        offsets = (0, 1, 2)
+    elif "后天" in text:
+        offsets = (2,)
+    elif "明天" in text:
+        offsets = (1,)
+    else:
+        offsets = (0,)
+
+    if "降水概率" in text:
+        required_fields = ("precipitation_probability",)
+    elif "出海" in text or "风力" in text or "风大" in text:
+        required_fields = ("daywind", "daypower")
+    elif "有雨" in text or "下雨" in text or "降水" in text:
+        required_fields = ("dayweather", "nightweather")
+    elif "穿衣" in text:
+        required_fields = ("daytemp", "nighttemp")
+    else:
+        required_fields = (
+            "dayweather", "nightweather", "daytemp", "nighttemp", "daywind", "daypower"
+        )
+    return {
+        "historical": False,
+        "offsets": offsets,
+        "required_fields": required_fields,
+        "requires_advice": "出海" in text,
+        "requires_clothing": "穿衣" in text,
+    }
 
 
 class AmapWeatherFixture(Tool):
@@ -49,29 +121,46 @@ class AmapWeatherFixture(Tool):
             return ToolResponse.error("INVALID_ARGUMENT", "extensions 必须为 all")
 
         normalized_city = city.strip()
+        for s, f in WEATHER_SUPPORTED_CITIES:
+            if normalized_city in (s, f):
+                normalized_city = f
+                break
         seed = int(hashlib.sha256(normalized_city.encode("utf-8")).hexdigest()[:4], 16)
         nonce_val = 0
         if self.nonce is not None:
             nonce_val = int(hashlib.sha256(str(self.nonce).encode("utf-8")).hexdigest()[:4], 16) % 11
-        high = 20 + (seed + nonce_val) % 13
-        low = high - (5 + seed % 4)
-        cast_data = {
-            "date": date.today().isoformat(),
-            "dayweather": "晴",
-            "nightweather": "多云",
-            "daytemp": str(high),
-            "nighttemp": str(low),
-            "daywind": "南风",
-            "daypower": "3-4",
-        }
-        if self.nonce is not None:
-            cast_data["nonce"] = str(self.nonce)
+
+        casts = []
+        today = date.today()
+        weather_pool = ["晴", "多云", "阴", "小雨", "阵雨"]
+        winds = ["南风", "北风", "东风", "东南风", "西北风"]
+        powers = ["1-2", "3-4", "4-5"]
+
+        for day_offset in range(4):
+            cur_date = today + timedelta(days=day_offset)
+            d_seed = seed + day_offset * 17
+            high = 20 + (d_seed + nonce_val) % 13
+            low = high - (5 + d_seed % 4)
+            cast_data = {
+                "date": cur_date.isoformat(),
+                "dayweather": weather_pool[(d_seed) % len(weather_pool)],
+                "nightweather": weather_pool[(d_seed + 1) % len(weather_pool)],
+                "daytemp": str(high),
+                "nighttemp": str(low),
+                "daywind": winds[(d_seed) % len(winds)],
+                "daypower": powers[(d_seed) % len(powers)],
+                "precipitation_probability": str((d_seed + nonce_val * 3) % 101),
+            }
+            if self.nonce is not None:
+                cast_data["nonce"] = str(self.nonce)
+            casts.append(cast_data)
+
         payload = {
             "status": "1",
             "forecasts": [
                 {
                     "city": normalized_city,
-                    "casts": [cast_data],
+                    "casts": casts,
                 }
             ],
         }
@@ -123,65 +212,124 @@ _FIXTURE_FACTORIES = {"amap_weather_api": create_nonce_weather_fixture}
 @dataclass(frozen=True)
 class DependencyFixtureCase:
     case_id: str
-    build_input: Callable[[], dict[str, Any]]
-    build_query: Callable[[dict[str, Any]], str]
-    verify_output: Callable[[dict[str, Any], ToolResponse], bool]
-    verify_agent_output: Callable[[str, ToolResponse], bool]
+    build_input: Callable[..., dict[str, Any]]
+    build_query: Callable[..., str]
+    verify_output: Callable[..., bool]
+    verify_agent_output: Callable[..., bool]
 
 
-def _weather_input() -> dict[str, Any]:
-    cities = ("北京市", "上海市", "广州市", "深圳市")
-    return {"city": cities[time.time_ns() % len(cities)], "extensions": "all"}
+def _weather_input(query: Optional[str] = None, city: Optional[str] = None) -> dict[str, Any]:
+    if city:
+        normalized = city.strip()
+        for s, f in WEATHER_SUPPORTED_CITIES:
+            if normalized in (s, f):
+                normalized = f
+                break
+        return {"city": normalized, "extensions": "all"}
+    if query:
+        extracted = extract_weather_query_city(query)
+        if extracted:
+            return {"city": extracted, "extensions": "all"}
+        if _weather_query_intent(query)["historical"]:
+            return {"city": "__historical_unsupported__", "extensions": "all"}
+    default_cities = ("北京市", "上海市", "广州市", "深圳市")
+    return {"city": default_cities[time.time_ns() % len(default_cities)], "extensions": "all"}
 
 
-def _weather_output_matches(parameters: dict[str, Any], response: ToolResponse) -> bool:
+def _parameters_match(actual: dict[str, Any], expected: dict[str, Any]) -> bool:
+    if actual == expected:
+        return True
+    act_city = str(actual.get("city", "")).strip().rstrip("市")
+    exp_city = str(expected.get("city", "")).strip().rstrip("市")
+    if not act_city or act_city != exp_city:
+        return False
+    act_ext = actual.get("extensions", "all")
+    exp_ext = expected.get("extensions", "all")
+    if act_ext != exp_ext:
+        return False
+    act_rest = {k: v for k, v in actual.items() if k not in ("city", "extensions")}
+    exp_rest = {k: v for k, v in expected.items() if k not in ("city", "extensions")}
+    return act_rest == exp_rest
+
+
+def _weather_output_matches(
+    parameters: dict[str, Any], response: ToolResponse, query: Optional[str] = None
+) -> bool:
     try:
-        cast = response.data["forecasts"][0]["casts"][0]
-        return (
+        forecast = response.data["forecasts"][0]
+        casts = forecast["casts"]
+        intent = _weather_query_intent(query)
+        if intent["historical"] or len(casts) <= max(intent["offsets"]):
+            return False
+        res_city = forecast["city"]
+        param_city = parameters.get("city", "")
+        city_ok = (res_city == param_city) or (res_city.rstrip("市") == param_city.rstrip("市"))
+        return bool(
             response.data.get("status") == "1"
-            and response.data["forecasts"][0]["city"] == parameters["city"]
-            and parameters.get("extensions") == "all"
+            and city_ok
+            and parameters.get("extensions", "all") == "all"
             and all(
-                isinstance(cast.get(field), str) and bool(cast[field])
-                for field in (
-                    "date",
-                    "dayweather",
-                    "nightweather",
-                    "daytemp",
-                    "nighttemp",
-                    "daywind",
-                    "daypower",
+                all(
+                    isinstance(casts[offset].get(field), str) and bool(casts[offset][field])
+                    for field in intent["required_fields"]
                 )
+                and casts[offset]["date"] == (
+                    date.today() + timedelta(days=offset)
+                ).isoformat()
+                and casts[offset]["daytemp"].isdigit()
+                and casts[offset]["nighttemp"].isdigit()
+                and 0 <= int(casts[offset]["precipitation_probability"]) <= 100
+                for offset in intent["offsets"]
             )
-            and cast["daytemp"].isdigit()
-            and cast["nighttemp"].isdigit()
         )
     except (KeyError, IndexError, TypeError):
         return False
 
 
-def _weather_query(parameters: dict[str, Any]) -> str:
+def _weather_query(parameters: dict[str, Any], raw_query: Optional[str] = None) -> str:
+    if raw_query:
+        return raw_query
     return (
         f"请查询{parameters['city']}今天的天气，并给出日期、白天天气、夜间天气、"
         "最高温、最低温、风向和风力。"
     )
 
 
-def _weather_agent_output_matches(output: str, response: ToolResponse) -> bool:
+def _weather_agent_output_matches(
+    output: str, response: ToolResponse, query: Optional[str] = None
+) -> bool:
     try:
         forecast = response.data["forecasts"][0]
-        cast = forecast["casts"][0]
-        grounded_values = (
-            forecast["city"],
-            cast["date"],
-            cast["dayweather"],
-            cast["nightweather"],
-            cast["daytemp"],
-            cast["nighttemp"],
-            cast["daywind"],
-            cast["daypower"],
-        )
-        return all(str(value) in output for value in grounded_values)
+        city = forecast["city"]
+        city_short = city.rstrip("市") if city.endswith("市") else city
+        city_matched = city in output or city_short in output
+        if not city_matched:
+            return False
+
+        casts = forecast.get("casts", [])
+        intent = _weather_query_intent(query)
+        if intent["historical"] or not casts or len(casts) <= max(intent["offsets"]):
+            return False
+        for offset in intent["offsets"]:
+            cast = casts[offset]
+            if not all(str(cast.get(field, "")).strip() in output for field in intent["required_fields"]):
+                return False
+            date_str = str(cast.get("date", "")).strip()
+            if date_str != (date.today() + timedelta(days=offset)).isoformat():
+                return False
+            if len(intent["offsets"]) > 1:
+                if date_str not in output:
+                    return False
+            elif date_str not in output and not any(
+                marker in output
+                for marker in (("今天", "现在") if offset == 0 else ("明天",) if offset == 1 else ("后天",))
+            ):
+                return False
+        if intent["requires_advice"] and "出海" not in output:
+            return False
+        if intent["requires_clothing"] and "穿" not in output:
+            return False
+        return True
     except (KeyError, IndexError, TypeError):
         return False
 
@@ -197,12 +345,113 @@ _FIXTURE_CASES = {
 }
 
 
+def build_provenances_for_fixture(
+    dependency: str,
+    fixture: Any,
+    agent_output: str,
+    skill_body: str,
+    query: Optional[str] = None,
+    expected_parameters: Optional[dict[str, Any]] = None,
+) -> list[ToolCallProvenance]:
+    """Verify tool calls against dependency contract and build signed ToolCallProvenances."""
+    calls = list(getattr(fixture, "call_history", []))
+    if not calls:
+        return []
+
+    provenances: list[ToolCallProvenance] = []
+    fixture_case = _FIXTURE_CASES.get(dependency)
+    timestamp = datetime.now(timezone.utc).isoformat()
+    case_id = getattr(fixture_case, "case_id", f"{dependency}.runtime.v1")
+
+    if expected_parameters is not None:
+        expected = dict(expected_parameters)
+    elif fixture_case is not None:
+        try:
+            expected = fixture_case.build_input(query=query)
+        except TypeError:
+            expected = fixture_case.build_input()
+    else:
+        expected = {}
+
+    call_count = len(calls)
+    for call_index, call in enumerate(calls, start=1):
+        actual_parameters = call.get("parameters", {})
+        response = call.get("response")
+        try:
+            raw_status = getattr(
+                response.status, "value", str(response.status)
+            ).upper()
+            tool_success = raw_status == "SUCCESS"
+            try:
+                output_contract_pass = fixture_case.verify_output(actual_parameters, response, query)
+            except TypeError:
+                output_contract_pass = fixture_case.verify_output(actual_parameters, response)
+            contract_pass = (
+                _parameters_match(actual_parameters, expected)
+                and tool_success
+                and (output_contract_pass if fixture_case else True)
+            )
+            try:
+                agent_output_pass = fixture_case.verify_agent_output(agent_output, response, query)
+            except TypeError:
+                agent_output_pass = fixture_case.verify_agent_output(agent_output, response)
+            authenticity_pass = (
+                contract_pass
+                and (agent_output_pass if fixture_case else True)
+            )
+            fixture_mock_values = []
+            if getattr(fixture, "nonce", None):
+                fixture_mock_values.append(str(fixture.nonce))
+            if getattr(response, "data", None) and isinstance(response.data, dict):
+                forecasts = response.data.get("forecasts", [])
+                for f in forecasts:
+                    for cast in f.get("casts", []):
+                        if "nonce" in cast and str(cast["nonce"]).strip():
+                            fixture_mock_values.append(str(cast["nonce"]))
+            mock_violations = check_mock_hardcoding(skill_body, fixture_mock_values)
+            if mock_violations:
+                authenticity_pass = False
+
+            status = "SUCCESS" if authenticity_pass else "ERROR"
+            resp_text = getattr(response, "text", str(response))
+            summary = f"tool={resp_text[:150]} | agent={agent_output[:150]}"
+            latency_ms = float((getattr(response, "stats", None) or {}).get("time_ms", 0.0))
+        except Exception as exc:
+            tool_success = False
+            authenticity_pass = False
+            status = "ERROR"
+            summary = f"fixture 响应解析或真实性校验异常: {type(exc).__name__}: {exc}"
+            latency_ms = 0.0
+
+        provenances.append(
+            _provenance(
+                dependency,
+                case_id,
+                call_index,
+                call_count,
+                True,
+                True,
+                True,
+                tool_success,
+                authenticity_pass,
+                actual_parameters,
+                status,
+                summary,
+                latency_ms,
+                timestamp,
+            )
+        )
+    return provenances
+
+
 def execute_dependency_fixtures(
     dependencies: list[str],
     removed_dependencies: list[str] | None = None,
     *,
     llm=None,
     skill_body: str = "",
+    query: Optional[str] = None,
+    parameters_override: Optional[dict[str, Any]] = None,
 ) -> tuple[bool, list[ToolCallProvenance], list[str]]:
     """Run dependency cases through a tool-capable Agent and capture execution facts."""
     provenances: list[ToolCallProvenance] = []
@@ -237,7 +486,13 @@ def execute_dependency_fixtures(
             continue
 
         try:
-            parameters = fixture_case.build_input()
+            if parameters_override is not None:
+                parameters = dict(parameters_override)
+            else:
+                try:
+                    parameters = fixture_case.build_input(query=query)
+                except TypeError:
+                    parameters = fixture_case.build_input()
             fixture = factory()
             if llm is None or not hasattr(llm, "invoke_with_tools"):
                 raise RuntimeError("dependency harness 缺少支持 function calling 的 LLM")
@@ -263,7 +518,11 @@ def execute_dependency_fixtures(
                 enable_tool_calling=True,
                 max_tool_iterations=3,
             )
-            agent_output = agent.run(fixture_case.build_query(parameters))
+            try:
+                run_prompt = fixture_case.build_query(parameters, raw_query=query)
+            except TypeError:
+                run_prompt = fixture_case.build_query(parameters)
+            agent_output = agent.run(run_prompt)
             calls = list(fixture.call_history)
             ledger = getattr(llm, "ledger", None)
             if ledger is not None:
@@ -319,73 +578,20 @@ def execute_dependency_fixtures(
             reasons.append(f"dependency {dependency}: {summary}")
             continue
 
-        call_count = len(calls)
-        for call_index, call in enumerate(calls, start=1):
-            actual_parameters = call["parameters"]
-            response = call["response"]
-            try:
-                raw_status = getattr(
-                    response.status, "value", str(response.status)
-                ).upper()
-                tool_success = raw_status == "SUCCESS"
-                contract_pass = (
-                    actual_parameters == parameters
-                    and tool_success
-                    and fixture_case.verify_output(actual_parameters, response)
-                )
-                authenticity_pass = (
-                    contract_pass
-                    and fixture_case.verify_agent_output(agent_output, response)
-                )
-                # 防自嗨防线 4: mock-hardcoding 检查接入真实验证链
-                fixture_mock_values = []
-                if getattr(fixture, "nonce", None):
-                    fixture_mock_values.append(str(fixture.nonce))
-                if getattr(response, "data", None) and isinstance(response.data, dict):
-                    forecasts = response.data.get("forecasts", [])
-                    for f in forecasts:
-                        for cast in f.get("casts", []):
-                            if "nonce" in cast and str(cast["nonce"]).strip():
-                                fixture_mock_values.append(str(cast["nonce"]))
-                mock_violations = check_mock_hardcoding(skill_body, fixture_mock_values)
-                if mock_violations:
-                    authenticity_pass = False
-                    for mv in mock_violations:
-                        reasons.append(mv)
-                status = "SUCCESS" if authenticity_pass else "ERROR"
-                summary = f"tool={response.text[:150]} | agent={agent_output[:150]}"
-                latency_ms = float((response.stats or {}).get("time_ms", 0.0))
-            except Exception as exc:
-                tool_success = False
-                authenticity_pass = False
-                status = "ERROR"
-                summary = (
-                    "fixture 响应解析或真实性校验异常: "
-                    f"{type(exc).__name__}: {exc}"
-                )
-                latency_ms = 0.0
-            provenances.append(
-                _provenance(
-                    dependency,
-                    fixture_case.case_id,
-                    call_index,
-                    call_count,
-                    True,
-                    True,
-                    True,
-                    tool_success,
-                    authenticity_pass,
-                    actual_parameters,
-                    status,
-                    summary,
-                    latency_ms,
-                    timestamp,
-                )
-            )
-            if status != "SUCCESS":
+        provs = build_provenances_for_fixture(
+            dependency=dependency,
+            fixture=fixture,
+            agent_output=agent_output,
+            skill_body=skill_body,
+            query=query,
+            expected_parameters=parameters,
+        )
+        provenances.extend(provs)
+        for p in provs:
+            if p.output_status != "SUCCESS":
                 reasons.append(
-                    f"dependency {dependency} call {call_index}/{call_count}: "
-                    f"Agent 工具调用或真实性校验失败（{summary}）"
+                    f"dependency {dependency} call {p.call_index}/{p.call_count}: "
+                    f"Agent 工具调用或真实性校验失败（{p.output_summary}）"
                 )
 
     for dependency in removed_dependencies or []:
