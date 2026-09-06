@@ -105,6 +105,12 @@ class EvolveOutcome:
     skipped_cases: list[dict[str, Any]] = field(default_factory=list)  # P1-I baseline 容错跳过的用例归档记录
     run_id: str = ""
     trace_file: str = ""
+    # LangGraph shadow sidecar metadata.  These are deliberately part of the
+    # terminal outcome so a caller can audit where every graph side effect was
+    # written without consulting process-local state.
+    shadow_root: str = ""
+    shadow_paths: dict[str, str] = field(default_factory=dict)
+    side_effect_manifest: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _capture_unhandled_evolve_stop(method):
@@ -613,6 +619,107 @@ class SkillEvolver(SimpleAgent):
             status=status,
             patch=patch,
         )
+
+    # -------- Shared operation adapters used by the LangGraph sidecar --------
+    #
+    # The main evolve_full implementation remains the source of the workflow
+    # ordering.  These methods intentionally delegate to the exact module
+    # functions used by that implementation; graph nodes only orchestrate
+    # state and never carry a second copy of the operation logic.  Keeping the
+    # adapters on SkillEvolver also gives tests a stable seam to assert that
+    # both runners use the same operation.
+    def collect_failures(
+        self,
+        result: EvalResult,
+        *,
+        effective_failed_case_ids: Optional[set[str]] = None,
+        skipped_case_ids: Optional[set[str]] = None,
+    ) -> list[Failure]:
+        return _collect_failures(
+            result,
+            effective_failed_case_ids=effective_failed_case_ids,
+            skipped_case_ids=skipped_case_ids,
+        )
+
+    def analyze_root_cause(self, meta, body: str, failures: list[Failure], **kwargs) -> list[RootCause]:
+        return _analyze_root_cause(self.llm, meta, body, failures, **kwargs)
+
+    def generate_patches(
+        self,
+        meta,
+        body: str,
+        failures: list[Failure],
+        root_causes: list[RootCause],
+        **kwargs,
+    ) -> list[Patch]:
+        return _generate_patches(self.llm, meta, body, failures, root_causes, **kwargs)
+
+    def select_reflection_candidate(
+        self,
+        declined_candidates: list[tuple[Patch, EvalResult, RatchetVerdict, float]],
+        baseline_score: float,
+    ) -> tuple[Patch, EvalResult, RatchetVerdict, float]:
+        return _select_reflection_candidate(declined_candidates, baseline_score)
+
+    def build_attempt_feedback(self, **kwargs) -> AttemptFeedback:
+        return _build_attempt_feedback(**kwargs)
+
+    def generate_reflection_patch(self, meta, body: str, feedback: AttemptFeedback, **kwargs) -> list[Patch]:
+        return _generate_reflection_patch(self.llm, meta, body, feedback, **kwargs)
+
+    def validate_patch(self, skill_name: str, patch: Patch, old_result: EvalResult, eval_set: str, **kwargs):
+        return _validate_patch(
+            self.evaluator,
+            self.registry,
+            skill_name,
+            patch,
+            old_result,
+            eval_set,
+            **kwargs,
+        )
+
+    def publish_patch(
+        self,
+        *,
+        repo_root: Optional[Path | str] = None,
+        registry=None,
+        state_machine=None,
+        **kwargs,
+    ) -> dict:
+        # Shadow runs must never fall through to the live state machine.  A
+        # caller that explicitly supplies a state machine still gets the
+        # original operation for non-shadow use, while graph nodes pass a
+        # shadow root and shadow_mode=True.
+        effective_root = Path(repo_root) if repo_root is not None else self.repo_root
+        effective_registry = registry if registry is not None else self.registry
+        effective_state_machine = state_machine
+        if effective_state_machine is None and not kwargs.get("shadow_mode", False):
+            effective_state_machine = self.state_machine
+        return _publish_patch(
+            repo_root=effective_root,
+            registry=effective_registry,
+            state_machine=effective_state_machine,
+            evaluator=kwargs.pop("evaluator", self.evaluator),
+            **kwargs,
+        )
+
+    def archive_failure(self, repo_root: Optional[Path | str], *args, **kwargs) -> Path:
+        return _archive_failure(Path(repo_root) if repo_root is not None else self.repo_root, *args, **kwargs)
+
+    def archive_isolation_diagnostic(self, *, repo_root: Optional[Path | str] = None, **kwargs):
+        return _archive_isolation_diagnostic(
+            repo_root=Path(repo_root) if repo_root is not None else self.repo_root,
+            **kwargs,
+        )
+
+    def archive_dependency_diagnostic(self, *, repo_root: Optional[Path | str] = None, **kwargs):
+        return _archive_dependency_diagnostic(
+            repo_root=Path(repo_root) if repo_root is not None else self.repo_root,
+            **kwargs,
+        )
+
+    def dependency_issue(self, root_causes, tool_trace):
+        return is_dependency_issue(root_causes, tool_trace)
 
     # -------- ARCHITECTURE §7 签名 --------
     def evolve(self, skill_name: str, max_candidates: int = 3) -> list[Patch]:
