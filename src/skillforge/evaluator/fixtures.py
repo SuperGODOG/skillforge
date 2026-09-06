@@ -60,7 +60,13 @@ def _weather_query_intent(query: Optional[str]) -> dict[str, Any]:
             "requires_advice": False,
             "requires_clothing": False,
         }
-    if re.search(r"这几天|这周|本周|未来\s*3\s*天", text):
+    if "周末" in text:
+        # Keep the relative expression tied to the fixture's execution date;
+        # on Sunday, "this weekend" means today rather than next weekend.
+        today_weekday = date.today().weekday()
+        weekend_offsets = sorted({(5 - today_weekday) % 7, (6 - today_weekday) % 7})
+        offsets = tuple(offset for offset in weekend_offsets if offset <= 3) or (0,)
+    elif re.search(r"这几天|这周|本周|未来\s*3\s*天", text):
         offsets = (0, 1, 2)
     elif "后天" in text:
         offsets = (2,)
@@ -74,8 +80,10 @@ def _weather_query_intent(query: Optional[str]) -> dict[str, Any]:
     elif "出海" in text or "风力" in text or "风大" in text:
         required_fields = ("daywind", "daypower")
     elif "有雨" in text or "下雨" in text or "降水" in text:
-        required_fields = ("dayweather", "nightweather")
+        required_fields = ("dayweather", "nightweather", "precipitation_probability")
     elif "穿衣" in text:
+        required_fields = ("daytemp", "nighttemp")
+    elif "温度" in text or "气温" in text or "几度" in text or "温差" in text:
         required_fields = ("daytemp", "nighttemp")
     else:
         required_fields = (
