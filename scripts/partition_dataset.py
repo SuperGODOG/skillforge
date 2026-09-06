@@ -28,6 +28,63 @@ from skillforge.data_partition import (
 )
 
 
+def _is_auto_case(case: dict) -> bool:
+    """Dynamic extracted cases are explicitly marked by their stable ID."""
+    return "_auto_" in str(case.get("id", ""))
+
+
+def _load_existing_auto_cases(repair_file: Path) -> list[dict]:
+    """Load auto cases before migration so source repartition cannot drop them."""
+    if not repair_file.exists():
+        return []
+    data = load_json_dataset(repair_file)
+    cases = data.get("cases", [])
+    if not isinstance(cases, list) or any(not isinstance(case, dict) for case in cases):
+        raise ValueError("repair_set cases 必须是对象数组")
+    autos = [case for case in cases if isinstance(case, dict) and _is_auto_case(case)]
+    seen: set[str] = set()
+    for case in autos:
+        case_id = str(case.get("id", ""))
+        if not case_id or case_id in seen:
+            raise ValueError(f"repair_set 中 auto case ID 重复或为空: {case_id!r}")
+        if not str(case.get("trace_id", "")).strip():
+            raise ValueError(f"auto case {case_id} 缺失 trace_id")
+        for field_name in ("skill", "query", "reference"):
+            if not str(case.get(field_name, "")).strip():
+                raise ValueError(f"auto case {case_id} 缺失 {field_name}")
+        seen.add(case_id)
+    meta = data.get("meta", {})
+    if not isinstance(meta, dict):
+        raise ValueError("repair_set meta 必须是对象")
+    declared_raw = meta.get("auto_case_ids")
+    if declared_raw is None and not autos:
+        # A pristine source partition has no dynamic tail yet.
+        declared_ids: set[str] = set()
+    elif (
+        not isinstance(declared_raw, list)
+        or any(not isinstance(case_id, str) or not case_id for case_id in declared_raw)
+        or any("_auto_" not in case_id for case_id in declared_raw)
+    ):
+        raise ValueError("repair_set meta.auto_case_ids 必须是非空 _auto_ ID 列表")
+    else:
+        declared_ids = set(declared_raw)
+        if len(declared_ids) != len(declared_raw):
+            raise ValueError("repair_set meta.auto_case_ids 存在重复 ID")
+    actual_ids = {str(case.get("id", "")) for case in autos}
+    if actual_ids != declared_ids:
+        raise ValueError(
+            "repair_set _auto_ 与 meta.auto_case_ids 不一致: "
+            f"actual={sorted(actual_ids)}, declared={sorted(declared_ids)}"
+        )
+    if declared_raw is not None or declared_ids:
+        auto_count = meta.get("auto_case_count")
+        if type(auto_count) is not int or auto_count != len(declared_ids):
+            raise ValueError(
+                f"repair_set meta.auto_case_count ({auto_count!r}) != manifest 数量 ({len(declared_ids)})"
+            )
+    return sorted(autos, key=lambda case: str(case.get("id", "")))
+
+
 def run_migration(eval_dir: Path) -> int:
     print(f"▶ 开始数据划分与迁移：读取目录 {eval_dir}")
     dev_path = eval_dir / "baseline_dev.json"
@@ -44,7 +101,28 @@ def run_migration(eval_dir: Path) -> int:
 
     print(f"  源数据：dev={len(dev_cases)}, hidden={len(hidden_cases)}, p0_ids={len(p0_ids)}")
 
+    try:
+        existing_auto_cases = _load_existing_auto_cases(eval_dir / "repair_set.json")
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        print(f"❌ 读取现有 repair auto manifest 失败: {exc}")
+        return 1
+
+    source_ids = {str(case.get("id", "")) for case in dev_cases + hidden_cases}
+    auto_ids = {str(case.get("id", "")) for case in existing_auto_cases}
+    overlap = sorted(source_ids & auto_ids)
+    if overlap:
+        print(f"❌ auto case 与权威源 case-ID 冲突: {overlap}")
+        return 1
+
     partition = partition_cases_three_tier(dev_cases, hidden_cases, p0_ids)
+    # The deterministic source partition has no dynamic cases.  Preserve the
+    # previously extracted repair tail across every migration.
+    partition.repair_cases = sorted(
+        partition.repair_cases + existing_auto_cases,
+        key=lambda case: str(case.get("id", "")),
+    )
+    partition.stats["repair_count"] = len(partition.repair_cases)
+    partition.stats["auto_repair_count"] = len(existing_auto_cases)
     errors = validate_partition_invariants(partition, p0_ids)
     if errors:
         print("❌ 数据划分不变量校验失败:")
@@ -80,6 +158,8 @@ def run_migration(eval_dir: Path) -> int:
             "total": len(partition.repair_cases),
             "p0_included_count": len(partition.p0_cases),
             "seen_regression_count": len(partition.seen_regression_cases),
+            "auto_case_ids": [case["id"] for case in existing_auto_cases],
+            "auto_case_count": len(existing_auto_cases),
         },
         "cases": partition.repair_cases,
     }
@@ -197,18 +277,67 @@ def run_verification(eval_dir: Path) -> int:
     # 2. 检查全量覆盖与无损：按权威源对象全字段等值比较（不只 ID）
     all_source_cases = {c["id"]: c for c in dev_cases + seen_reg_cases}
     all_disk_cases = {c["id"]: c for c in repair_cases + holdout_cases + audit_cases}
+    repair_ids = {c["id"] for c in repair_cases}
+    holdout_ids = {c["id"] for c in holdout_cases}
+    audit_ids = {c["id"] for c in audit_cases}
     all_source_ids = set(all_source_cases.keys())
     all_disk_ids = set(all_disk_cases.keys())
 
-    if all_disk_ids != all_source_ids:
-        missing_from_disk = all_source_ids - all_disk_ids
-        extra_on_disk = all_disk_ids - all_source_ids
-        if missing_from_disk:
-            errors.append(f"磁盘划分用例缺失源用例: {sorted(missing_from_disk)}")
-        if extra_on_disk:
-            errors.append(f"磁盘划分用例包含未知额外用例: {sorted(extra_on_disk)}")
+    # Dynamic cases are accepted only when the repair manifest declares them.
+    repair_meta = repair.get("meta", {})
+    if not isinstance(repair_meta, dict):
+        errors.append("repair_set meta 必须是对象")
+        repair_meta = {}
+    declared_auto_raw = repair_meta.get("auto_case_ids")
+    if (
+        not isinstance(declared_auto_raw, list)
+        or any(not isinstance(cid, str) or not cid or "_auto_" not in cid for cid in declared_auto_raw)
+    ):
+        errors.append("repair_set meta 缺失合法 _auto_ case manifest")
+        declared_auto_ids: set[str] = set()
     else:
-        for cid, src_c in all_source_cases.items():
+        declared_auto_ids = set(declared_auto_raw)
+        if len(declared_auto_ids) != len(declared_auto_raw):
+            errors.append("repair_set meta.auto_case_ids 存在重复 ID")
+    auto_repair_ids = {c["id"] for c in repair_cases if _is_auto_case(c)}
+    if auto_repair_ids != declared_auto_ids:
+        errors.append(
+            "repair_set _auto_ 与 meta.auto_case_ids 不一致: "
+            f"actual={sorted(auto_repair_ids)}, declared={sorted(declared_auto_ids)}"
+        )
+    if type(repair_meta.get("auto_case_count")) is not int or repair_meta.get("auto_case_count") != len(declared_auto_ids):
+        errors.append(
+            f"repair_set meta.auto_case_count ({repair_meta.get('auto_case_count')}) != manifest 数量 ({len(declared_auto_ids)})"
+        )
+    if type(repair_meta.get("total")) is not int or repair_meta.get("total") != len(repair_cases):
+        errors.append(
+            f"repair_set meta.total ({repair_meta.get('total')}) != cases 数量 ({len(repair_cases)})"
+        )
+    for case in repair_cases:
+        if _is_auto_case(case):
+            if not str(case.get("trace_id", "")).strip():
+                errors.append(f"auto case {case.get('id')} 缺失 trace_id")
+            for field_name in ("skill", "query", "reference"):
+                if not str(case.get(field_name, "")).strip():
+                    errors.append(f"auto case {case.get('id')} 缺失 {field_name}")
+    all_auto_disk_ids = {cid for cid in all_disk_ids if "_auto_" in str(cid)}
+    non_repair_auto_ids = all_auto_disk_ids - repair_ids
+    if non_repair_auto_ids:
+        errors.append(f"auto case 不得出现在 Holdout/Audit: {sorted(non_repair_auto_ids)}")
+    if declared_auto_ids & (holdout_ids | audit_ids):
+        errors.append(f"manifest auto case 不得出现在 Holdout/Audit: {sorted(declared_auto_ids & (holdout_ids | audit_ids))}")
+    if declared_auto_ids & all_source_ids:
+        errors.append(f"auto case 不得与权威源 case-ID 冲突: {sorted(declared_auto_ids & all_source_ids)}")
+    missing_from_disk = all_source_ids - all_disk_ids
+    extra_on_disk = (all_disk_ids - all_source_ids) - declared_auto_ids
+
+    if missing_from_disk:
+        errors.append(f"磁盘划分用例缺失源用例: {sorted(missing_from_disk)}")
+    if extra_on_disk:
+        errors.append(f"磁盘划分用例包含未知额外用例: {sorted(extra_on_disk)}")
+
+    for cid, src_c in all_source_cases.items():
+        if cid in all_disk_cases:
             disk_c = all_disk_cases[cid]
             for field_name in ("id", "skill", "query", "reference"):
                 if src_c.get(field_name) != disk_c.get(field_name):

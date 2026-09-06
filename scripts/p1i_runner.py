@@ -21,6 +21,7 @@ import json
 import subprocess
 import sys
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -57,7 +58,7 @@ def save_progress(p: dict) -> None:
     PROGRESS.write_text(json.dumps(p, ensure_ascii=False, indent=1))
 
 
-def run_evolve(cfg_name: str, skill: str, run_no: int, head: str, dry: bool = False) -> dict:
+def run_evolve(cfg_name: str, skill: str, run_no: int, head: str, dry: bool = False, eval_set: str = "repair_set", max_candidates: int = 3) -> dict:
     """单次 top-level evolve，返回结果字典。"""
     from dotenv import load_dotenv
     load_dotenv(ROOT / ".env")
@@ -66,7 +67,13 @@ def run_evolve(cfg_name: str, skill: str, run_no: int, head: str, dry: bool = Fa
     from skillforge import SkillRegistry, SkillEvaluator, SkillEvolver
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    run_id = f"p1i-{cfg_name}-{skill}-{run_no:02d}-{datetime.now(timezone.utc).strftime('%H%M%S')}"
+    # The runner supplies an explicit ID to evolve_full, so it must carry the
+    # same collision resistance as the default evolution entry point.
+    run_id = (
+        f"p1i-{cfg_name}-{skill}-{run_no:02d}-"
+        f"{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')}-"
+        f"{time.time_ns()}-{uuid.uuid4().hex}"
+    )
 
     budget = EvolveBudget(
         enable_reflection=CONFIGS[cfg_name]["enable_reflection"],
@@ -85,10 +92,11 @@ def run_evolve(cfg_name: str, skill: str, run_no: int, head: str, dry: bool = Fa
     t0 = time.time()
     outcome = evolver.evolve_full(
         skill,
-        max_candidates=3,
-        eval_set_for_iter="repair_set",
+        max_candidates=max_candidates,
+        eval_set_for_iter=eval_set,
         verbose=False,
         budget=budget,
+        run_id=run_id,
     )
     elapsed = time.time() - t0
 
@@ -119,6 +127,8 @@ def main() -> int:
     ap.add_argument("--runs", type=int, default=10, help="每配置总 evolve 次数（默认 10，跨 3 skill 轮转 4/3/3）")
     ap.add_argument("--all", action="store_true", help="四配置全量")
     ap.add_argument("--smoke", action="store_true", help="C 配置 weather_query 1 次成本实测")
+    ap.add_argument("--eval-set", default="repair_set", help="迭代评估集（默认 repair_set）")
+    ap.add_argument("--max-candidates", type=int, default=3, help="候选生成数上限（默认 3）")
     args = ap.parse_args()
 
     head = git_head()
@@ -127,7 +137,7 @@ def main() -> int:
         return 1
 
     if args.smoke:
-        rec = run_evolve("C", "weather_query", 0, head)
+        rec = run_evolve("C", "weather_query", 0, head, eval_set=args.eval_set, max_candidates=args.max_candidates)
         print(json.dumps(rec, ensure_ascii=False, indent=1))
         return 0
 

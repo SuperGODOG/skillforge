@@ -22,8 +22,10 @@ import re
 import shutil
 import tempfile
 import time
+import uuid
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
+from functools import wraps
 from pathlib import Path
 from typing import Any, Literal, Optional
 
@@ -101,6 +103,77 @@ class EvolveOutcome:
     rounds_executed: int = 1
     attempts: list[AttemptRecord] = field(default_factory=list)
     skipped_cases: list[dict[str, Any]] = field(default_factory=list)  # P1-I baseline 容错跳过的用例归档记录
+    run_id: str = ""
+    trace_file: str = ""
+
+
+def _capture_unhandled_evolve_stop(method):
+    """Convert an unexpected evolve stop into a terminal audit trace.
+
+    The body has explicit handlers for expected budget/validation failures.
+    This guard covers the remaining preparation, isolation, and archive
+    exceptions without exposing a half-run as a silently missing trace.
+    """
+    @wraps(method)
+    def wrapped(self, *args, **kwargs):
+        skill_name = kwargs.get("skill_name")
+        if skill_name is None and args:
+            skill_name = args[0]
+        skill_name = str(skill_name or "")
+
+        positional = list(args)
+        supplied_run_id = kwargs.get("run_id")
+        if supplied_run_id is None and len(positional) > 9:
+            supplied_run_id = positional[9]
+        supplied_trace_file = kwargs.get("trace_file")
+        if supplied_trace_file is None and len(positional) > 10:
+            supplied_trace_file = positional[10]
+
+        trace_ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+        trace_nonce = f"{time.time_ns()}-{uuid.uuid4().hex}"
+        effective_run_id = supplied_run_id or f"evolve-{skill_name}-{trace_ts}-{trace_nonce}"
+        effective_trace_file = Path(supplied_trace_file) if supplied_trace_file else (
+            (getattr(self, "repo_root", None) or Path.cwd())
+            / "runs" / "eval_traces" / f"{trace_ts}-{trace_nonce}.jsonl"
+        )
+
+        if len(positional) > 9:
+            positional[9] = effective_run_id
+        else:
+            kwargs["run_id"] = effective_run_id
+        if len(positional) > 10:
+            positional[10] = effective_trace_file
+        else:
+            kwargs["trace_file"] = effective_trace_file
+
+        try:
+            return method(self, *positional, **kwargs)
+        except Exception as exc:
+            reason = f"UNHANDLED_EVOLVE_STOP: {type(exc).__name__}: {exc}"
+            try:
+                from .eval_tracer import record_invalid_skipped_trace
+
+                record_invalid_skipped_trace(
+                    trace_file=effective_trace_file,
+                    run_id=str(effective_run_id),
+                    skill=skill_name,
+                    evaluand_type="attempt",
+                    reason=reason,
+                )
+            except Exception:
+                # There is no alternate durable sink if the requested trace
+                # path itself is unavailable; preserve the original outcome.
+                pass
+            return EvolveOutcome(
+                skill_name=skill_name,
+                baseline_score=0.0,
+                patches_generated=0,
+                error=reason,
+                ledger=getattr(self, "ledger", None),
+                run_id=str(effective_run_id),
+                trace_file=str(effective_trace_file),
+            )
+    return wrapped
 
 
 # =============== 数据与防线辅助函数 ===============
@@ -548,6 +621,7 @@ class SkillEvolver(SimpleAgent):
         return outcome  # type: ignore
 
     # -------- 完整流程（推荐入口）--------
+    @_capture_unhandled_evolve_stop
     def evolve_full(
         self,
         skill_name: str,
@@ -559,6 +633,8 @@ class SkillEvolver(SimpleAgent):
         shadow_mode: Optional[bool] = None,
         auto_publish_enabled: Optional[bool] = None,
         enable_a2: Optional[bool] = None,
+        run_id: Optional[str] = None,
+        trace_file: Optional[Path | str] = None,
     ) -> EvolveOutcome:
         """
         对指定 Skill 跑完整六步迭代（支持 P1-H 受控两轮反思回环）。
@@ -566,13 +642,15 @@ class SkillEvolver(SimpleAgent):
         Args:
             skill_name:           目标 skill
             max_candidates:       一次生成候选数（默认 3，round1 ≤3，总上限 ≤4）
-            eval_set_for_iter:    迭代评估用哪个集（默认 repair_set 22 条，含 P0 与 seen regression）
+            eval_set_for_iter:    迭代评估用哪个集（默认 repair_set 固定基础集 + manifest auto cases）
             verbose:              打印进度
             budget:               可选单次运行覆盖的预算配置
             enable_reflection:    是否启用反思回环（feature flag 默认关闭）
             shadow_mode:          是否以 shadow 模式运行（默认 True：只归档不自动发布）
             auto_publish_enabled: 是否允许自动发布路径（本卡只做机制，默认 False 不开）
             enable_a2:            是否启用 A2 根因分析与依赖诊断分支（默认 None 取 budget.enable_a2，默认 True）
+            run_id:               可选单次运行 ID（用于审计轨迹对齐）
+            trace_file:           可选样本级审计轨迹文件路径（默认 runs/eval_traces/<ts>.jsonl）
 
         Returns:
             EvolveOutcome：本次迭代所有产出汇总
@@ -580,6 +658,15 @@ class SkillEvolver(SimpleAgent):
         active_budget = budget or self.budget
         self.ledger.reset(budget=active_budget)
         self._bind_ledger(self.ledger)
+
+        trace_ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+        trace_nonce = f"{time.time_ns()}-{uuid.uuid4().hex}"
+        effective_run_id = run_id or f"evolve-{skill_name}-{trace_ts}-{trace_nonce}"
+        effective_trace_file = (
+            Path(trace_file)
+            if trace_file
+            else (self.repo_root or Path.cwd()) / "runs" / "eval_traces" / f"{trace_ts}-{trace_nonce}.jsonl"
+        )
 
         # 机制开关与模式确定
         eff_enable_reflection = (
@@ -609,7 +696,52 @@ class SkillEvolver(SimpleAgent):
             patches_generated=0,
             ledger=self.ledger,
             rounds_executed=1,
+            run_id=effective_run_id,
+            trace_file=str(effective_trace_file),
         )
+
+        def _record_terminal_trace(evaluand_type: str, reason: str) -> None:
+            """Keep every exceptional/budget stop visible to the audit stream."""
+            try:
+                from .eval_tracer import record_invalid_skipped_trace
+
+                record_invalid_skipped_trace(
+                    trace_file=effective_trace_file,
+                    run_id=effective_run_id,
+                    skill=skill_name,
+                    evaluand_type=evaluand_type,
+                    reason=reason,
+                )
+            except Exception as trace_exc:
+                if verbose:
+                    print(f"  ⚠️ terminal 轨迹落盘异常: {trace_exc}")
+
+        def _ensure_evaluand_trace(evaluand_type: str, eval_result: Any) -> None:
+            """Record candidate/attempt results even when validation is mocked or short-circuited."""
+            if not effective_trace_file or getattr(eval_result, "_eval_trace_written", False):
+                return
+            try:
+                from .eval_tracer import (
+                    derive_eval_case_annotations,
+                    record_eval_traces_from_eval_result,
+                )
+
+                skipped, effective = derive_eval_case_annotations(eval_result)
+                records = record_eval_traces_from_eval_result(
+                    trace_file=effective_trace_file,
+                    run_id=effective_run_id,
+                    skill=skill_name,
+                    eval_result=eval_result,
+                    evaluand_type=evaluand_type,
+                    skipped_cases=skipped,
+                    effective_failed_cases=effective,
+                )
+                if not records:
+                    _record_terminal_trace(evaluand_type, "评估结果无 case-level 轨迹，按 INVALID_SKIPPED 归档")
+                setattr(eval_result, "_eval_trace_written", True)
+            except Exception as trace_exc:
+                if verbose:
+                    print(f"  ⚠️ {evaluand_type} 轨迹落盘异常: {trace_exc}")
 
         candidate_cap = active_budget.get_effective_candidate_limit(round_index=0, candidates_so_far=0)
         if (
@@ -621,6 +753,7 @@ class SkillEvolver(SimpleAgent):
                 f"候选生成预算硬帽超限：CANDIDATE_LIMIT_EXCEEDED: "
                 f"requested {max_candidates} candidates > clamp {candidate_cap}"
             )
+            _record_terminal_trace("candidate", outcome.error)
             return outcome
         # P0-1: 数据边界显式断言与拒绝（禁止指向 holdout/audit 层）
         if is_forbidden_eval_set(eval_set_for_iter):
@@ -661,13 +794,16 @@ class SkillEvolver(SimpleAgent):
             )
         except BudgetExceededError as e:
             outcome.error = f"baseline 评估预算硬帽超限：{e.reason}"
+            _record_terminal_trace("baseline", outcome.error)
             return outcome
         except Exception as e:
             outcome.error = f"baseline 评估失败：{e}"
+            _record_terminal_trace("baseline", outcome.error)
             return outcome
         route_error = getattr(old_result, "route_error", None)
         if route_error:
             outcome.error = f"路由判定不可用，停止迭代：{route_error}"
+            _record_terminal_trace("baseline", outcome.error)
             return outcome
         if not old_result.valid:
             if eff_enable_a2:
@@ -703,6 +839,7 @@ class SkillEvolver(SimpleAgent):
                         distillation_prompt=None,
                         status="REVIEW",
                     ))
+                    _record_terminal_trace("baseline", f"DEPENDENCY_ISSUE: {dep_reason}")
                     return outcome
 
         # P1-I A/D 细化粒度：判定 case 级状态（正常 / 有效失败 / 基础设施异常跳过）
@@ -753,6 +890,22 @@ class SkillEvolver(SimpleAgent):
         effective_failed_cases = effective_failed_cases - skipped_cids
         outcome.skipped_cases = skipped_cases
 
+        # P2-C 样本级审计轨迹落盘（baseline 评估）
+        try:
+            from .eval_tracer import record_eval_traces_from_eval_result
+            record_eval_traces_from_eval_result(
+                trace_file=effective_trace_file,
+                run_id=effective_run_id,
+                skill=skill_name,
+                eval_result=old_result,
+                evaluand_type="baseline",
+                skipped_cases=skipped_cases,
+                effective_failed_cases=effective_failed_cases,
+            )
+        except Exception as _trace_exc:
+            if verbose:
+                print(f"  ⚠️ baseline 轨迹落盘异常: {_trace_exc}")
+
         # 仅当旧结果不完全 valid 或有跳过用例时才做停止判断
         if not old_result.valid or skipped_cases:
             # 1. P0 关键 case 检查：如果 P0 关键用例遭遇 Judge 自身异常，坚决 fail-closed 停止整链
@@ -762,6 +915,7 @@ class SkillEvolver(SimpleAgent):
                     if sc_cid in critical_cids:
                         reasons_str = "; ".join(sc["reasons"])
                         outcome.error = f"baseline 评估无效，P0 关键用例 '{sc_cid}' 发生 Judge/基础设施异常: {reasons_str}"
+                        _record_terminal_trace("baseline", outcome.error)
                         return outcome
 
             # 2. 容错阈值检查：跳过的用例数超过预算上限则停止
@@ -777,12 +931,14 @@ class SkillEvolver(SimpleAgent):
                     f"> {active_budget.invalid_case_ratio_threshold:.0%})，停止迭代: "
                     + "; ".join(f"{s['case_id']}({','.join(s['reasons'])})" for s in skipped_cases)
                 )
+                _record_terminal_trace("baseline", outcome.error)
                 return outcome
 
             # 3. 如果整结果无效且没有用例明细（如空集等非 case 级错误）
             if not old_result.valid and not case_verdicts:
                 details = "; ".join(old_result.invalid_reasons) or "未知 INVALID 原因"
                 outcome.error = f"baseline 评估无效，停止迭代：{details}"
+                _record_terminal_trace("baseline", outcome.error)
                 return outcome
 
         if skipped_cases and verbose:
@@ -861,6 +1017,11 @@ class SkillEvolver(SimpleAgent):
                 )
             except BudgetExceededError as e:
                 outcome.error = f"根因分析预算硬帽超限：{e.reason}"
+                _record_terminal_trace("baseline", outcome.error)
+                return outcome
+            except Exception as e:
+                outcome.error = f"根因分析失败：{e}"
+                _record_terminal_trace("baseline", outcome.error)
                 return outcome
             if verbose:
                 for rc in root_causes:
@@ -897,6 +1058,7 @@ class SkillEvolver(SimpleAgent):
                     status="REVIEW",
                 )
                 outcome.records.append(record)
+                _record_terminal_trace("baseline", f"DEPENDENCY_ISSUE: {dep_reason}")
                 return outcome
         else:
             root_causes = []
@@ -922,6 +1084,11 @@ class SkillEvolver(SimpleAgent):
             )
         except BudgetExceededError as e:
             outcome.error = f"候选生成预算硬帽超限：{e.reason}"
+            _record_terminal_trace("candidate", outcome.error)
+            return outcome
+        except Exception as e:
+            outcome.error = f"候选生成失败：{e}"
+            _record_terminal_trace("candidate", outcome.error)
             return outcome
         outcome.patches_generated = len(patches)
         if verbose:
@@ -933,6 +1100,7 @@ class SkillEvolver(SimpleAgent):
                 print(f"    [{level_label}] {p.rationale[:60]}")
         if not patches:
             outcome.error = "LLM 未生成有效 patch（可能 JSON 解析失败）"
+            _record_terminal_trace("candidate", outcome.error)
             return outcome
 
         has_acceptable = False
@@ -976,6 +1144,7 @@ class SkillEvolver(SimpleAgent):
                 )
                 outcome.patches_declined.append(str(path))
                 context.stop_reason = "REPEATED_FINGERPRINT_STOP"
+                _record_terminal_trace("candidate", context.stop_reason)
                 continue
 
             context.seen_fingerprints.add(cand_fp)
@@ -985,11 +1154,16 @@ class SkillEvolver(SimpleAgent):
                     self.evaluator, self.registry, skill_name, patch,
                     old_result, eval_set_for_iter,
                     budget=active_budget,
+                    trace_file=effective_trace_file,
+                    run_id=effective_run_id,
+                    evaluand_type="candidate",
                 )
+                _ensure_evaluand_trace("candidate", new_result)
             except BudgetExceededError as e:
                 if verbose:
                     print(f"  ❌ 预算硬帽超限：{e.reason}")
                 verdict = RatchetVerdict(decision="DECLINED", reasons=[f"BUDGET_EXCEEDED: {e.reason}"])
+                _record_terminal_trace("candidate", f"BUDGET_EXCEEDED: {e.reason}")
                 attempt_record = self._create_attempt_record(
                     context,
                     strategy="routing_metadata" if patch.level == "L1" else "execution_behavior",
@@ -1018,6 +1192,7 @@ class SkillEvolver(SimpleAgent):
                 if verbose:
                     print(f"  ❌ 验证异常：{e}")
                 verdict = RatchetVerdict(decision="DECLINED", reasons=[f"VALIDATION_EXCEPTION: {e}"])
+                _record_terminal_trace("candidate", f"VALIDATION_EXCEPTION: {e}")
                 attempt_record = self._create_attempt_record(
                     context,
                     strategy="routing_metadata" if patch.level == "L1" else "execution_behavior",
@@ -1052,24 +1227,33 @@ class SkillEvolver(SimpleAgent):
             # 发布门（含 final_audit）可能继续消耗 ledger；因此在发布门完成后
             # 再创建 AttemptRecord，才能把本次 attempt 的全部增量归属到本记录。
             attempt_no = len(context.attempts) + 1
-            outc = _publish_patch(
-                repo_root=self.repo_root,
-                registry=self.registry,
-                state_machine=self.state_machine,
-                skill_name=skill_name,
-                patch=patch,
-                verdict=verdict,
-                new_result=new_result,
-                budget=active_budget,
-                root_causes=root_causes,
-                attempt_no=attempt_no,
-                round_no=1,
-                reason_codes=verdict.reasons,
-                shadow_mode=eff_shadow_mode,
-                auto_publish_enabled=eff_auto_publish,
-                candidate_digest=cand_fp,
-                evaluator=self.evaluator,
-            )
+            try:
+                outc = _publish_patch(
+                    repo_root=self.repo_root,
+                    registry=self.registry,
+                    state_machine=self.state_machine,
+                    skill_name=skill_name,
+                    patch=patch,
+                    verdict=verdict,
+                    new_result=new_result,
+                    budget=active_budget,
+                    root_causes=root_causes,
+                    attempt_no=attempt_no,
+                    round_no=1,
+                    reason_codes=verdict.reasons,
+                    shadow_mode=eff_shadow_mode,
+                    auto_publish_enabled=eff_auto_publish,
+                    candidate_digest=cand_fp,
+                    evaluator=self.evaluator,
+                )
+            except BudgetExceededError as exc:
+                outcome.error = f"候选发布门预算硬帽超限：{exc.reason}"
+                _record_terminal_trace("candidate", outcome.error)
+                return outcome
+            except Exception as exc:
+                outcome.error = f"候选发布门失败：{exc}"
+                _record_terminal_trace("candidate", outcome.error)
+                return outcome
             attempt_record = self._create_attempt_record(
                 context,
                 strategy="routing_metadata" if patch.level == "L1" else "execution_behavior",
@@ -1148,6 +1332,7 @@ class SkillEvolver(SimpleAgent):
             if verbose:
                 print("\n  ❌ baseline 评估无效，不触发反思回环")
             context.stop_reason = "BASELINE_INVALID"
+            _record_terminal_trace("baseline", context.stop_reason)
             return outcome
 
         if not declined_evaluations:
@@ -1155,6 +1340,7 @@ class SkillEvolver(SimpleAgent):
                 print("\n  ❌ 无可用有效 DECLINED 候选进行反思（候选全 INVALID 或无可反思样本），结束迭代")
             if not context.stop_reason:
                 context.stop_reason = "CANDIDATE_INVALID_FAIL_CLOSED"
+            _record_terminal_trace("candidate", context.stop_reason)
             return outcome
 
         # 总候选上限检查（最多 4 个候选）
@@ -1167,6 +1353,7 @@ class SkillEvolver(SimpleAgent):
             if verbose:
                 print(f"\n  ❌ 已达总候选上限 (max_candidates_total={active_budget.max_candidates_total})，停止迭代")
             context.stop_reason = "TOTAL_CANDIDATES_EXCEEDED"
+            _record_terminal_trace("attempt", context.stop_reason)
             return outcome
 
         outcome.rounds_executed = 2
@@ -1174,43 +1361,50 @@ class SkillEvolver(SimpleAgent):
         if verbose:
             print(f"\n▶ [Evolve/Round 2-reflection] 触发定向反思重试（仅选 1 个退步最少、证据最完整的候选）")
 
-        # 选'退步最少、证据最完整'的 1 个 DECLINED 候选
-        best_patch, best_result, best_verdict, best_score = _select_reflection_candidate(
-            declined_evaluations, outcome.baseline_score
-        )
+        try:
+            # 选'退步最少、证据最完整'的 1 个 DECLINED 候选
+            best_patch, best_result, best_verdict, best_score = _select_reflection_candidate(
+                declined_evaluations, outcome.baseline_score
+            )
 
-        bundle = _load_dataset_layer_ids(self.repo_root)
-        repair_ids, holdout_ids, audit_ids, holdout_q, audit_q = bundle[:5]
+            bundle = _load_dataset_layer_ids(self.repo_root)
+            repair_ids, holdout_ids, audit_ids, holdout_q, audit_q = bundle[:5]
 
-        # 构造 AttemptFeedback（按定稿 4.2 完整结构 14 字段）
-        feedback = _build_attempt_feedback(
-            attempt_no=len(context.attempts),
-            original_skill_md=original_skill_md,
-            candidate_patch=best_patch,
-            baseline_result=old_result,
-            candidate_result=best_result,
-            ratchet_verdict=best_verdict,
-            repair_case_ids=repair_ids,
-            holdout_case_ids=holdout_ids,
-            audit_case_ids=audit_ids,
-            repeated_fingerprints=list(context.seen_fingerprints),
-            remaining_budget={
-                "calls_remaining": getattr(self.ledger, "calls_remaining", None),
-                "tokens_remaining": getattr(self.ledger, "tokens_remaining", None),
-            },
-            strategy="execution_behavior" if best_patch.level != "L1" else "routing_metadata",
-        )
+            # 构造 AttemptFeedback（按定稿 4.2 完整结构 14 字段）
+            feedback = _build_attempt_feedback(
+                attempt_no=len(context.attempts),
+                original_skill_md=original_skill_md,
+                candidate_patch=best_patch,
+                baseline_result=old_result,
+                candidate_result=best_result,
+                ratchet_verdict=best_verdict,
+                repair_case_ids=repair_ids,
+                holdout_case_ids=holdout_ids,
+                audit_case_ids=audit_ids,
+                repeated_fingerprints=list(context.seen_fingerprints),
+                remaining_budget={
+                    "calls_remaining": getattr(self.ledger, "calls_remaining", None),
+                    "tokens_remaining": getattr(self.ledger, "tokens_remaining", None),
+                },
+                strategy="execution_behavior" if best_patch.level != "L1" else "routing_metadata",
+            )
 
-        # 实现层断言严禁 holdout/audit 入反思
-        assert_reflection_isolation(
-            feedback,
-            holdout_ids=bundle.holdout_ids,
-            audit_ids=bundle.audit_ids,
-            holdout_queries=bundle.holdout_queries,
-            audit_queries=bundle.audit_queries,
-            holdout_references=bundle.holdout_references,
-            audit_references=bundle.audit_references,
-        )
+            # 实现层断言严禁 holdout/audit 入反思；若断言自身失败，也必须
+            # 留下终态轨迹而不能让本次运行无声退出。
+            assert_reflection_isolation(
+                feedback,
+                holdout_ids=bundle.holdout_ids,
+                audit_ids=bundle.audit_ids,
+                holdout_queries=bundle.holdout_queries,
+                audit_queries=bundle.audit_queries,
+                holdout_references=bundle.holdout_references,
+                audit_references=bundle.audit_references,
+            )
+        except Exception as exc:
+            outcome.error = f"反思准备/隔离失败：{exc}"
+            context.stop_reason = f"REFLECTION_PREP_ERROR: {exc}"
+            _record_terminal_trace("attempt", context.stop_reason)
+            return outcome
 
         try:
             reflection_patches = _generate_reflection_patch(
@@ -1223,11 +1417,18 @@ class SkillEvolver(SimpleAgent):
         except BudgetExceededError as e:
             outcome.error = f"反思候选生成预算硬帽超限：{e.reason}"
             context.stop_reason = f"BUDGET_EXCEEDED: {e.reason}"
+            _record_terminal_trace("attempt", context.stop_reason)
+            return outcome
+        except Exception as e:
+            outcome.error = f"反思候选生成失败：{e}"
+            context.stop_reason = f"REFLECTION_EXCEPTION: {e}"
+            _record_terminal_trace("attempt", context.stop_reason)
             return outcome
 
         if not reflection_patches:
             outcome.error = "LLM 反思未生成有效 patch"
             context.stop_reason = "REFLECTION_EMPTY_PATCH"
+            _record_terminal_trace("attempt", context.stop_reason)
             return outcome
 
         outcome.patches_generated += len(reflection_patches)
@@ -1266,6 +1467,7 @@ class SkillEvolver(SimpleAgent):
             )
             outcome.patches_declined.append(str(path))
             context.stop_reason = "REPEATED_FINGERPRINT_STOP"
+            _record_terminal_trace("attempt", context.stop_reason)
             return outcome
 
         context.seen_fingerprints.add(r2_fp)
@@ -1278,9 +1480,14 @@ class SkillEvolver(SimpleAgent):
                 self.evaluator, self.registry, skill_name, reflection_patch,
                 old_result, eval_set_for_iter,
                 budget=active_budget,
+                trace_file=effective_trace_file,
+                run_id=effective_run_id,
+                evaluand_type="attempt",
             )
+            _ensure_evaluand_trace("attempt", new_result)
         except BudgetExceededError as e:
             verdict = RatchetVerdict(decision="DECLINED", reasons=[f"BUDGET_EXCEEDED: {e.reason}"])
+            _record_terminal_trace("attempt", f"BUDGET_EXCEEDED: {e.reason}")
             attempt_record = self._create_attempt_record(
                 context,
                 strategy=feedback.strategy,
@@ -1307,6 +1514,7 @@ class SkillEvolver(SimpleAgent):
             return outcome
         except Exception as e:
             verdict = RatchetVerdict(decision="DECLINED", reasons=[f"VALIDATION_EXCEPTION: {e}"])
+            _record_terminal_trace("attempt", f"VALIDATION_EXCEPTION: {e}")
             attempt_record = self._create_attempt_record(
                 context,
                 strategy=feedback.strategy,
@@ -1335,24 +1543,35 @@ class SkillEvolver(SimpleAgent):
         # 与 Round 1 相同：final_audit 属于本次 attempt 的发布门工作，必须计入
         # 本记录的 calls/tokens 增量。
         attempt_no = len(context.attempts) + 1
-        outc = _publish_patch(
-            repo_root=self.repo_root,
-            registry=self.registry,
-            state_machine=self.state_machine,
-            skill_name=skill_name,
-            patch=reflection_patch,
-            verdict=verdict,
-            new_result=new_result,
-            budget=active_budget,
-            root_causes=root_causes,
-            attempt_no=attempt_no,
-            round_no=2,
-            reason_codes=verdict.reasons,
-            shadow_mode=eff_shadow_mode,
-            auto_publish_enabled=eff_auto_publish,
-            candidate_digest=r2_fp,
-            evaluator=self.evaluator,
-        )
+        try:
+            outc = _publish_patch(
+                repo_root=self.repo_root,
+                registry=self.registry,
+                state_machine=self.state_machine,
+                skill_name=skill_name,
+                patch=reflection_patch,
+                verdict=verdict,
+                new_result=new_result,
+                budget=active_budget,
+                root_causes=root_causes,
+                attempt_no=attempt_no,
+                round_no=2,
+                reason_codes=verdict.reasons,
+                shadow_mode=eff_shadow_mode,
+                auto_publish_enabled=eff_auto_publish,
+                candidate_digest=r2_fp,
+                evaluator=self.evaluator,
+            )
+        except BudgetExceededError as exc:
+            outcome.error = f"反思候选发布门预算硬帽超限：{exc.reason}"
+            context.stop_reason = f"BUDGET_EXCEEDED: {exc.reason}"
+            _record_terminal_trace("attempt", context.stop_reason)
+            return outcome
+        except Exception as exc:
+            outcome.error = f"反思候选发布门失败：{exc}"
+            context.stop_reason = f"PUBLISH_EXCEPTION: {exc}"
+            _record_terminal_trace("attempt", context.stop_reason)
+            return outcome
         attempt_record = self._create_attempt_record(
             context,
             strategy=feedback.strategy,
@@ -2390,6 +2609,9 @@ def _validate_patch(
     evaluator, registry, skill_name: str, patch: Patch,
     old_result: EvalResult, eval_set: str,
     budget: Optional[EvolveBudget] = None,
+    trace_file: Optional[Path | str] = None,
+    run_id: str = "",
+    evaluand_type: str = "candidate",
 ) -> tuple[EvalResult, RatchetVerdict]:
     """Validate a candidate through channels selected by its change surface."""
     from .registry import SkillRegistry

@@ -268,7 +268,7 @@ def test_skill_evaluator_all_seven_weather_cases_valid(tmp_path):
     with open(repo_root / "evaluation_sets" / "repair_set.json", "r", encoding="utf-8") as f:
         data = json.load(f)
     weather_cases = [c for c in data["cases"] if c.get("skill") == "weather_query"]
-    assert len(weather_cases) == 7
+    assert len(weather_cases) >= 7
 
     class MultiCaseFCLLM:
         model = "multi-case-fc-llm"

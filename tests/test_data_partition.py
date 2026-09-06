@@ -76,12 +76,14 @@ def test_three_tier_partition_invariants():
     assert len(repair_ids & audit_ids) == 0, "Repair 与 Audit 存在交集泄露！"
     assert len(holdout_ids & audit_ids) == 0, "Holdout 与 Audit 存在交集泄露！"
 
-    # 2. 全量覆盖：总共 40 条用例（32 dev + 8 原 hidden 降级）无遗漏
+    # 2. 全量覆盖：40 条权威源 + 4 条 manifest 声明的 auto 用例
     all_partitioned_ids = repair_ids | holdout_ids | audit_ids
-    assert len(all_partitioned_ids) == 40
-    assert len(repair_cases) == 22
+    assert len(all_partitioned_ids) == 44
+    assert len(repair_cases) == 26
     assert len(holdout_cases) == 9
     assert len(audit_cases) == 9
+    assert set(repair["meta"]["auto_case_ids"]) == {"wq_auto_01", "wq_auto_02", "wq_auto_03", "wq_auto_04"}
+    assert repair["meta"]["auto_case_count"] == 4
 
     # 3. P0 完整性：所有 10 条 P0 用例必须完全包含在 repair 集中
     assert p0_ids.issubset(repair_ids), f"P0 用例未完全包含在 Repair 集: {p0_ids - repair_ids}"
@@ -166,6 +168,12 @@ def test_partition_verify_detects_disk_tampering(tmp_path: Path):
     audit_file.write_text(json.dumps(audit_data, ensure_ascii=False), encoding="utf-8")
     assert partition_dataset.run_verification(temp_eval) == 0
 
+    # 3b. 删除 manifest 声明的 auto case 必须 fail-closed。
+    repair_data = json.loads(repair_file.read_text(encoding="utf-8"))
+    repair_data["cases"] = [c for c in repair_data["cases"] if c["id"] != "wq_auto_04"]
+    repair_file.write_text(json.dumps(repair_data, ensure_ascii=False), encoding="utf-8")
+    assert partition_dataset.run_verification(temp_eval) != 0
+
     # 4. 篡改场景 C：在 repair_set.json 内部引入重复用例 ID
     dup_data = json.loads(repair_file.read_text(encoding="utf-8"))
     dup_data["cases"].append(dup_data["cases"][0])
@@ -226,3 +234,17 @@ def test_partition_verify_detects_content_tampering_and_invariants(tmp_path: Pat
     hidden_file.write_text(json.dumps(hidden_data, ensure_ascii=False), encoding="utf-8")
     assert partition_dataset.run_verification(temp_eval) != 0
 
+
+def test_partition_migration_preserves_existing_auto_cases(tmp_path: Path):
+    """重新迁移权威源时，repair 中的动态 auto tail 不得被丢弃。"""
+    import shutil
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import partition_dataset
+
+    temp_eval = tmp_path / "evaluation_sets"
+    shutil.copytree(EVAL_DIR, temp_eval)
+    assert partition_dataset.run_migration(temp_eval) == 0
+    migrated = json.loads((temp_eval / "repair_set.json").read_text(encoding="utf-8"))
+    ids = {case["id"] for case in migrated["cases"]}
+    assert {"wq_auto_01", "wq_auto_02", "wq_auto_03", "wq_auto_04"}.issubset(ids)
+    assert set(migrated["meta"]["auto_case_ids"]) == {"wq_auto_01", "wq_auto_02", "wq_auto_03", "wq_auto_04"}

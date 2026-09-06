@@ -41,3 +41,6 @@ runs/p1i/
 runs/suggestions/
 .agent-rollback/
 runs/p1i_progress.json
+
+# 样本级审计轨迹（运行时产物不入库）
+runs/eval_traces/
