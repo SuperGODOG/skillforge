@@ -674,3 +674,88 @@ class ReleaseStateMachine:
 - ✅ 评估可信度声明四条（相对回归/非绝对/非全自动/非用户满意度）
 
 **必须避免的叙述**也全部遵守（未硬编码百分比、未拉踩 LangChain、未承诺全自动等）。
+
+---
+
+## 11. Phase 5 实施修订（2026-09-06，P0-P2 全链）
+
+### 11.1 与 §10 的衔接说明
+
+§10 记录了 Phase 4 完成后的实施差异，确立了六步流水线、分级发布与 SQLite 唯一事实源等基线架构。但在后续实际演化实验中，系统暴露了深层瓶颈：**自进化信号不可信**（Judge 盲评在 task 维度分歧达 62%、缺乏防线拦截、测试集面临被反思提示词污染的数据泄漏风险、偶发网络抖动导致整批评估报废）。
+
+Phase 5（2026-09-02 至 2026-09-06）围绕"让 AI 自我改进可信"推进三幕改造：
+1. **P0 可信地基**：引入 semantic diff、改动面校验、fail-closed Judge 协议化与三层数据物理隔离，先装刹车与仪表盘；
+2. **P1 受控回环**：构建双轮反思回环、预算 Ledger 与 8 重防自嗨体系，并在修复评估链容错后完成真实 LLM 对照跑批（P1-I）；
+3. **P2 自生成生态**：引入 Skill 自动生成器、三维耦合拆分器、审计轨迹自动提取 badcase 闭环，以及用于状态黑板解耦的 LangGraph 旁路。
+
+测试套件从 Phase 4 的 74 条扩展至 **316 条全绿**（8.8s），代码规模扩展至核心约 5000 行 + 辅助与测试约 8000 行。本节作为 Phase 5 实施基准修订，记录新增组件、防线体系、数据流变更及架构决策（ADR-11 至 ADR-15）。
+
+---
+
+### 11.2 新增组件与核心模块变更
+
+| 模块 / 组件 | 路径 | 核心职责与架构设计 |
+|---|---|---|
+| **eval_tracer** | `src/skillforge/eval_tracer.py` | **样本级全量审计轨迹**：落盘包含 11 个核心字段（用例元数据、输入输出、八维明细得分、判定结论、延迟、Token 消耗等）的结构化日志；为 badcase 提取与反思闭环提供不可篡改的事实底稿。 |
+| **skill_generator** | `src/skillforge/skill_generator.py` | **P2-A Skill 自动生成器**：自然语言需求驱动生成标准化 `SKILL.md` 与初始验证集；内嵌 BGE 向量距离 0.70 冲突阈值 fail-closed 拦截，支持原子注册入库与路由负例自动生成。 |
+| **skill_splitter** | `src/skillforge/skill_splitter.py` | **P2-B 技能拆分裁决器**：基于数据依赖同构、流程逻辑纠缠、评测集交叉的三维耦合矩阵量化拆分收益；支持事务化发布与软弃用，实测对紧耦合场景（如 weather 同 fixture 多意图）执行正确拒拆。 |
+| **langgraph_loop** | `src/skillforge/langgraph_loop.py` | **P2-D 受控回环 LangGraph 状态图旁路**：构建 7 节点 14 边的 `StateGraph`，提供状态黑板解耦与 `SqliteCheckpointer` 断点恢复（Durable Execution）；作为 shadow 旁路与主链双跑 100% 等价。详见 [docs/langgraph_loop.md](docs/langgraph_loop.md)。 |
+| **data_partition** | `src/skillforge/data_partition.py` | **三层评测数据物理隔离**：严格划分 `repair_set`、`experiment_holdout`、`final_audit`；运行时校验物理边界，防止评测数据逆向渗透进反思提示词。 |
+| **diff** | `src/skillforge/diff.py` | **确定性语义 diff 与等级计算**：解析 frontmatter 与 Body AST；计算 `computed_level`（L1/L2/L3），白名单校验修改字段，防止模型自报降级与越权改写。 |
+| **models 变更** | `src/skillforge/models.py` | **护栏与上下文模型扩充**：新增 `EvolveBudget`（Token/调用硬帽与实时扣减）、`EvolveContext` / `AttemptFeedback`（两轮反思最小黑板上下文）、`DatasetLayerBundle` 等核心数据契约。 |
+| **evolver 变更** | `src/skillforge/evolver.py` | **受控回环重构**：六步线性流水线升级为双轮受控反思回环（`max_rounds=2`）；内嵌 P0 发布门拦截、8 重防线裁决、A2 根因分支（路由/行为/依赖）与 shadow 隔离归档。 |
+
+---
+
+### 11.3 防自嗨体系清单（8 重防线）
+
+自进化系统的核心风险不是"无法生成改动"，而是"改错后模型自洽并固化错误"。SkillForge 构建了 8 重深度防御防线：
+
+| # | 防线名称 | 核心一句话机制 | 核心代码位置 |
+|---|---|---|---|
+| 1 | **Diff Policy（等级约束防线）** | 严格解析 AST 生成语义 diff 并重算 `computed_level`，L1 仅限特定白名单字段，禁止模型自报等级与降级越权。 | `src/skillforge/diff.py` (`compute_semantic_diff`, `classify_patch_level`) |
+| 2 | **Provenance（真实性快照绑定）** | 验证时强绑定真实调用或合法 Fixture 响应凭证及其内容哈希，断言实时数据无凭证直接判 INVALID 阻断。 | `src/skillforge/evaluator/fixtures.py` (`ExecutionProvenance`), `evolver.py` |
+| 3 | **Nonce Fixture（抗记忆防线）** | 工具模拟注入动态 Nonce 与时效随机戳，防止元 Agent 逆向硬编码 Mock 结果到 Skill Body 中自欺欺人。 | `src/skillforge/evaluator/fixtures.py` (`generate_nonce_fixture`, `verify_provenance`) |
+| 4 | **按改动面咬合验证器** | 依据语义改动面精准挂接验证通道：改 metadata 强验 Router 负例，改 Body 强验行为集，改依赖进人工 REVIEW。 | `src/skillforge/evolver.py` (`_validate_patch`, `validation_channels`) |
+| 5 | **邻近变体验证（泛化防线）** | 对失败 Query 自动衍生同构城市、日期、措辞等邻近变体集一并参测，防止仅针对单一失败用例局部过拟合。 | `src/skillforge/evolver.py` (`generate_neighbor_variants`) |
+| 6 | **数据泄漏扫描（边界防线）** | 候选 Patch 进沙箱前执行文本扫描，严禁出现 Case ID、评测 Query 原句、标准答案片段或 Fixture 独有常量。 | `src/skillforge/evolver.py` (`scan_patch_leakage`) |
+| 7 | **独立审计集隔离（物理防线）** | 建立 `repair`、`experiment_holdout`、`final_audit` 三层数据物理墙，Holdout 与终审数据永不可见且禁止参与反思。 | `src/skillforge/data_partition.py` (`validate_dataset_partition`), `evolver.py` |
+| 8 | **指纹熔断（死循环防线）** | 基于规范化 SHA-256 维护 `seen_fingerprints` 集合，检测到与历史基线或上一轮候选完全同质的 Patch 时直接熔断停止。 | `src/skillforge/evolver.py` (`compute_skill_fingerprint`), `models.py` |
+
+---
+
+### 11.4 数据流变更（评估链自闭环与 `_auto_` Manifest）
+
+在 Phase 5 之前，评测用例全量依赖人工设计；Phase 5 实现了**从运行轨迹到修复集的全自动闭环数据流**：
+
+```mermaid
+flowchart LR
+    EvolRun["SkillEvolver<br/>真实迭代运行"] -->|"全量写入"| Traces[("runs/eval_traces/*.jsonl<br/>11 字段全样本轨迹")]
+    Traces -->|"读取分析"| Extractor["scripts/extract_cases_from_traces.py<br/>badcase 提取器"]
+    Extractor -->|"三道质量门过滤"| QualityGate{"质量门过滤<br/>①有效失败白名单<br/>②Provenance 凭证<br/>③Query 距离防重"}
+    QualityGate -->|"合规 badcase"| ManifestWriter["_auto_ Manifest 写入器"]
+    ManifestWriter -->|"追加写入"| RepairSet[("evaluation_sets/repair_set.json<br/>meta.auto_case_ids 清单")]
+    RepairSet -.->|"驱动下一轮基线评测"| EvolRun
+```
+
+1. **样本级轨迹落盘**：`eval_tracer.py` 将每次沙箱评估的每条 Case 详细轨迹结构化落盘（`runs/eval_traces/*.jsonl`），实现执行与判定的完全可审计与可回放。
+2. **三道质量门严格筛选**：`extract_cases_from_traces.py` 提取失败用例时实施 Fail-Closed 过滤：
+   - 过滤环境异常与网络错误，仅收录符合有效失败白名单（`_is_effective_failure`）的业务逻辑缺陷；
+   - 必须通过 Provenance 真实性凭证校验与 Content Hash 校验；
+   - 执行 Query 归一化与相似度去重，防止低质量冗余样本稀释测试集。
+3. **`_auto_` Manifest 严格对账机制**：
+   - 所有自动化提取或生成的用例 ID 强制符合 `*_auto_*` 命名规范（如 `wq_auto_01`）；
+   - `repair_set.json` 的 `meta` 元数据中必须显式维护 `auto_case_ids` 数组清单与计数；
+   - 架构层强制保证：**文件内实际包含的 `_auto_` 用例集合与 `meta.auto_case_ids` 清单必须严格一致**，任何手动篡改或不一致均触发 Fail-Closed 拒绝加载。
+
+---
+
+### 11.5 新增架构决策记录（ADR-11 至 ADR-15）
+
+| # | 决策 | 备选方案 | 选择理由（精简 ≤4 行） |
+|---|---|---|---|
+| ADR-11 | **Fail-Closed 容错粒度下沉至 Case 级** | 发生单条异常即整批报废；或将异常转 tied 冒充正常 | 单 Case 超时或不可解析按 INVALID 独立剔除；若整批 INVALID 率 >20% 则熔断阻断，在堵住假发布的同时将偶发网络报废率由 7/12 降至 1/10。 |
+| ADR-12 | **真实性快照绑定（Provenance Binding）** | 候选验证重新发起外部请求获取动态数据 | 候选验证强绑定与基线同源的工具响应快照与哈希，彻底杜绝因外部数据漂移造成的虚假收益或误报退步。 |
+| ADR-13 | **有效失败白名单（Effective Failure Allowlist）** | 所有未满分或异常均视作自进化目标 | 仅将外部事实不符、逻辑违背等实质业务缺陷纳为有效失败；严格将 Judge 基础设施崩溃、限流、网络抖动等环境噪声排除在自进化反思之外。 |
+| ADR-14 | **三维耦合分析裁决 Skill 拆分** | 凭 Prompt 长度或单一直觉关键词拆分 | 基于数据依赖同构、流程编排纠缠、评测集交叉三维矩阵量化收益；避免盲目拆分导致数据源重复维护与工具契约分裂（实测精准拒拆 weather）。 |
+| ADR-15 | **LangGraph 旁路独立探索不侵入主链** | 废弃 evolver.py 主循环并全量迁移至 LangGraph | 主链保持零语义变更的轻量确定性 for 循环守住生产稳定性；LangGraph 以 Shadow 旁路引入，复用原子节点并通过 7 场景双跑证明 100% 行为等价。 |
