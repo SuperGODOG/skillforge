@@ -24,8 +24,13 @@ from skillforge.data_partition import (
     PartitionResult,
     load_json_dataset,
     partition_cases_three_tier,
+    reserve_skill_quota,
+    validate_auto_case_prefixes,
+    validate_quota_reservations,
     validate_partition_invariants,
 )
+
+MAX_REPAIR_AUTO_RATIO = 0.50
 
 
 def _is_auto_case(case: dict) -> bool:
@@ -107,6 +112,18 @@ def run_migration(eval_dir: Path) -> int:
         print(f"❌ 读取现有 repair auto manifest 失败: {exc}")
         return 1
 
+    existing_repair_meta: dict = {}
+    existing_repair_path = eval_dir / "repair_set.json"
+    if existing_repair_path.exists():
+        try:
+            existing_repair = load_json_dataset(existing_repair_path)
+            if isinstance(existing_repair.get("meta"), dict):
+                existing_repair_meta = existing_repair["meta"]
+        except (OSError, ValueError, json.JSONDecodeError):
+            # _load_existing_auto_cases already rejected malformed data above;
+            # retain a defensive empty metadata fallback for a pristine source.
+            existing_repair_meta = {}
+
     source_ids = {str(case.get("id", "")) for case in dev_cases + hidden_cases}
     auto_ids = {str(case.get("id", "")) for case in existing_auto_cases}
     overlap = sorted(source_ids & auto_ids)
@@ -123,7 +140,23 @@ def run_migration(eval_dir: Path) -> int:
     )
     partition.stats["repair_count"] = len(partition.repair_cases)
     partition.stats["auto_repair_count"] = len(existing_auto_cases)
-    errors = validate_partition_invariants(partition, p0_ids)
+    projected_auto_ratio = len(existing_auto_cases) / len(partition.repair_cases) if partition.repair_cases else 1.0
+    if projected_auto_ratio > MAX_REPAIR_AUTO_RATIO:
+        print(
+            f"❌ repair auto case 占比 {projected_auto_ratio:.1%} 超过上限 "
+            f"{MAX_REPAIR_AUTO_RATIO:.1%}，拒绝迁移"
+        )
+        return 1
+    quota_reservations = existing_repair_meta.get("quota_reservations", {})
+    if not isinstance(quota_reservations, dict):
+        print("❌ repair_set meta.quota_reservations 必须是对象")
+        return 1
+    quota_reservations = dict(quota_reservations)
+    for case in existing_auto_cases:
+        skill = case.get("skill")
+        if isinstance(skill, str) and skill:
+            quota_reservations.setdefault(skill, reserve_skill_quota(skill))
+    errors = validate_partition_invariants(partition, p0_ids, quota_reservations=quota_reservations)
     if errors:
         print("❌ 数据划分不变量校验失败:")
         for err in errors:
@@ -160,6 +193,7 @@ def run_migration(eval_dir: Path) -> int:
             "seen_regression_count": len(partition.seen_regression_cases),
             "auto_case_ids": [case["id"] for case in existing_auto_cases],
             "auto_case_count": len(existing_auto_cases),
+            "quota_reservations": quota_reservations,
         },
         "cases": partition.repair_cases,
     }
@@ -300,6 +334,27 @@ def run_verification(eval_dir: Path) -> int:
         if len(declared_auto_ids) != len(declared_auto_raw):
             errors.append("repair_set meta.auto_case_ids 存在重复 ID")
     auto_repair_ids = {c["id"] for c in repair_cases if _is_auto_case(c)}
+    # Prefix ownership is global: source, seen, all three partition layers,
+    # and any router manifest must agree that one prefix belongs to one Skill.
+    all_manifest_cases = (
+        dev_cases
+        + hidden_cases
+        + seen_reg_cases
+        + repair_cases
+        + holdout_cases
+        + audit_cases
+        + p0_cases
+    )
+    router_path = eval_dir / "router_negatives.json"
+    if router_path.exists():
+        try:
+            router_data = load_json_dataset(router_path)
+            router_cases = router_data.get("cases", [])
+            if isinstance(router_cases, list):
+                all_manifest_cases.extend(router_cases)
+        except (FileNotFoundError, ValueError):
+            errors.append("router_negatives.json 无法解析，不能完成全局 case 前缀校验")
+    errors.extend(validate_auto_case_prefixes(all_manifest_cases))
     if auto_repair_ids != declared_auto_ids:
         errors.append(
             "repair_set _auto_ 与 meta.auto_case_ids 不一致: "
@@ -328,6 +383,11 @@ def run_verification(eval_dir: Path) -> int:
         errors.append(f"manifest auto case 不得出现在 Holdout/Audit: {sorted(declared_auto_ids & (holdout_ids | audit_ids))}")
     if declared_auto_ids & all_source_ids:
         errors.append(f"auto case 不得与权威源 case-ID 冲突: {sorted(declared_auto_ids & all_source_ids)}")
+    auto_ratio = len(auto_repair_ids) / len(repair_cases) if repair_cases else 1.0
+    if auto_ratio > MAX_REPAIR_AUTO_RATIO:
+        errors.append(
+            f"repair auto case 占比 {auto_ratio:.1%} 超过上限 {MAX_REPAIR_AUTO_RATIO:.1%}"
+        )
     missing_from_disk = all_source_ids - all_disk_ids
     extra_on_disk = (all_disk_ids - all_source_ids) - declared_auto_ids
 
@@ -419,6 +479,16 @@ def run_verification(eval_dir: Path) -> int:
     )
 
     errors.extend(validate_partition_invariants(disk_partition, p0_ids))
+    all_skills = {str(case.get("skill")) for case in all_disk_cases.values() if case.get("skill")}
+    errors.extend(
+        validate_quota_reservations(
+            repair_meta.get("quota_reservations"),
+            repair_cases,
+            holdout_cases,
+            audit_cases,
+            required_skills=all_skills,
+        )
+    )
     if errors:
         print("❌ 磁盘数据集划分存在违规:")
         for err in errors:

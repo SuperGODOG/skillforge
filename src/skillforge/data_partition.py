@@ -66,6 +66,110 @@ LAYER_POLICIES: dict[DatasetLayer, LayerPolicy] = {
     ),
 }
 
+# A newly registered Skill does not silently enter the frozen tiers.  The
+# partition layer reserves the slots first; an explicit migration can later
+# mark them fulfilled once independent cases are present.
+DEFAULT_HOLDOUT_QUOTA = 3
+DEFAULT_AUDIT_QUOTA = 3
+
+
+def reserve_skill_quota(
+    skill_name: str,
+    holdout: int = DEFAULT_HOLDOUT_QUOTA,
+    audit: int = DEFAULT_AUDIT_QUOTA,
+) -> dict[str, Any]:
+    """Return a serialisable holdout/audit reservation for a new Skill."""
+    if not isinstance(skill_name, str) or not skill_name.strip():
+        raise ValueError("skill_name 必须是非空字符串")
+    if type(holdout) is not int or holdout <= 0:
+        raise ValueError("holdout 配额必须是正整数")
+    if type(audit) is not int or audit <= 0:
+        raise ValueError("audit 配额必须是正整数")
+    return {
+        "experiment_holdout": holdout,
+        "final_audit": audit,
+        "status": "reserved",
+    }
+
+
+def validate_quota_reservations(
+    reservations: Any,
+    repair_cases: list[dict[str, Any]],
+    holdout_cases: list[dict[str, Any]],
+    audit_cases: list[dict[str, Any]],
+    required_skills: Optional[set[str]] = None,
+) -> list[str]:
+    """Validate that every Skill has fulfilled tiers or an explicit reservation.
+
+    ``reserved`` is intentionally accepted for a new Skill: it records a
+    required independent quota without smuggling repair auto cases into the
+    holdout/audit files.  ``fulfilled`` is required once those slots exist.
+    """
+    errors: list[str] = []
+    if not isinstance(reservations, dict):
+        return ["quota_reservations 必须是对象"]
+
+    all_cases = repair_cases + holdout_cases + audit_cases
+    known_skills = required_skills or {
+        str(case.get("skill")) for case in all_cases if isinstance(case, dict) and case.get("skill")
+    }
+    for skill in sorted(known_skills):
+        reservation = reservations.get(skill)
+        holdout_count = sum(
+            1 for case in holdout_cases if isinstance(case, dict) and case.get("skill") == skill
+        )
+        audit_count = sum(
+            1 for case in audit_cases if isinstance(case, dict) and case.get("skill") == skill
+        )
+        if reservation is None:
+            if holdout_count < DEFAULT_HOLDOUT_QUOTA or audit_count < DEFAULT_AUDIT_QUOTA:
+                errors.append(f"Skill {skill} 缺少 holdout/audit 配额预留")
+            continue
+        if not isinstance(reservation, dict):
+            errors.append(f"Skill {skill} 的 quota reservation 必须是对象")
+            continue
+        requested_holdout = reservation.get("experiment_holdout")
+        requested_audit = reservation.get("final_audit")
+        status = reservation.get("status")
+        if type(requested_holdout) is not int or requested_holdout <= 0:
+            errors.append(f"Skill {skill} 的 experiment_holdout 配额非法")
+        if type(requested_audit) is not int or requested_audit <= 0:
+            errors.append(f"Skill {skill} 的 final_audit 配额非法")
+        if status not in {"reserved", "fulfilled"}:
+            errors.append(f"Skill {skill} 的 quota reservation status 非法: {status!r}")
+            continue
+        if isinstance(requested_holdout, int) and holdout_count < requested_holdout and status == "fulfilled":
+            errors.append(f"Skill {skill} 已标记 fulfilled 但 holdout 仅 {holdout_count}/{requested_holdout}")
+        if isinstance(requested_audit, int) and audit_count < requested_audit and status == "fulfilled":
+            errors.append(f"Skill {skill} 已标记 fulfilled 但 audit 仅 {audit_count}/{requested_audit}")
+
+    extra_skills = set(reservations) - known_skills
+    for skill in sorted(extra_skills):
+        errors.append(f"quota reservation 包含未注册 Skill: {skill}")
+    return errors
+
+
+def validate_auto_case_prefixes(cases: list[dict[str, Any]]) -> list[str]:
+    """Ensure every ``<prefix>_auto_<n>`` prefix belongs to one Skill globally."""
+    owners: dict[str, str] = {}
+    errors: list[str] = []
+    for case in cases:
+        if not isinstance(case, dict):
+            errors.append("case 必须是对象")
+            continue
+        case_id = case.get("id")
+        if not isinstance(case_id, str) or "_auto_" not in case_id:
+            continue
+        prefix, suffix = case_id.split("_auto_", 1)
+        if not prefix or not suffix.isdigit():
+            errors.append(f"auto case-ID 格式非法: {case_id!r}")
+            continue
+        skill = str(case.get("skill", ""))
+        previous = owners.setdefault(prefix, skill)
+        if previous != skill:
+            errors.append(f"case 前缀 '{prefix}' 跨 skill 冲突: {previous!r} 与 {skill!r}")
+    return errors
+
 
 @dataclass
 class PartitionResult:
@@ -167,9 +271,26 @@ def partition_cases_three_tier(
     )
 
 
-def validate_partition_invariants(partition: PartitionResult, p0_ids: set[str]) -> list[str]:
+def validate_partition_invariants(
+    partition: PartitionResult,
+    p0_ids: set[str],
+    quota_reservations: Any = None,
+) -> list[str]:
     """验证三层划分的不变量，返回违规错误列表（为空即全部合规）"""
     errors: list[str] = []
+
+    # Prefix ownership is a cross-layer invariant.  Keep it here as well as
+    # in the CLI verifier so callers using the partition API cannot validate
+    # each tier independently and miss a collision in another tier.
+    errors.extend(
+        validate_auto_case_prefixes(
+            partition.repair_cases
+            + partition.holdout_cases
+            + partition.audit_cases
+            + partition.seen_regression_cases
+            + partition.p0_cases
+        )
+    )
 
     repair_ids = {c["id"] for c in partition.repair_cases}
     holdout_ids = {c["id"] for c in partition.holdout_cases}
@@ -207,5 +328,15 @@ def validate_partition_invariants(partition: PartitionResult, p0_ids: set[str]) 
         for skill in partition.stats.get("skills", []):
             if by_skill.get(skill, 0) == 0:
                 errors.append(f"{name} 集中缺失技能 {skill} 的测试用例")
+
+    if quota_reservations is not None:
+        errors.extend(
+            validate_quota_reservations(
+                quota_reservations,
+                partition.repair_cases,
+                partition.holdout_cases,
+                partition.audit_cases,
+            )
+        )
 
     return errors

@@ -2,10 +2,10 @@
   "meta": {
     "created": "2026-07-26",
     "purpose": "Phase 2 三层路由 Recall 评测集（含硬负例，务实规模）",
-    "total": 50,
+    "total": 58,
     "breakdown": {
-      "positive": 30,
-      "hard_negative": 18,
+      "positive": 36,
+      "hard_negative": 20,
       "unrelated_negative": 2
     },
     "targets": {
@@ -51,6 +51,15 @@
     {"id": "er_p_08", "query": "正则的回溯原理是什么", "expected": "explain_regex", "type": "positive"},
     {"id": "er_p_09", "query": "这段正则我看不懂 [a-z]+@\\w+\\.\\w+ 你讲讲", "expected": "explain_regex", "type": "positive"},
     {"id": "er_p_10", "query": "帮我理解一下 (?P<name>...) 的意思", "expected": "explain_regex", "type": "positive"},
+
+    {"id": "ehs_router_p_01", "query": "502 Bad Gateway 报错原因与网关排查", "expected": "explain_http_status", "type": "positive", "why": "来自 explain_http_status manifest examples"},
+    {"id": "ehs_router_p_02", "query": "404 Not Found 客户端请求路径排查", "expected": "explain_http_status", "type": "positive", "why": "来自 explain_http_status manifest examples"},
+    {"id": "ehs_router_p_03", "query": "500 Internal Server Error 服务端错误排查", "expected": "explain_http_status", "type": "positive", "why": "来自 explain_http_status manifest examples"},
+    {"id": "ehs_router_n_01", "query": "请直接帮我处理：自定义 API 状态码选型与架构设计决策。", "expected": null, "type": "hard_negative", "why": "来自 explain_http_status.not_for"},
+    {"id": "msc_router_p_01", "query": "Markdown 表格怎么让某一列居中？", "expected": "markdown_syntax_cheatsheet", "type": "positive", "why": "来自 markdown_syntax_cheatsheet manifest examples"},
+    {"id": "msc_router_p_02", "query": "如何在文档里插入带语言的代码块？", "expected": "markdown_syntax_cheatsheet", "type": "positive", "why": "来自 markdown_syntax_cheatsheet manifest examples"},
+    {"id": "msc_router_p_03", "query": "Markdown 链接的引用式写法是什么？", "expected": "markdown_syntax_cheatsheet", "type": "positive", "why": "来自 markdown_syntax_cheatsheet manifest examples"},
+    {"id": "msc_router_n_01", "query": "请直接帮我处理：生成或改写整篇 Markdown 长文档/文章。", "expected": null, "type": "hard_negative", "why": "来自 markdown_syntax_cheatsheet.not_for"},
 
     {"id": "wq_n_01", "query": "北京最近三年的年均降水量是多少", "expected": null, "type": "hard_negative", "why": "气候学分析而非当前/预报天气；not_for 明确"},
     {"id": "wq_n_02", "query": "什么是台风的形成原理", "expected": null, "type": "hard_negative", "why": "气象学知识讲解；not_for 明确"},

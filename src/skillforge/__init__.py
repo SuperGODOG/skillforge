@@ -50,6 +50,16 @@ from .skill_generator import (
     build_manifest_report,
     render_manifest_report,
 )
+from .skill_splitter import (
+    analyze_split,
+    split_skill,
+    deprecate_original_skill,
+    SplitAnalysis,
+    SplitResult,
+    DomainSpec,
+    DimensionCoupling,
+    CaseAssignment,
+)
 
 __all__ = [
     "__version__",
@@ -74,4 +84,12 @@ __all__ = [
     "RegistrationError",
     "build_manifest_report",
     "render_manifest_report",
+    "analyze_split",
+    "split_skill",
+    "deprecate_original_skill",
+    "SplitAnalysis",
+    "SplitResult",
+    "DomainSpec",
+    "DimensionCoupling",
+    "CaseAssignment",
 ]

@@ -41,6 +41,11 @@ class LLMCallRecord:
     total_tokens: int
     latency_ms: float
     timestamp: float
+    # A failed underlying invocation still consumed an attempt.  Keeping the
+    # outcome on the record makes retry accounting auditable without inventing
+    # token usage that the provider did not return.
+    status: str = "success"
+    error_type: Optional[str] = None
 
 
 class LLMLedger:
@@ -63,6 +68,10 @@ class LLMLedger:
     @property
     def total_calls(self) -> int:
         return len(self.records)
+
+    @property
+    def failed_calls(self) -> int:
+        return sum(1 for record in self.records if record.status == "error")
 
     @property
     def total_tokens(self) -> int:
@@ -211,9 +220,31 @@ class LLMLedger:
 
         return rec
 
+    def record_failure(self, role: str, exc: BaseException, latency_ms: float) -> LLMCallRecord:
+        """Record an attempted provider call that raised before returning a response.
+
+        ``check_budget`` is deliberately not repeated here: the call already
+        passed the preflight check, so it counts as one attempted call even
+        though token usage is unknown.  A following retry will be stopped by
+        the normal preflight check once the hard call/deadline cap is reached.
+        """
+        rec = LLMCallRecord(
+            role=role,
+            prompt_tokens=0,
+            completion_tokens=0,
+            total_tokens=0,
+            latency_ms=latency_ms,
+            timestamp=time.time(),
+            status="error",
+            error_type=type(exc).__name__,
+        )
+        self.records.append(rec)
+        return rec
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "total_calls": self.total_calls,
+            "failed_calls": self.failed_calls,
             "total_tokens": self.total_tokens,
             "prompt_tokens": self.prompt_tokens,
             "completion_tokens": self.completion_tokens,
@@ -238,7 +269,15 @@ class TrackedLLM:
         active_role = role or self.role
         self.ledger.check_budget(role=active_role)
         started = time.perf_counter()
-        resp = self.underlying_llm.invoke(messages, **kwargs)
+        try:
+            resp = self.underlying_llm.invoke(messages, **kwargs)
+        except Exception as exc:
+            self.ledger.record_failure(
+                role=active_role,
+                exc=exc,
+                latency_ms=(time.perf_counter() - started) * 1000,
+            )
+            raise
         latency_ms = (time.perf_counter() - started) * 1000
         self.ledger.record_call(role=active_role, resp=resp, latency_ms=latency_ms)
         return resp
@@ -247,10 +286,18 @@ class TrackedLLM:
         active_role = role or self.role
         self.ledger.check_budget(role=active_role)
         started = time.perf_counter()
-        if hasattr(self.underlying_llm, "invoke_with_tools"):
-            resp = self.underlying_llm.invoke_with_tools(*args, **kwargs)
-        else:
-            resp = self.underlying_llm.invoke(*args, **kwargs)
+        try:
+            if hasattr(self.underlying_llm, "invoke_with_tools"):
+                resp = self.underlying_llm.invoke_with_tools(*args, **kwargs)
+            else:
+                resp = self.underlying_llm.invoke(*args, **kwargs)
+        except Exception as exc:
+            self.ledger.record_failure(
+                role=active_role,
+                exc=exc,
+                latency_ms=(time.perf_counter() - started) * 1000,
+            )
+            raise
         latency_ms = (time.perf_counter() - started) * 1000
         self.ledger.record_call(role=active_role, resp=resp, latency_ms=latency_ms)
         return resp
