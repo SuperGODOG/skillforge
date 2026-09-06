@@ -13,6 +13,9 @@ from skillforge.data_partition import (
     LAYER_POLICIES,
     load_json_dataset,
     partition_cases_three_tier,
+    reserve_skill_quota,
+    validate_auto_case_prefixes,
+    validate_quota_reservations,
     validate_partition_invariants,
 )
 
@@ -76,14 +79,22 @@ def test_three_tier_partition_invariants():
     assert len(repair_ids & audit_ids) == 0, "Repair 与 Audit 存在交集泄露！"
     assert len(holdout_ids & audit_ids) == 0, "Holdout 与 Audit 存在交集泄露！"
 
-    # 2. 全量覆盖：40 条权威源 + 4 条 manifest 声明的 auto 用例
+    # 2. 全量覆盖：40 条权威源 + manifest 声明的 auto 用例
     all_partitioned_ids = repair_ids | holdout_ids | audit_ids
-    assert len(all_partitioned_ids) == 44
-    assert len(repair_cases) == 26
+    auto_count = len(repair.get("meta", {}).get("auto_case_ids", []))
+    assert len(all_partitioned_ids) == 40 + auto_count
+    assert len(repair_cases) == 22 + auto_count
     assert len(holdout_cases) == 9
     assert len(audit_cases) == 9
-    assert set(repair["meta"]["auto_case_ids"]) == {"wq_auto_01", "wq_auto_02", "wq_auto_03", "wq_auto_04"}
-    assert repair["meta"]["auto_case_count"] == 4
+    assert {"wq_auto_01", "wq_auto_02", "wq_auto_03", "wq_auto_04"}.issubset(set(repair["meta"]["auto_case_ids"]))
+    assert repair["meta"]["auto_case_count"] == auto_count
+    assert validate_auto_case_prefixes(repair_cases) == []
+    assert validate_quota_reservations(
+        repair["meta"]["quota_reservations"],
+        repair_cases,
+        holdout_cases,
+        audit_cases,
+    ) == []
 
     # 3. P0 完整性：所有 10 条 P0 用例必须完全包含在 repair 集中
     assert p0_ids.issubset(repair_ids), f"P0 用例未完全包含在 Repair 集: {p0_ids - repair_ids}"
@@ -115,6 +126,22 @@ def test_layer_policies_and_visibility():
     assert LAYER_POLICIES[DatasetLayer.FINAL_AUDIT].allow_in_reflection is False
     assert LAYER_POLICIES[DatasetLayer.FINAL_AUDIT].allow_in_candidate_ranking is False
     assert LAYER_POLICIES[DatasetLayer.FINAL_AUDIT].allow_in_final_gate is True
+
+
+def test_new_skill_quota_reservation_is_explicit_and_prefixes_are_global():
+    reservation = reserve_skill_quota("new_skill")
+    assert reservation == {
+        "experiment_holdout": 3,
+        "final_audit": 3,
+        "status": "reserved",
+    }
+    cases = [
+        {"id": "same_auto_01", "skill": "one"},
+        {"id": "same_auto_02", "skill": "two"},
+    ]
+    errors = validate_auto_case_prefixes(cases)
+    assert errors
+    assert "same" in errors[0]
 
 
 def test_partition_dataset_cli_verify():
@@ -247,4 +274,4 @@ def test_partition_migration_preserves_existing_auto_cases(tmp_path: Path):
     migrated = json.loads((temp_eval / "repair_set.json").read_text(encoding="utf-8"))
     ids = {case["id"] for case in migrated["cases"]}
     assert {"wq_auto_01", "wq_auto_02", "wq_auto_03", "wq_auto_04"}.issubset(ids)
-    assert set(migrated["meta"]["auto_case_ids"]) == {"wq_auto_01", "wq_auto_02", "wq_auto_03", "wq_auto_04"}
+    assert set(migrated["meta"]["auto_case_ids"]) == set(load_json_dataset(EVAL_DIR / "repair_set.json")["meta"]["auto_case_ids"])

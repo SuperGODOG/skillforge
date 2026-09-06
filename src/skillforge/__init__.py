@@ -38,6 +38,18 @@ from .evaluator import (
 from .evaluator.llm_factory import LLMLedger
 from .evolver import SkillEvolver
 from .state_machine import ReleaseStateMachine
+from .skill_generator import (
+    generate_skill,
+    register_skill,
+    GeneratedSkill,
+    GenerationFailure,
+    derive_skill_abbrev,
+    validate_generated_structure,
+    check_conflict,
+    RegistrationError,
+    build_manifest_report,
+    render_manifest_report,
+)
 
 __all__ = [
     "__version__",
@@ -52,4 +64,14 @@ __all__ = [
     "SkillEvaluator",
     "SkillEvolver",
     "ReleaseStateMachine",
+    "generate_skill",
+    "register_skill",
+    "GeneratedSkill",
+    "GenerationFailure",
+    "derive_skill_abbrev",
+    "validate_generated_structure",
+    "check_conflict",
+    "RegistrationError",
+    "build_manifest_report",
+    "render_manifest_report",
 ]

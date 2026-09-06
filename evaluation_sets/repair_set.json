@@ -5,11 +5,45 @@
     "purpose": "回归与修复用例集，包含核心 P0 用例与已知失败案例，用于失败分析与 Prompt 修复",
     "visibility": "visible_to_meta_agent",
     "allow_in_reflection": true,
-    "total": 26,
+    "total": 38,
     "p0_included_count": 10,
     "seen_regression_count": 8,
-    "auto_case_ids": ["wq_auto_01", "wq_auto_02", "wq_auto_03", "wq_auto_04"],
-    "auto_case_count": 4
+    "auto_case_ids": [
+      "ehs_auto_01",
+      "ehs_auto_02",
+      "ehs_auto_03",
+      "ehs_auto_04",
+      "ehs_auto_05",
+      "ehs_auto_06",
+      "msc_auto_01",
+      "msc_auto_02",
+      "msc_auto_03",
+      "msc_auto_04",
+      "msc_auto_05",
+      "msc_auto_06",
+      "wq_auto_01",
+      "wq_auto_02",
+      "wq_auto_03",
+      "wq_auto_04"
+    ],
+    "auto_case_count": 16,
+    "quota_reservations": {
+      "explain_http_status": {
+        "experiment_holdout": 3,
+        "final_audit": 3,
+        "status": "reserved"
+      },
+      "markdown_syntax_cheatsheet": {
+        "experiment_holdout": 3,
+        "final_audit": 3,
+        "status": "reserved"
+      },
+      "weather_query": {
+        "experiment_holdout": 3,
+        "final_audit": 3,
+        "status": "reserved"
+      }
+    }
   },
   "cases": [
     {
@@ -171,6 +205,96 @@
       "query": "拉萨明天氧含量怎么样",
       "reference": "识别城市=拉萨市；查询日期=2026-09-07；调用天气工具；快照事实=拉萨市 2026-09-07 天气=小雨/阵雨，温度=28~21℃，风力=东南风4-5级；据快照如实回复不编造；查询所需字段不在天气快照中，必须明确说明不可提供",
       "trace_id": "p1i-C-weather_query-00-031516:wq_d09:baseline"
+    },
+    {
+      "id": "ehs_auto_01",
+      "skill": "explain_http_status",
+      "query": "用户访问接口时收到 502 Bad Gateway，应该从哪些方向排查？",
+      "reference": "先说明 502 属于 5xx 服务器错误，网关/代理从上游收到无效响应。再给出排查方向：确认上游服务是否存活、健康检查是否通过、Nginx/网关日志中的 upstream 状态、DNS/防火墙/超时配置，以及当时代码发布或重启记录。",
+      "trace_id": "generator:explain_http_status:ehs_auto_01"
+    },
+    {
+      "id": "ehs_auto_02",
+      "skill": "explain_http_status",
+      "query": "接口返回 429 Too Many Requests，是什么意思？",
+      "reference": "解释 429 是 4xx 客户端错误，含义是客户端请求频率超过服务端限流策略。排查时应查看响应头 Retry-After 和服务端限流配置，区分限流维度是 IP、用户还是 API Key，同时建议客户端指数退避重试。",
+      "trace_id": "generator:explain_http_status:ehs_auto_02"
+    },
+    {
+      "id": "ehs_auto_03",
+      "skill": "explain_http_status",
+      "query": "4xx 和 5xx 有什么区别？",
+      "reference": "这是一个边界/类别问题。应讲清 4xx 表示请求本身有问题，服务端认为客户端错误；5xx 表示请求到达服务端但处理失败，责任通常在服务端或其依赖。不能给单一具体根因，应引导用户给出具体状态码再深入。",
+      "trace_id": "generator:explain_http_status:ehs_auto_03"
+    },
+    {
+      "id": "ehs_auto_04",
+      "skill": "explain_http_status",
+      "query": "Nginx 日志里有很多 499 状态码，这是 HTTP 标准错误吗？",
+      "reference": "499 不是 IANA 注册的标准 HTTP 状态码，是 Nginx 的非标准状态码，表示客户端在服务器还没完成响应前关闭了连接。回答时先标注非标准/厂商定义，再提示查看客户端取消、超时时间和上游响应速度。",
+      "trace_id": "generator:explain_http_status:ehs_auto_04"
+    },
+    {
+      "id": "ehs_auto_05",
+      "skill": "explain_http_status",
+      "query": "帮我写一个 Spring Boot 拦截器，把所有 4xx 响应统一改成自定义 JSON 格式。",
+      "reference": "拒绝并划界：这是代码生成/API 改造任务，不属于本技能范围。本技能只解释 HTTP 状态码的含义和排查方向；如果该用户仍想理解 4xx 语义，可以进一步询问具体状态码并说明。",
+      "trace_id": "generator:explain_http_status:ehs_auto_05"
+    },
+    {
+      "id": "ehs_auto_06",
+      "skill": "explain_http_status",
+      "query": "这个接口应该返回 400 还是 422？帮我做 API 状态码设计决策。",
+      "reference": "独立难例/边界：拒绝替用户做自定义 API 状态码选型与架构决策；只说明 400/422 的通用 HTTP 语义，并明确最终设计取决于业务契约。",
+      "trace_id": "generator-policy:explain_http_status:ehs_auto_06",
+      "case_kind": "independent_hard_boundary",
+      "difficulty": "hard",
+      "source": "policy_not_for"
+    },
+    {
+      "id": "msc_auto_01",
+      "skill": "markdown_syntax_cheatsheet",
+      "query": "Markdown 表格中怎样让一列右对齐？",
+      "reference": "给出表格分隔行语法 `---:` 即可右对齐，并附表头与分隔行示例。",
+      "trace_id": "generator:markdown_syntax_cheatsheet:msc_auto_01"
+    },
+    {
+      "id": "msc_auto_02",
+      "skill": "markdown_syntax_cheatsheet",
+      "query": "在文档里插入一段 Python 代码块怎么写？",
+      "reference": "使用三个反引号围栏并在开头语言标注为 python，示例： ```python ... ```。",
+      "trace_id": "generator:markdown_syntax_cheatsheet:msc_auto_02"
+    },
+    {
+      "id": "msc_auto_03",
+      "skill": "markdown_syntax_cheatsheet",
+      "query": "Markdown 链接语法有哪些形式？",
+      "reference": "展示内联式 `[文字](url '标题')` 和引用式 `[文字][id]` + `[id]: url`，并说明标题可选。",
+      "trace_id": "generator:markdown_syntax_cheatsheet:msc_auto_03"
+    },
+    {
+      "id": "msc_auto_04",
+      "skill": "markdown_syntax_cheatsheet",
+      "query": "有没有一条命令把 Markdown 笔记转成 docx？",
+      "reference": "拒绝并划界：这是文件转换工具需求，不属于 Markdown 语法速查；建议查询 pandoc 等专用工具。",
+      "trace_id": "generator:markdown_syntax_cheatsheet:msc_auto_04"
+    },
+    {
+      "id": "msc_auto_05",
+      "skill": "markdown_syntax_cheatsheet",
+      "query": "帮我整篇重写这份 README，让它更像正式文档",
+      "reference": "拒绝并划界：这是长文档代写/润色任务，本技能只回答 Markdown 语法速查。",
+      "trace_id": "generator:markdown_syntax_cheatsheet:msc_auto_05"
+    },
+    {
+      "id": "msc_auto_06",
+      "skill": "markdown_syntax_cheatsheet",
+      "query": "GitHub 的 > [!NOTE] 告警块语法怎么写？这是通用 Markdown 吗？",
+      "reference": "独立难例/边界：说明 > [!NOTE] 属于 GitHub 等平台的扩展，不是通用 Markdown 核心语法；本技能可解释通用引用块，但不保证平台私有扩展的渲染行为。",
+      "trace_id": "generator-policy:markdown_syntax_cheatsheet:msc_auto_06",
+      "case_kind": "independent_hard_boundary",
+      "difficulty": "hard",
+      "source": "policy_not_for"
     }
   ]
 }
