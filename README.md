@@ -21,7 +21,7 @@
 
 **"生产 Skill 的元 Agent 系统"** —— 大多数 Agent 项目聚焦"用 Skill 干活"；本项目聚焦让 Skill 本身**可评测、可版本管理、可自动改进**的工程闭环。
 
-4 周业余时间独立完成 · 1600 行核心 + 3300 行 tests/scripts · CLI 一键复现所有数字。
+6 周业余时间独立完成 · Phase 1-4 基础闭环 + **Phase 5（P0 可信地基 → P1 受控回环 → P2 自生成/拆分/轨迹提用例/LangGraph 旁路）** · CLI 一键复现所有数字 · 316 tests 全绿。
 
 ---
 
@@ -62,6 +62,44 @@
 </tr>
 </tbody>
 </table>
+
+---
+
+## Phase 5：让"AI 自我改进"可信（2026-09，P0 → P1 → P2 全链）
+
+> 一句话：**先给自进化装刹车与仪表盘（P0），再实现受控反思回环与自生成能力（P1/P2），最后用真实 LLM 对照实验验证（P1-I）——"自进化不是自嗨"的技术故事线。**
+
+### P0 可信地基（4 卡，94→143 tests）
+
+| 卡 | 内容 | 防的是什么 |
+|---|---|---|
+| P0-A | diff 可信化（semantic diff / computed_level / 不变量） | 改 A 处却声称改了 B 处 |
+| P0-B | 验证器按改动面咬合（Router / 行为 / fixture+provenance） | 空泛全查、查而不验 |
+| P0-C | Judge 可信化（INVALID fail-closed / 执行分离 / A-B 均衡 / rejudge / sentinel） | Judge 幻觉与瞎猜 |
+| P0-D | 三层数据划分（repair/holdout/final_audit）+ fail-closed P0 发布门 | 数据泄漏与假发布 |
+
+### P1 新能力（143→247 tests）
+
+| 卡 | 对应原始需求 | 内容 |
+|---|---|---|
+| P1-F | 预算与随机性护栏 | token 硬帽硬停 + 缓存指纹（判定逻辑变了旧缓存自动作废） |
+| P1-E | A4 Prompt Bloat | 提示词膨胀软门槛 → REVIEW + distillation |
+| P1-G | A2-lite 根因分支 | 路由/工具/依赖三路证据定位失败根因 |
+| P1-H | A1+A3 受控回环 | 元 Agent 反思 → 候选修复 → 防线验证（8 防线），默认 shadow 不发布；最小黑板 EvolveContext |
+| P1-I | 验收执行 | 评估链容错修复（case 级跳过/Judge 重试/快照绑定/有效失败白名单）→ C vs RB 各 10 次真实对照 |
+
+**P1-I 实验结果（真实 DeepSeek，20 次 evolve）**：RB（回环+根因）baseline 分均值 78.6 vs C 71.7（方向性 +6.9）；发布门拒绝 3→0（反思把劣质候选拦在生成侧）；出现"已达最优跳过迭代"收敛信号——机制行为符合设计，20 次样本下统计不显著（诚实边界）。
+
+### P2 自生成与生态能力（247→316 tests）
+
+| 卡 | 内容 | 关键设计 |
+|---|---|---|
+| P2-C | 评估轨迹落盘 + badcase 自动提取 | 样本级审计轨迹（11 字段）→ 白名单冲突检测 → 3 道质量门 → 自动入 repair 集——**评分用例不再依赖人工** |
+| P2-A | skill 生成器 | 需求 → SKILL.md + 初始测试集 → BGE 冲突检测（0.70 阈值 fail-closed）→ 原子注册进 evolve 生态——**生成即进化** |
+| P2-B | skill 拆分器 | 三维耦合分析（数据/流程/评测集）→ 该拆才拆；weather 同 fixture 多意图**正确裁决不拆**（数据同流程拆分反伤被机器验证） |
+| P2-D | LangGraph 受控回环旁路 | StateGraph 7 节点/14 边 + SqliteCheckpointer 崩溃恢复 + shadow-root 隔离——**主链零语义改动，双跑行为等价**（面试技术叙事） |
+
+**P2 复现**：`python scripts/generate_skills_p2a.py`（生成）· `python scripts/dual_run_p2d.py`（双跑等价）· `python scripts/demo_langgraph_p2d.py`（图演示）· `python scripts/extract_cases_from_traces.py`（提用例）
 
 ---
 
@@ -249,36 +287,34 @@ pytest tests/ -v                              # 全量测试应为绿色
 ```
 skillforge/
 ├── src/skillforge/
-│   ├── __init__.py              5 组件 + 8 数据模型顶层暴露
-│   ├── models.py                Pydantic + dataclass
+│   ├── __init__.py              组件 + 数据模型顶层暴露
+│   ├── models.py                Pydantic + dataclass（含 EvolveBudget/黑板书）
 │   ├── registry.py              SkillRegistry（继承 hello_agents.ToolRegistry）
 │   ├── router/                  三层路由（rule / embed / llm / cascade）
-│   ├── evaluator/               八维评估器（structure / judge / metrics / ratchet + __init__ 装配）
-│   ├── evolver.py               SkillEvolver 六步闭环 400+ 行
+│   ├── evaluator/               评估器（structure / judge / metrics / ratchet + llm_factory + fixtures）
+│   ├── evolver.py               SkillEvolver 受控回环（P0 门/8 防线/预算/轨迹落盘）
+│   ├── eval_tracer.py           P2-C 样本级审计轨迹（11 字段）
+│   ├── skill_generator.py       P2-A skill 生成器（BGE 冲突检测/原子注册/Ledger 护栏）
+│   ├── skill_splitter.py        P2-B 拆分器（三维耦合裁决/事务化 deprecate）
+│   ├── langgraph_loop.py        P2-D LangGraph 旁路（7 节点/14 边/SqliteCheckpointer）
 │   ├── state_machine.py         ReleaseStateMachine 4 步 + Watchdog
 │   ├── storage/                 db / git_ops / jsonl
-│   └── cli.py                   4 子命令
+│   └── cli.py                   CLI 子命令
 │
-├── skills/                      3 种子 skill（YAML frontmatter + Markdown body）
-│   ├── weather_query/           信息查询类
-│   ├── write_weekly_report/     生成类
-│   └── explain_regex/           教学类
-│
-├── evaluation_sets/             手工评估集
-│   ├── baseline_dev.json        32 条开发集（元 Agent 可见）
-│   ├── baseline_hidden.json     8 条已降级回归集（已降级为 seen regression；评测请用 repair_set / holdout / audit）
-│   ├── repair_set.json          22 条迭代修复集（10 P0 + 8 seen regression + 4 boundary）
-│   ├── experiment_holdout.json  9 条实验留出集（严格隔离黑盒比对）
-│   ├── final_audit.json         9 条终审评测集（严格隔离发布终审）
+├── skills/                      5 种子 skill（3 初始 + 2 生成：explain_http_status/markdown_syntax_cheatsheet）
+├── evaluation_sets/             手工评估集 + auto case（_auto_ manifest 机制）
+│   ├── repair_set.json          22 基础 + auto 增量（轨迹提取/生成器入库）
+│   ├── experiment_holdout.json  9 条实验留出集（严格隔离）
+│   ├── final_audit.json         9 条终审评测集
 │   ├── p0_cases.json            10 条 P0（core 链路）
-│   └── router_negatives.json    50 条硬负例
+│   └── router_negatives.json    硬负例（含自动互斥注册）
 │
-├── scripts/                     独立评测 / 盲评脚本
-├── runs/                        运行时（*.db / *.jsonl gitignore）
-│   ├── failures/                元 Agent DECLINED patches
-│   └── suggestions/             元 Agent L2/L3 REVIEW patches
-├── tests/                       pytest 74 条
-├── models/                      bge-small 本地缓存（gitignore）
+├── scripts/                     评测/盲评/生成/拆分/双跑/提取脚本
+├── runs/                        运行时（*.db / *.jsonl / eval_traces/ gitignore）
+│   ├── failures/                元 Agent DECLINED patches（入库素材）
+│   └── eval_traces/             P2-C 样本级轨迹（badcase 提取源）
+├── tests/                       pytest 316 条
+├── docs/langgraph_loop.md       LangGraph 旁路设计文档
 │
 ├── ARCHITECTURE.md              C4 两级架构 + 10 ADR + §10 实施差异
 └── README.md                    本文件
@@ -310,10 +346,12 @@ skillforge/
 |---|---|---|---|
 | 路由 Recall@1 | ≥ 80% | **98%** | ✅ 超 18 分 |
 | 路由 Recall@3 | ≥ 90% | **100%** | ✅ 超 10 分 |
-| pytest 通过率 | Phase 1 10 条 | **74/74 · 4.4s** | ✅ 累计超交付 |
-| 元 Agent 成功率 | ~30% 坦诚 | 1/3 = 33% (1 次) | ⚠️ 需持续迭代累积 |
-| Judge/人工分歧 | < 30% | robust 19% ✓ / read 24% ✓ / **task 62% ❌** | ⚠️ 已定位 Judge 幻觉盲区 |
-| 代码规模 | ~900 行核心 | 1600 核心 + 3300 tests | 超 60%（工程量合理） |
+| pytest 通过率 | Phase 1 10 条 | **316/316 · 8.8s**（P0-P2 全链） | ✅ 累计超交付 |
+| 元 Agent 成功率 | ~30% 坦诚 | 33% (1 次) + P1-I 20 次真实跑批（shadow 7-24 REVIEW/配置） | ⚠️ 持续累积 |
+| Judge/人工分歧 | < 30% | P0-C rejudge 门 6/21（压线）+ sentinel 0 | ✅ 协议化（INVALID fail-closed） |
+| P1-I 对照（C vs RB ×10） | RB ≥ C | baseline 78.6 vs 71.7（+6.9）；DECLINED 3→0；收敛信号 | ⚠️ 方向性占优，20 样本统计不显著（诚实边界） |
+| P2 闭环 | 生成/提取/拆分 | 2 skill 生成（87.0 baseline）/ 4+10 auto case 提取 / weather 反例正确拒拆 | ✅ 全链真实 LLM 验证 |
+| 代码规模 | ~900 行核心 | 核心 ~5000 行（P0-P2）+ tests/scripts ~8000 行 | 工程量合理 |
 
 ---
 
@@ -322,16 +360,20 @@ skillforge/
 | 文档 | 用途 | 面试参考位置 |
 |---|---|---|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | C4 两级架构 + 10 ADR + §10 实施差异 | §8 ADR 追决策依据 |
+| docs/langgraph_loop.md | LangGraph 旁路图结构/节点边映射/durable 恢复 | P2-D 技术叙事 |
+| ~/projects/项目文档留痕/skillForge/ | P1-I 收官报告/P2 各卡 agy+审报告（全链证据） | 实验数据与审计链 |
 
 ---
 
-## Roadmap（Phase 5 优先级）
+## Roadmap（未来方向）
 
-1. **Judge prompt 补幻觉红线** — 立刻兑现 Phase 3 交付（task 分歧 62% → <30%）
-2. **GitHub Actions + Docker Compose** — 降面试演示门槛
-3. **接入 MCP 协议** — 生态化被 Claude Desktop / Cursor 消费
-4. **10 次真实迭代 + 统计报告** — 兑现 ~30% 成功率承诺（现 1/3 单次样本）
-5. **真人独立盲评（Cohen's Kappa > 0.6）** — 保底盲评从 proxy 升到可采信
+Phase 5 主体已完成（P0 四卡 → P1 六卡 → P2 四卡，9/2-9/6）。剩余与延伸：
+
+1. **10 次真实迭代 + 统计报告** — 兑现 ~30% 成功率承诺（P1-I 已开跑 shadow 模式，补 R/B 归因组可完整归因 A1/A2）
+2. **工具型 skill 生成** — P2-A 现支持文档型；扩展预置工具域模板（汇率/计算类纯函数域）
+3. **Hermes 对话流接入轨迹提取** — P2-C 现吃 evolve 轨迹；接真实对话流（质量信号 S2/S3：显式反馈/下游验证）后全自动闭环
+4. **真人独立盲评（Cohen's Kappa > 0.6）** — 保底盲评从 proxy 升到可采信
+5. **GitHub Actions + Docker Compose / 接入 MCP 协议** — 降演示门槛、生态化消费
 
 ---
 
