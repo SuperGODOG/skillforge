@@ -1,5 +1,7 @@
 <div align="center">
 
+![SkillForge](assets/skillforge-banner.png)
+
 # SkillForge
 
 **Agent Skill 自进化元 Agent 系统**
@@ -12,6 +14,16 @@
 ![Phase](https://img.shields.io/badge/phase-5%20(P0--P2)%20complete-blue)
 ![Code](https://img.shields.io/badge/python-~5000%20lines%20core-informational)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
+[![GitHub Pages](https://img.shields.io/badge/Docs-GitHub%20Pages-blue?logo=github)](https://supergodog.github.io/skillforge/)
+
+<p>
+  <a href="https://supergodog.github.io/skillforge/">📖 在线文档 (GitHub Pages)</a> •
+  <a href="#1-一句话定位与核心差异化">🎯 核心定位</a> •
+  <a href="#3-核心架构全景">🏛️ 架构全景</a> •
+  <a href="#4-三层级联路由深度解析">🧭 三层路由</a> •
+  <a href="#5-8-维度评估系统与防倒退棘轮">🛡️ 8维评估</a> •
+  <a href="#6-受控回环进化引擎与-8-重深度防线">🔄 受控进化</a>
+</p>
 
 </div>
 

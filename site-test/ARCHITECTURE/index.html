@@ -1,0 +1,2006 @@
+
+<!doctype html>
+<html lang="zh" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Agent Skill 自进化元 Agent 系统 · Agent 主导渐进式披露 + 三层路由（规则+bge+LLM R@1=98%）+ 八维评估器 + 元 Agent 半自动闭环 · 4907 行 Python · pytest 74/74">
+      
+      
+      
+        <link rel="canonical" href="https://supergodog.github.io/skillforge/ARCHITECTURE/">
+      
+      
+        <link rel="prev" href="..">
+      
+      
+        <link rel="next" href="../INTERVIEW_PREP/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>SkillForge 架构文档 - Skillforge · SuperGODOG</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#skillforge" class="md-skip">
+          跳转至
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="页眉">
+    <a href=".." title="Skillforge · SuperGODOG" class="md-header__button md-logo" aria-label="Skillforge · SuperGODOG" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Skillforge · SuperGODOG
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              SkillForge 架构文档
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-hidden="true"  type="radio" name="__palette" id="__palette_0">
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-hidden="true"  type="radio" name="__palette" id="__palette_1">
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="搜索" placeholder="搜索" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="查找">
+        
+        <button type="reset" class="md-search__icon md-icon" title="清空当前内容" aria-label="清空当前内容" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            正在初始化搜索引擎
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/SuperGODOG/skillforge" title="前往仓库" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    skillforge
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="导航栏" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Skillforge · SuperGODOG" class="md-nav__button md-logo" aria-label="Skillforge · SuperGODOG" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Skillforge · SuperGODOG
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/SuperGODOG/skillforge" title="前往仓库" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    skillforge
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SkillForge 架构文档
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SkillForge 架构文档
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="目录">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      目录
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. 目标与约束
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-c4-level-1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. 系统上下文（C4 Level 1）
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-c4-level-2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. 组件划分（C4 Level 2）
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. 组件划分（C4 Level 2）">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 5 个核心组件 + 数据流
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 继承 / 依赖关系
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. 运行时视图（关键场景）
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. 运行时视图（关键场景）">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-aagent-use_skill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 场景 A：Agent 主导渐进式披露 —— use_skill 调用
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-b" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 场景 B：三层路由级联判决
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-csqlite" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 场景 C：跨存储写入协议（SQLite 状态机）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#44-dskillevolver-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.4 场景 D：SkillEvolver 元 Agent 六步流程
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#45-e" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.5 场景 E：棘轮门槛判定
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. 数据模型
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. 数据模型">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-sqlite-schema" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 SQLite Schema
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52-jsonl" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.2 JSONL 结构
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#53-skillmd-yaml-frontmatter-body" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.3 SKILL.md 规范（YAML frontmatter + Body）
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. 目录结构
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-python" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. 关键接口签名（Python）
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-adr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. 架构决策记录（ADR 精简版）
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-v3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. 与方案书 v3 的对应关系
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-phase-4-2026-07-27" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Phase 4 完成后的实际实现修订（2026-07-27）
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="10. Phase 4 完成后的实际实现修订（2026-07-27）">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#101-4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10.1 结构差异（4 处）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#102-3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10.2 参数与阈值调优（3 处）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#103-1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10.3 已知缺陷与改进方向（1 处）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#104" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10.4 数字对账
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#105-a2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10.5 一致性口径清单校对（方案书 A.2）
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../INTERVIEW_PREP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SkillForge · 面试深挖手册（面试官视角）
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../SkillForge-%E9%A1%B9%E7%9B%AE%E6%96%B9%E6%A1%88%E4%B9%A6-v3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SkillForge
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docs
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Docs
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../docs/INTERVIEW_DESIGN_MAP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interview Design Map — SuperGODOG__skillforge
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="目录">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      目录
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. 目标与约束
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-c4-level-1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. 系统上下文（C4 Level 1）
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-c4-level-2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. 组件划分（C4 Level 2）
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. 组件划分（C4 Level 2）">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 5 个核心组件 + 数据流
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 继承 / 依赖关系
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. 运行时视图（关键场景）
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. 运行时视图（关键场景）">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-aagent-use_skill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 场景 A：Agent 主导渐进式披露 —— use_skill 调用
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-b" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 场景 B：三层路由级联判决
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-csqlite" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 场景 C：跨存储写入协议（SQLite 状态机）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#44-dskillevolver-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.4 场景 D：SkillEvolver 元 Agent 六步流程
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#45-e" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.5 场景 E：棘轮门槛判定
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. 数据模型
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. 数据模型">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-sqlite-schema" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 SQLite Schema
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52-jsonl" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.2 JSONL 结构
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#53-skillmd-yaml-frontmatter-body" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.3 SKILL.md 规范（YAML frontmatter + Body）
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. 目录结构
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-python" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. 关键接口签名（Python）
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-adr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. 架构决策记录（ADR 精简版）
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-v3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. 与方案书 v3 的对应关系
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-phase-4-2026-07-27" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Phase 4 完成后的实际实现修订（2026-07-27）
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="10. Phase 4 完成后的实际实现修订（2026-07-27）">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#101-4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10.1 结构差异（4 处）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#102-3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10.2 参数与阈值调优（3 处）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#103-1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10.3 已知缺陷与改进方向（1 处）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#104" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10.4 数字对账
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#105-a2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10.5 一致性口径清单校对（方案书 A.2）
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="skillforge">SkillForge 架构文档</h1>
+<blockquote>
+<p>与《SkillForge-项目方案书-v3》完全对齐的架构视图。方案书讲"为什么"和"面试怎么答"；本文档讲"组件怎么划分、数据怎么流、接口长什么样"。修改前请先看方案书附录 A.2 一致性口径清单。</p>
+<p>初版：2026-07-26（Phase 1 前预估）· 修订：2026-07-27（Phase 4 全部完成，末尾 §10 记实施差异）</p>
+<p><strong>文档使用指南</strong>：§1-§9 是<strong>架构基线</strong>（Phase 1 前设计），§10 是<strong>实施差异修订</strong>（哪些改了、为什么改）。两者共同构成完整架构视图，冲突处以 §10 为准。</p>
+</blockquote>
+<hr />
+<h2 id="1">1. 目标与约束</h2>
+<p><strong>目标</strong>：4 周业余时间做出一个"生产 Skill 的元 Agent 系统"，代码规模 ~900 行 Python，CLI 完整演示。</p>
+<p><strong>硬约束</strong>：
+- 无外部 DB 服务（SQLite 单文件）
+- 无云依赖（bge-small 本地跑，DeepSeek API 唯一外部调用）
+- 单进程模型（不做多 Worker、不做队列，保持可读性）
+- Skill 加载由 Agent 主导，框架不拦截 prompt</p>
+<p><strong>软目标</strong>：
+- 每个组件独立可测（单元测试 + 集成测试）
+- 路由/评估/发布全流程日志可归因
+- 关键决策的失败态优雅（旧版本继续生效）</p>
+<hr />
+<h2 id="2-c4-level-1">2. 系统上下文（C4 Level 1）</h2>
+<pre><code class="language-mermaid">graph LR
+    User([面试演示者&lt;br/&gt;/ 用户])
+    Skill[(Skills 源码仓库&lt;br/&gt;本地 Git)]
+    DS[[DeepSeek API&lt;br/&gt;LLM + Judge]]
+    Bge[[bge-small-zh-v1.5&lt;br/&gt;本地 embedding]]
+
+    User --&gt;|CLI 命令 / 交互输入| SF
+    SF[SkillForge 系统]
+    SF --&gt;|读写 SKILL.md| Skill
+    SF --&gt;|LLM 推理 / Judge| DS
+    SF --&gt;|文本编码| Bge
+
+    style SF fill:#dcecff,stroke:#4a90e2,stroke-width:2px
+    style User fill:#fff5d6
+    style Skill fill:#e6f3e6
+    style DS fill:#f3e6e6
+    style Bge fill:#f3e6e6
+</code></pre>
+<p><strong>外部依赖清单</strong>：
+| 依赖 | 用途 | 部署位置 | 失败降级 |
+|---|---|---|---|
+| Git（CLI） | Skill 版本管理 + diff | 本地二进制 | 无（硬依赖） |
+| SQLite | 元数据 + 发布状态 | 本地单文件 | 无（硬依赖） |
+| DeepSeek API | LLM 推理 + Judge 打分 | 云端 | Judge 失败挂 REVIEW；LLM 推理失败重试 3 次 |
+| bge-small-zh-v1.5 | Skill 检索卡片编码 | 本地 CPU | 加载失败退化到规则+LLM 两层路由 |</p>
+<hr />
+<h2 id="3-c4-level-2">3. 组件划分（C4 Level 2）</h2>
+<h3 id="31-5">3.1 5 个核心组件 + 数据流</h3>
+<pre><code class="language-mermaid">graph TB
+    subgraph Agent 层
+        Agent[hello-agents ReActAgent]
+    end
+
+    subgraph &quot;SkillForge 核心（~900 行）&quot;
+        SR[SkillRegistry&lt;br/&gt;索引层 + use_skill]
+        IR[IntentRouter&lt;br/&gt;三层级联路由]
+        SE[SkillEvaluator&lt;br/&gt;八维评估 + 棘轮]
+        EV[SkillEvolver&lt;br/&gt;元 Agent 半自动闭环]
+        SM[ReleaseStateMachine&lt;br/&gt;SQLite 状态机]
+    end
+
+    subgraph 存储层
+        GIT[(Git&lt;br/&gt;Skill 源码)]
+        DB[(SQLite&lt;br/&gt;元数据 + 发布状态&lt;br/&gt;唯一事实源)]
+        JL[(JSONL&lt;br/&gt;评估轨迹 / 路由日志)]
+    end
+
+    Agent --&gt;|读元数据索引| SR
+    Agent --&gt;|use_skill| SR
+    Agent -.-&gt;|多候选| IR
+    SR --&gt;|读 Body| GIT
+    SR --&gt;|读 current_release_id| DB
+    IR --&gt;|路由日志| JL
+
+    Agent --&gt;|运行日志| SE
+    SE --&gt;|评估记录| JL
+    SE --&gt;|判定结果| SM
+
+    EV --&gt;|读失败案例| JL
+    EV --&gt;|生成候选| GIT
+    EV --&gt;|调评估| SE
+    EV --&gt;|走发布协议| SM
+
+    SM --&gt;|状态机四步| DB
+    SM --&gt;|写 commit| GIT
+    SM --&gt;|写评估流水| JL
+
+    style SR fill:#dcecff
+    style IR fill:#dcecff
+    style SE fill:#dcecff
+    style EV fill:#dcecff
+    style SM fill:#dcecff
+    style DB fill:#ffe6cc,stroke:#f39c12,stroke-width:3px
+</code></pre>
+<p><strong>责任边界</strong>：
+- <strong>SkillRegistry</strong>：管 "Agent 能看到什么 Skill、加载哪一个 Body"
+- <strong>IntentRouter</strong>：管 "多个候选时选一个"
+- <strong>SkillEvaluator</strong>：管 "新版本能不能发"
+- <strong>SkillEvolver</strong>：管 "怎么生成候选新版本"
+- <strong>ReleaseStateMachine</strong>：管 "版本切换的原子性"</p>
+<h3 id="32">3.2 继承 / 依赖关系</h3>
+<pre><code class="language-mermaid">classDiagram
+    class Tool {
+        &lt;&lt;hello-agents&gt;&gt;
+        +name: str
+        +description: str
+        +call(args)
+    }
+    class ToolRegistry {
+        &lt;&lt;hello-agents&gt;&gt;
+        +register(tool)
+        +get(name)
+    }
+    class SimpleAgent {
+        &lt;&lt;hello-agents&gt;&gt;
+        +run(query)
+    }
+
+    class SkillRegistry {
+        +load_skills_from_dir(path)
+        +build_index() str
+        +use_skill(name, reason) str
+        +get_current_release(name) Release
+    }
+    class IntentRouter {
+        +route(query, candidates) RouteResult
+        -_rule_match(query, candidates)
+        -_embed_match(query, candidates)
+        -_llm_choose(query, top_k)
+    }
+    class SkillEvaluator {
+        +evaluate(release_id) EvalResult
+        +check_ratchet(old, new) RatchetVerdict
+        -_structure_score(skill_md)
+        -_effect_score(new_output, old_output)
+        -_objective_metrics(run_log)
+    }
+    class SkillEvolver {
+        +evolve(failure_cases)
+        -_analyze_root_cause(failures)
+        -_generate_patches(root_cause)
+        -_classify_level(patch) L1_L2_L3
+    }
+    class ReleaseStateMachine {
+        +begin_release(skill_name) release_id
+        +write_commit(release_id, patch)
+        +append_evaluation(release_id, result)
+        +commit_release(release_id)
+        +watchdog_sweep()
+    }
+
+    ToolRegistry &lt;|-- SkillRegistry : 扩展
+    Tool &lt;|-- IntentRouter : 扩展
+    Tool &lt;|-- SkillEvaluator : 扩展
+    SimpleAgent &lt;|-- SkillEvolver : 扩展
+
+    SkillRegistry ..&gt; ReleaseStateMachine : 查询当前版本
+    SkillEvolver ..&gt; SkillEvaluator : 验证候选
+    SkillEvolver ..&gt; ReleaseStateMachine : 走发布协议
+    SkillEvaluator ..&gt; ReleaseStateMachine : 提交判定
+</code></pre>
+<hr />
+<h2 id="4">4. 运行时视图（关键场景）</h2>
+<h3 id="41-aagent-use_skill">4.1 场景 A：Agent 主导渐进式披露 —— <code>use_skill</code> 调用</h3>
+<pre><code class="language-mermaid">sequenceDiagram
+    actor U as 用户
+    participant A as ReActAgent
+    participant R as SkillRegistry
+    participant S as SQLite
+    participant G as Git
+
+    Note over A: 系统初始化时索引层&lt;br/&gt;已随 system prompt 注入
+    U-&gt;&gt;A: &quot;北京今天天气怎么样&quot;
+    activate A
+    A-&gt;&gt;A: 读元数据索引&lt;br/&gt;判断需要 weather_query
+    A-&gt;&gt;R: use_skill(&quot;weather_query&quot;,&lt;br/&gt;&quot;用户询问北京当日天气&quot;)
+    activate R
+    R-&gt;&gt;S: SELECT current_release_id&lt;br/&gt;FROM skills WHERE name='weather_query'
+    S--&gt;&gt;R: release_id + commit_hash
+    R-&gt;&gt;G: git show {commit_hash}:skills/weather_query/SKILL.md
+    G--&gt;&gt;R: Skill Body 全文
+    R-&gt;&gt;R: 追加路由日志&lt;br/&gt;(name, reason, latency, hit_layer)
+    R--&gt;&gt;A: Body 字符串（Overview + Instructions + Examples + Constraints）
+    deactivate R
+    A-&gt;&gt;A: Body 作为 tool 结果拼回 conversation
+    A-&gt;&gt;A: 按 Body 里的 Instructions 调用 amap_mcp_server
+    A--&gt;&gt;U: &quot;北京今天晴，最高 32°C&quot;
+    deactivate A
+</code></pre>
+<p><strong>关键点</strong>：
+- 加载完全由 Agent 决策，<code>use_skill</code> 是显式 tool call，不是框架偷改 prompt
+- <code>reason</code> 参数强制填写，路由日志可归因
+- Body 只在 Agent 主动调用时才占 token</p>
+<h3 id="42-b">4.2 场景 B：三层路由级联判决</h3>
+<pre><code class="language-mermaid">flowchart TB
+    Q[查询进入&lt;br/&gt;query + candidates]
+    R1{规则层&lt;br/&gt;keyword + 权重}
+    R1a{top-1 领先 top-2&lt;br/&gt;≥ 20 分？}
+    E1{Embedding 层&lt;br/&gt;bge-small 检索卡片&lt;br/&gt;余弦相似度 top-K}
+    E1a{top-K 有明显领先&lt;br/&gt;且 &gt; 置信阈值？}
+    L1[LLM 层&lt;br/&gt;top-K 让 LLM 二选一]
+    L1a{LLM 输出&lt;br/&gt;是否 NONE？}
+    OK([返回 top-1])
+    NONE([无匹配拒绝])
+    LOG[写路由日志&lt;br/&gt;hit_layer + latency]
+
+    Q --&gt; R1
+    R1 --&gt; R1a
+    R1a --&gt;|Yes| OK
+    R1a --&gt;|No| E1
+    E1 --&gt; E1a
+    E1a --&gt;|Yes| OK
+    E1a --&gt;|No| L1
+    L1 --&gt; L1a
+    L1a --&gt;|No| OK
+    L1a --&gt;|Yes| NONE
+    OK --&gt; LOG
+    NONE --&gt; LOG
+
+    style R1 fill:#e6f3e6
+    style E1 fill:#fff5d6
+    style L1 fill:#ffe6e6
+    style LOG fill:#dcecff
+</code></pre>
+<p><strong>延迟预算</strong>：规则 &lt;5ms · Embedding ~50ms · LLM ~500ms（三层累计上限约 555ms）</p>
+<h3 id="43-csqlite">4.3 场景 C：跨存储写入协议（SQLite 状态机）</h3>
+<pre><code class="language-mermaid">sequenceDiagram
+    participant Client as SkillEvolver / 手工发布
+    participant SM as ReleaseStateMachine
+    participant DB as SQLite
+    participant Git
+    participant JL as JSONL
+
+    Note over Client,JL: release_id 全流程幂等键（UUID）
+
+    Client-&gt;&gt;SM: begin_release(&quot;weather_query&quot;)
+    activate SM
+    SM-&gt;&gt;DB: INSERT releases(release_id, skill_name,&lt;br/&gt;status='PREPARING', ...)
+    DB--&gt;&gt;SM: OK
+    SM--&gt;&gt;Client: release_id
+    deactivate SM
+
+    Client-&gt;&gt;SM: write_commit(release_id, patch)
+    activate SM
+    SM-&gt;&gt;Git: git add + git commit
+    Git--&gt;&gt;SM: commit_hash
+    SM-&gt;&gt;DB: UPDATE releases SET commit_hash=?&lt;br/&gt;WHERE release_id=?
+    deactivate SM
+
+    Client-&gt;&gt;SM: append_evaluation(release_id, eval_result)
+    activate SM
+    SM-&gt;&gt;JL: append_line({release_id, metrics, verdict, ...})
+    deactivate SM
+
+    Client-&gt;&gt;SM: commit_release(release_id)
+    activate SM
+    SM-&gt;&gt;DB: BEGIN IMMEDIATE
+    SM-&gt;&gt;DB: UPDATE releases SET status='PUBLISHED', published_at=NOW()&lt;br/&gt;WHERE release_id=? AND status='PREPARING'
+    Note over DB: 状态条件保证幂等：&lt;br/&gt;已 PUBLISHED 的行不会二次更新
+    SM-&gt;&gt;DB: UPDATE skills SET current_release_id=?&lt;br/&gt;WHERE name=?
+    SM-&gt;&gt;DB: COMMIT
+    DB--&gt;&gt;SM: OK
+    SM--&gt;&gt;Client: PUBLISHED
+    deactivate SM
+
+    Note over Client,JL: 任一步失败：&lt;br/&gt;SQLite 停在 PREPARING，current_release_id 不变&lt;br/&gt;旧版本继续生效，Git commit + JSONL 记录保留供审计
+</code></pre>
+<p><strong>Watchdog</strong>：后台定时扫描 <code>WHERE status='PREPARING' AND created_at &lt; NOW() - 24h</code>，标记为 <code>ABANDONED</code>。Git 与 JSONL 不动。</p>
+<h3 id="44-dskillevolver-agent">4.4 场景 D：SkillEvolver 元 Agent 六步流程</h3>
+<pre><code class="language-mermaid">flowchart LR
+    F1[① 收集失败案例&lt;br/&gt;低分/棘轮拦截/P0 挂掉]
+    F2[② 分析根因&lt;br/&gt;trigger 不准 / prompt 模糊&lt;br/&gt;依赖失效 / 边界缺失]
+    F3[③ 生成候选&lt;br/&gt;3-5 个 patch&lt;br/&gt;每个附推理链]
+    F4[④ 验证&lt;br/&gt;跑评估集 + 棘轮 + 客观指标]
+    F5{⑤ 分级发布}
+    L1[L1 自动发布&lt;br/&gt;examples/not_for/描述补充]
+    L2[L2 挂 REVIEW&lt;br/&gt;trigger/instructions 修改]
+    L3[L3 只出建议&lt;br/&gt;工具权限/安全约束]
+    F6a[⑥ 归档到 Git&lt;br/&gt;runs/success/]
+    F6b[⑥ 归档失败&lt;br/&gt;runs/failures/release_id.md&lt;br/&gt;含根因分析]
+
+    F1 --&gt; F2 --&gt; F3 --&gt; F4 --&gt; F5
+    F5 --&gt;|L1| L1 --&gt; F6a
+    F5 --&gt;|L2| L2 --&gt; F6a
+    F5 --&gt;|L3| L3
+    F4 -.-&gt;|验证失败| F6b
+
+    style L1 fill:#e6f3e6
+    style L2 fill:#fff5d6
+    style L3 fill:#ffe6e6
+    style F6b fill:#f3e6e6
+</code></pre>
+<h3 id="45-e">4.5 场景 E：棘轮门槛判定</h3>
+<pre><code class="language-mermaid">flowchart TB
+    IN[输入：新旧评估分]
+    H1{总分退步？}
+    H2{效果分退步？}
+    H3{任务完成度&lt;br/&gt;下降 ≥ 5%？}
+    H4{鲁棒性&lt;br/&gt;下降 ≥ 5%？}
+    H5{任一 P0 用例&lt;br/&gt;由通过转失败？}
+    S1{任一维度&lt;br/&gt;变化 ≥ 10%?}
+    BLOCK([阻断：DECLINED])
+    REVIEW([挂 REVIEW])
+    PASS([通过：可发布])
+
+    IN --&gt; H1
+    H1 --&gt;|Yes| BLOCK
+    H1 --&gt;|No| H2
+    H2 --&gt;|Yes| BLOCK
+    H2 --&gt;|No| H3
+    H3 --&gt;|Yes| BLOCK
+    H3 --&gt;|No| H4
+    H4 --&gt;|Yes| BLOCK
+    H4 --&gt;|No| H5
+    H5 --&gt;|Yes| BLOCK
+    H5 --&gt;|No| S1
+    S1 --&gt;|Yes| REVIEW
+    S1 --&gt;|No| PASS
+
+    style BLOCK fill:#ffe6e6
+    style REVIEW fill:#fff5d6
+    style PASS fill:#e6f3e6
+</code></pre>
+<hr />
+<h2 id="5">5. 数据模型</h2>
+<h3 id="51-sqlite-schema">5.1 SQLite Schema</h3>
+<pre><code class="language-sql">-- skills：Skill 主表，每个 Skill 一行
+CREATE TABLE skills (
+    name                TEXT PRIMARY KEY,
+    current_release_id  TEXT,           -- FK → releases.release_id
+    description         TEXT NOT NULL,  -- 冗余缓存，索引层拼接用
+    use_when            TEXT NOT NULL,  -- 冗余缓存
+    created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (current_release_id) REFERENCES releases(release_id)
+);
+
+-- releases：每次发布尝试一行（含失败和 ABANDONED）
+CREATE TABLE releases (
+    release_id          TEXT PRIMARY KEY,     -- UUID v4
+    skill_name          TEXT NOT NULL,
+    version             TEXT NOT NULL,        -- semver
+    commit_hash         TEXT,                 -- Git commit（第 2 步回写）
+    status              TEXT NOT NULL,        -- PREPARING / PUBLISHED / ABANDONED
+    level               TEXT,                 -- L1 / L2 / L3 / MANUAL
+    triggered_by        TEXT,                 -- evolver / manual
+    eval_summary_json   TEXT,                 -- JSON 快照
+    created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    published_at        TIMESTAMP,
+    FOREIGN KEY (skill_name) REFERENCES skills(name)
+);
+
+CREATE INDEX idx_releases_status ON releases(status);
+CREATE INDEX idx_releases_skill ON releases(skill_name, status);
+</code></pre>
+<p><strong>关键不变量</strong>：
+- <code>skills.current_release_id</code> 必须指向 <code>status='PUBLISHED'</code> 的行（外键 + 应用层校验）
+- 同一 Skill 同时存在的 <code>PREPARING</code> 行不超过 1 条（Watchdog 兜底）</p>
+<h3 id="52-jsonl">5.2 JSONL 结构</h3>
+<p><strong>evaluations.jsonl</strong>（每次评估一行）：</p>
+<pre><code class="language-json">{
+  &quot;ts&quot;: &quot;2026-07-26T14:30:00Z&quot;,
+  &quot;release_id&quot;: &quot;550e8400-e29b-41d4-a716-446655440000&quot;,
+  &quot;skill_name&quot;: &quot;weather_query&quot;,
+  &quot;eval_set&quot;: &quot;baseline_dev&quot;,
+  &quot;structure_score&quot;: {&quot;schema&quot;: 15, &quot;trigger&quot;: 10, &quot;prompt&quot;: 8, &quot;deps&quot;: 5},
+  &quot;effect_score&quot;: {&quot;task&quot;: 22, &quot;robust&quot;: 13, &quot;efficiency&quot;: 9, &quot;readability&quot;: 9},
+  &quot;objective_metrics&quot;: {&quot;turns&quot;: 3, &quot;tokens&quot;: 850, &quot;latency_ms&quot;: 1200},
+  &quot;judge_verdicts&quot;: [{&quot;case_id&quot;: &quot;c001&quot;, &quot;verdict&quot;: &quot;A_better&quot;, &quot;reason&quot;: &quot;...&quot;}],
+  &quot;p0_pass&quot;: true
+}
+</code></pre>
+<p><strong>router.jsonl</strong>（每次路由一行）：</p>
+<pre><code class="language-json">{
+  &quot;ts&quot;: &quot;2026-07-26T14:30:05Z&quot;,
+  &quot;query&quot;: &quot;北京今天天气&quot;,
+  &quot;candidates&quot;: [&quot;weather_query&quot;, &quot;aqi_query&quot;, &quot;typhoon_alert&quot;],
+  &quot;hit_layer&quot;: &quot;rule&quot;,
+  &quot;chosen&quot;: &quot;weather_query&quot;,
+  &quot;scores&quot;: {&quot;rule&quot;: {&quot;weather_query&quot;: 90, &quot;aqi_query&quot;: 30}},
+  &quot;latency_ms&quot;: 3
+}
+</code></pre>
+<h3 id="53-skillmd-yaml-frontmatter-body">5.3 SKILL.md 规范（YAML frontmatter + Body）</h3>
+<p>见方案书 §4.1。此处只列 Pydantic Schema：</p>
+<pre><code class="language-python">class Trigger(BaseModel):
+    keywords: list[str]
+
+class Evaluation(BaseModel):
+    last_score: float | None = None
+    last_release_id: str | None = None
+
+class SkillMeta(BaseModel):
+    name: str  # snake_case
+    version: str  # semver
+    description: str
+    use_when: str
+    not_for: list[str] = []
+    dependencies: list[str] = []
+    trigger: Trigger
+    examples: list[str] = []
+    evaluation: Evaluation = Evaluation()
+</code></pre>
+<hr />
+<h2 id="6">6. 目录结构</h2>
+<pre><code>skillForge/
+├── ARCHITECTURE.md                # 本文件
+├── SkillForge-项目方案书-v3.md    # 方案书（md 源）
+├── SkillForge-项目方案书-v3.docx  # 方案书（docx 发布版）
+├── README.md                      # 快速上手 + CLI 用法
+├── pyproject.toml
+│
+├── src/skillforge/
+│   ├── __init__.py
+│   ├── cli.py                     # CLI 入口：evolve / evaluate / route / publish
+│   ├── models.py                  # Pydantic Schemas（SkillMeta, EvalResult, ...）
+│   ├── registry.py                # SkillRegistry（继承 ToolRegistry）
+│   ├── router/
+│   │   ├── __init__.py
+│   │   ├── rule.py                # 规则层
+│   │   ├── embed.py               # bge-small 编码 + 检索
+│   │   ├── llm.py                 # LLM 兜底
+│   │   └── cascade.py             # IntentRouter 组装三层
+│   ├── evaluator/
+│   │   ├── __init__.py
+│   │   ├── structure.py           # 结构分静态检查
+│   │   ├── judge.py               # Judge 配对比较
+│   │   ├── metrics.py             # 客观指标采集
+│   │   └── ratchet.py             # 棘轮门槛判定
+│   ├── evolver.py                 # SkillEvolver（继承 SimpleAgent）
+│   ├── state_machine.py           # ReleaseStateMachine（SQLite 状态机）
+│   └── storage/
+│       ├── db.py                  # SQLite 封装
+│       ├── git_ops.py             # Git 命令包装
+│       └── jsonl.py               # JSONL 追加/查询
+│
+├── skills/                        # Skill 源码（Git 子目录，独立版本管理）
+│   ├── weather_query/
+│   │   └── SKILL.md
+│   └── ...
+│
+├── evaluation_sets/               # 评估集（手工构造）
+│   ├── baseline_dev.json          # 32 条开发集
+│   ├── baseline_hidden.json       # 8 条隐藏集
+│   ├── p0_cases.json              # 10 条 P0
+│   └── router_negatives.json      # 50 条硬负例
+│
+├── runs/                          # 运行时数据（Git ignore）
+│   ├── evaluations.jsonl
+│   ├── router.jsonl
+│   ├── failures/                  # 元 Agent 失败候选归档
+│   │   └── &lt;release_id&gt;.md
+│   └── skillforge.db              # SQLite 单文件
+│
+└── tests/
+    ├── test_registry.py           # Phase 1: 10 条基础链路
+    ├── test_router.py             # Phase 2: 30 条路由边界
+    ├── test_evaluator.py          # Phase 3: 评估器单测
+    ├── test_state_machine.py      # Phase 3: 状态机 + 幂等
+    └── test_evolver.py            # Phase 4: 元 Agent 集成
+</code></pre>
+<hr />
+<h2 id="7-python">7. 关键接口签名（Python）</h2>
+<pre><code class="language-python"># ===== SkillRegistry =====
+class SkillRegistry(ToolRegistry):
+    def load_skills_from_dir(self, path: Path) -&gt; None: ...
+    def build_index(self) -&gt; str:
+        &quot;&quot;&quot;拼接所有 Skill 的 name+description+use_when 为一段文字索引&quot;&quot;&quot;
+    def use_skill(self, name: str, reason: str) -&gt; str:
+        &quot;&quot;&quot;特殊工具入口：加载 Skill Body 并写路由日志&quot;&quot;&quot;
+    def get_current_release(self, name: str) -&gt; Release | None: ...
+
+
+# ===== IntentRouter =====
+@dataclass
+class RouteResult:
+    chosen: str | None       # Skill name, None 表示拒绝
+    hit_layer: Literal[&quot;rule&quot;, &quot;embed&quot;, &quot;llm&quot;]
+    scores: dict
+    latency_ms: float
+
+class IntentRouter(Tool):
+    def route(self, query: str, candidates: list[str] | None = None) -&gt; RouteResult: ...
+
+
+# ===== SkillEvaluator =====
+@dataclass
+class EvalResult:
+    release_id: str
+    structure_score: dict[str, float]
+    effect_score: dict[str, float]
+    objective_metrics: dict[str, float]
+    p0_pass: bool
+
+@dataclass
+class RatchetVerdict:
+    decision: Literal[&quot;PASS&quot;, &quot;REVIEW&quot;, &quot;DECLINED&quot;]
+    reasons: list[str]        # 触发的门槛条目
+
+class SkillEvaluator(Tool):
+    def evaluate(self, release_id: str, eval_set: str = &quot;baseline_dev&quot;) -&gt; EvalResult: ...
+    def check_ratchet(self, old: EvalResult, new: EvalResult) -&gt; RatchetVerdict: ...
+
+
+# ===== SkillEvolver =====
+@dataclass
+class Patch:
+    skill_name: str
+    level: Literal[&quot;L1&quot;, &quot;L2&quot;, &quot;L3&quot;]
+    diff: str
+    rationale: str
+
+class SkillEvolver(SimpleAgent):
+    def evolve(self, skill_name: str, max_candidates: int = 5) -&gt; list[Patch]: ...
+
+
+# ===== ReleaseStateMachine =====
+class ReleaseStateMachine:
+    def begin_release(self, skill_name: str, version: str, level: str) -&gt; str:
+        &quot;&quot;&quot;返回 release_id (UUID)。SQLite 插入 PREPARING 行&quot;&quot;&quot;
+    def write_commit(self, release_id: str, patch: Patch) -&gt; str:
+        &quot;&quot;&quot;Git commit → 回写 commit_hash 到 SQLite。返回 commit_hash&quot;&quot;&quot;
+    def append_evaluation(self, release_id: str, result: EvalResult) -&gt; None: ...
+    def commit_release(self, release_id: str) -&gt; None:
+        &quot;&quot;&quot;原子切换 PREPARING → PUBLISHED 并更新 current_release_id&quot;&quot;&quot;
+    def watchdog_sweep(self, threshold_hours: int = 24) -&gt; int:
+        &quot;&quot;&quot;清理过期 PREPARING → ABANDONED，返回清理数量&quot;&quot;&quot;
+</code></pre>
+<hr />
+<h2 id="8-adr">8. 架构决策记录（ADR 精简版）</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>决策</th>
+<th>备选方案</th>
+<th>选择理由</th>
+<th>关联方案书</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ADR-01</td>
+<td>Agent 主导渐进式披露（use_skill 显式加载）</td>
+<td>加载器自动拦截 prompt 展开</td>
+<td>可归因、可评估；不破坏 ReAct 可解释性</td>
+<td>§4.2</td>
+</tr>
+<tr>
+<td>ADR-02</td>
+<td>三层路由级联（规则→embed→LLM）</td>
+<td>纯 embedding；纯规则；纯 LLM</td>
+<td>延迟-准确率-成本三角平衡；分层可归因</td>
+<td>§4.3</td>
+</tr>
+<tr>
+<td>ADR-03</td>
+<td>Judge 用配对比较不评绝对分</td>
+<td>绝对打分；多 Judge 投票</td>
+<td>对抗 Judge 分数漂移；单 Judge 成本可控</td>
+<td>§4.4</td>
+</tr>
+<tr>
+<td>ADR-04</td>
+<td>结构分不阻断发布，只做完整性检查</td>
+<td>结构分参与硬门槛</td>
+<td>结构分本质是"表单校验"，不应决定质量</td>
+<td>§4.4</td>
+</tr>
+<tr>
+<td>ADR-05</td>
+<td>元 Agent 分级发布 L1/L2/L3</td>
+<td>全自动；全人工</td>
+<td>风险分层：低风险自动化收益大，高风险坚决人工</td>
+<td>§4.5</td>
+</tr>
+<tr>
+<td>ADR-06</td>
+<td>SQLite 是唯一发布事实源</td>
+<td>Git 为源；文件锁</td>
+<td>单事务原子性 + 幂等 UPDATE；单文件零运维</td>
+<td>§5</td>
+</tr>
+<tr>
+<td>ADR-07</td>
+<td>bge-small-zh-v1.5 本地 embedding</td>
+<td>bge-m3；API embedding；无 embedding</td>
+<td>小模型 CPU 可推、中文场景足够、零外部依赖</td>
+<td>§4.3</td>
+</tr>
+<tr>
+<td>ADR-08</td>
+<td>Watchdog 清理 PREPARING 而非回滚 Git</td>
+<td>事务回滚 Git commit</td>
+<td>Git commit 保留可审计价值；Watchdog 简单</td>
+<td>§5</td>
+</tr>
+<tr>
+<td>ADR-09</td>
+<td>硬负例评测集降到 50 条（非 100-200）</td>
+<td>100+ 条</td>
+<td>独立开发者手工造数据 4 周内可行的规模</td>
+<td>§4.3</td>
+</tr>
+<tr>
+<td>ADR-10</td>
+<td>单进程模型（不引入队列/Worker）</td>
+<td>Celery + Redis</td>
+<td>900 行预算 + CLI 演示定位不需要</td>
+<td>§1</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="9-v3">9. 与方案书 v3 的对应关系</h2>
+<table>
+<thead>
+<tr>
+<th>本文件章节</th>
+<th>方案书章节</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>§2 系统上下文</td>
+<td>§一（项目概述）+ §三（技术选型）</td>
+</tr>
+<tr>
+<td>§3.1 组件划分</td>
+<td>§四（架构设计 5 个核心组件）</td>
+</tr>
+<tr>
+<td>§3.2 继承关系</td>
+<td>附录 A.1（框架扩展关系）</td>
+</tr>
+<tr>
+<td>§4 运行时视图</td>
+<td>§四各子节的机制描述</td>
+</tr>
+<tr>
+<td>§5 数据模型</td>
+<td>§4.1 SKILL.md 规范 + §5 跨存储</td>
+</tr>
+<tr>
+<td>§6 目录结构</td>
+<td>§六 实施计划暗含</td>
+</tr>
+<tr>
+<td>§7 接口签名</td>
+<td>首次显式列出（方案书未含代码）</td>
+</tr>
+<tr>
+<td>§8 ADR</td>
+<td>首次显式列出（提炼自方案书全文取舍）</td>
+</tr>
+</tbody>
+</table>
+<p><strong>修改本文件时请同步检查</strong>：方案书附录 A.2 一致性口径清单里的"必须坚守 / 必须避免"两栏。</p>
+<hr />
+<h2 id="10-phase-4-2026-07-27">10. Phase 4 完成后的实际实现修订（2026-07-27）</h2>
+<p><strong>核心结论</strong>：架构基线 §1-§9 与实际实现<strong>高度一致</strong>，一致性口径 100% 遵守。以下是 8 处实施差异，按类型分组。</p>
+<h3 id="101-4">10.1 结构差异（4 处）</h3>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>预估（§1-§9）</th>
+<th>实际实现</th>
+<th>原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>evolver/</code> 拆包（failure_collector / root_cause / patch_generator / validator / publisher 5 文件）</td>
+<td><strong>单文件 <code>evolver.py</code> 400+ 行</strong>，内部函数 <code>_collect_failures / _analyze_root_cause / _generate_patches / _validate_patch / _publish_patch / _archive_failure</code></td>
+<td>单文件更适合"六步 pipeline"的强连贯性；避免过度拆分。等有多个演化策略再拆包。</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>runs/failures/</code> 一个目录归档所有失败</td>
+<td><code>runs/failures/</code> + <strong>新增 <code>runs/suggestions/</code></strong> 分类归档</td>
+<td>L1 DECLINED 归档失败 / L2/L3 归档只出建议——两者语义不同应分开。</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>EvalResult</code> 只含 4 项汇总（structure/effect/objective/p0_pass）</td>
+<td><strong>加 <code>case_verdicts</code> 与 <code>case_outputs</code> 两个 list 字段</strong></td>
+<td>Phase 4 元 Agent 需要每 case 明细定位失败样本，不能只看汇总。</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>evaluation_sets/</code> 只列 4 个手工评测集</td>
+<td><strong>新增 <code>runs/blind_eval_samples.json</code></strong>（21 条盲评样本 + golden verdicts）</td>
+<td>Phase 3 保底盲评产物；含 skill/baseline 输出对 + Judge/human proxy 双判定，属项目交付物应入库。</td>
+</tr>
+</tbody>
+</table>
+<h3 id="102-3">10.2 参数与阈值调优（3 处）</h3>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>预估（§4-B）</th>
+<th>实际实现</th>
+<th>原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>5</td>
+<td>路由 embed <code>HIGH_CONF=?</code>，未定</td>
+<td><strong><code>HIGH_CONF=0.75, MARGIN=0.10, LOW_CONF=0.35</code></strong></td>
+<td>50 条硬负例评测集调优后的值；R@1 从 62% → 98%（详见 <code>__log/2026-07-26-router-hardnegative-fix/</code>）。</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Watchdog <code>threshold_hours=24</code></td>
+<td>同（默认）但 <strong>SQL 从 Python isoformat 改为 SQLite 内建 <code>datetime('now', '-Nh')</code></strong></td>
+<td>Python 带时区 isoformat 与 SQLite 无时区 CURRENT_TIMESTAMP 比较不匹配；改用 SQLite 内建时间函数。</td>
+</tr>
+<tr>
+<td>7</td>
+<td>bge-small-zh-v1.5 走 HuggingFace</td>
+<td><strong>走 modelscope</strong>（阿里模型库）</td>
+<td>国内 hf-mirror 不稳（curl 通但 python-requests 不通），modelscope 40s 下完（详见 <code>__log/2026-07-26-bge-small-download-failed/</code>）。<code>embed.py</code> <code>DEFAULT_MODEL_DIR</code> 硬编码本地路径。</td>
+</tr>
+</tbody>
+</table>
+<h3 id="103-1">10.3 已知缺陷与改进方向（1 处）</h3>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>缺陷</th>
+<th>影响</th>
+<th>改进路径</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>8</td>
+<td>Judge 在 task_completion 维度<strong>幻觉识别弱</strong>（Phase 3 保底盲评 62% 分歧）</td>
+<td>天气 skill 编造 API 输出被 Judge 判 A_better；task_completion 分数被虚高</td>
+<td>Judge prompt 加"未验证具体数据 = 幻觉 → 无论多完整判 B_better"红线规则（详见 <code>__log/2026-07-27-phase3-blind-eval/README.md</code>）。属<strong>已知缺陷 + 明确改进方向</strong>，Phase 5+ 处理。</td>
+</tr>
+</tbody>
+</table>
+<h3 id="104">10.4 数字对账</h3>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>方案书 / §1 预估</th>
+<th>实际</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>代码量（Python）</td>
+<td>~900 行核心</td>
+<td><strong>1600 行核心 + 3300 行 tests/scripts</strong> = 4907 行合计</td>
+</tr>
+<tr>
+<td>路由 Recall@1</td>
+<td>≥ 80%</td>
+<td><strong>98%</strong></td>
+</tr>
+<tr>
+<td>路由 Recall@3</td>
+<td>≥ 90%</td>
+<td><strong>100%</strong></td>
+</tr>
+<tr>
+<td>pytest 数量</td>
+<td>Phase 1 交付 10</td>
+<td><strong>74 全绿</strong></td>
+</tr>
+<tr>
+<td>元 Agent 成功率</td>
+<td>~30%</td>
+<td><strong>1/3=33%</strong>（1 次真实迭代，L1 DECLINED 2 / L2 REVIEW 1 +4.90 分）</td>
+</tr>
+<tr>
+<td>Judge/人工分歧</td>
+<td>&lt; 30% 交付</td>
+<td>robustness 19% ✓, readability 24% ✓, <strong>task_completion 62% ❌</strong>（已知缺陷）</td>
+</tr>
+</tbody>
+</table>
+<h3 id="105-a2">10.5 一致性口径清单校对（方案书 A.2）</h3>
+<p><strong>全部 14 条口径遵守</strong>（100% 一致，Phase 4 完成后逐条校对）：
+- ✅ 渐进式披露只有两层（元数据 + 完整 Body）
+- ✅ Agent 主动调 <code>use_skill(name, reason)</code>，框架不拦截 prompt
+- ✅ <code>trigger.keywords</code> 只作路由排序信号不做自动展开（Phase 2 首版违反，62%→98% 是修回口径的结果）
+- ✅ 三层路由不写死百分比（<code>HIGH_CONF/MARGIN/LOW_CONF</code> 是置信度门槛而非覆盖率）
+- ✅ Embedding 用结构化检索卡片（<code>[Capability][Use When][Examples][Not For]</code>）
+- ✅ 硬负例评测集 50 条、Recall@1 ≥ 80% / Recall@3 ≥ 90%
+- ✅ 结构分 40% 不阻断，效果分 60% 才是门槛
+- ✅ 效率维度用客观 token 比不用 LLM 打分
+- ✅ Judge 配对比较 A/tied/B
+- ✅ 棘轮硬 5 条 + 软 10%
+- ✅ 元 Agent 是候选生成器不是最终决策者，成功率 ~30%
+- ✅ L1 自动 / L2 REVIEW / L3 只出建议
+- ✅ SQLite 唯一发布事实源，四步固定顺序
+- ✅ 评估可信度声明四条（相对回归/非绝对/非全自动/非用户满意度）</p>
+<p><strong>必须避免的叙述</strong>也全部遵守（未硬编码百分比、未拉踩 LangChain、未承诺全自动等）。</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  回到页面顶部
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 SuperGODOG
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.tracking", "navigation.expand", "navigation.top", "search.suggest", "search.highlight", "toc.follow", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "\u5df2\u590d\u5236", "clipboard.copy": "\u590d\u5236", "search.result.more.one": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.more.other": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 # \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.none": "\u6ca1\u6709\u627e\u5230\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.one": "\u627e\u5230 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.other": "# \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.placeholder": "\u952e\u5165\u4ee5\u5f00\u59cb\u641c\u7d22", "search.result.term.missing": "\u7f3a\u5c11", "select.version": "\u9009\u62e9\u5f53\u524d\u7248\u672c"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
