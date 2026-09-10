@@ -1,5 +1,5 @@
-site_name: Skillforge · SuperGODOG
-site_description: Agent Skill 自进化元 Agent 系统 · Agent 主导渐进式披露 + 三层路由（规则+bge+LLM R@1=98%）+ 八维评估器 + 元 Agent 半自动闭环 · 4907 行 Python · pytest 74/74
+site_name: SkillForge · 生产级 AI Agent 技能网关与自进化底座
+site_description: 面向大模型智能体（AI Agent）生产环境的动态技能网关与自进化治理底座 · 三层级联路由（R@1=98%）+ LangGraph 状态图受控回环 + 8 维度沙箱评估 + 8 重安全防线 + SQLite 原子发布状态机 · 316 tests 全绿 · Phase 5 交付
 site_url: https://supergodog.github.io/skillforge/
 repo_url: https://github.com/SuperGODOG/skillforge
 repo_name: skillforge
