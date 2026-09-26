@@ -39,11 +39,26 @@ class SkillRegistry(ToolRegistry):
         self._metas: dict[str, SkillMeta] = {}
         self._bodies: dict[str, str] = {}
         self._sm = None  # lazy ReleaseStateMachine
+        self._deployment_manager = None  # lazy DeploymentManager
+
+    def get_deployment_manager(self):
+        if self._deployment_manager is None:
+            from .deployments import DeploymentManager
+            self._deployment_manager = DeploymentManager(
+                db_path=self.db_path,
+                repo_root=self.repo_root,
+                skills_dir=self.skills_dir,
+                registry=self,
+            )
+        return self._deployment_manager
 
     def close(self) -> None:
         if self._sm is not None:
             self._sm.close()
             self._sm = None
+        if self._deployment_manager is not None:
+            self._deployment_manager.close()
+            self._deployment_manager = None
 
     # ---------- T4：加载与索引 ----------
 
@@ -92,8 +107,16 @@ class SkillRegistry(ToolRegistry):
             raise KeyError(f"skill 未注册：{name}")
         return self._metas[name]
 
+    def get_body(self, name: str) -> str:
+        if name not in self._bodies:
+            raise KeyError(f"skill 未注册：{name}")
+        return self._bodies[name]
+
     def list_names(self) -> list[str]:
         return sorted(self._metas.keys())
+
+    def has_skill(self, name: str) -> bool:
+        return name in self._metas
 
     # ---------- T6：SQLite → Git → Body 全链路 ----------
 
@@ -120,15 +143,18 @@ class SkillRegistry(ToolRegistry):
             level=d["level"],
         )
 
-    def use_skill(self, name: str, reason: str) -> str:
+    def use_skill(self, name: str, reason: str, run_id: Optional[str] = None) -> str:
         """加载指定 Skill 的完整说明书 Body（Agent 通过 ReAct 显式调用）
 
-        优先级：SQLite→Git 读发布版本 Body；失败降级到磁盘 body。
+        优先级：
+        1. 若提供 run_id 且挂载 DeploymentManager，走确定性灰度/稳定路由并冻结快照。
+        2. SQLite→Git 读发布版本 Body；失败降级到磁盘 body。
         每次调用都写 router.jsonl 日志（含 reason 归因、source 标记、latency）。
 
         Args:
             name:   Skill 标识
             reason: 加载理由（必填，用于路由日志归因）
+            run_id: 可选运行实例 ID（用于灰度分桶及执行快照冻结）
 
         Returns:
             Skill 完整 Body 文本；未注册返回 [ERROR] 前缀的可读错误
@@ -142,6 +168,35 @@ class SkillRegistry(ToolRegistry):
                       status="not_found", source=None, release_id=None,
                       extra={"available": available})
             return f"[ERROR] skill '{name}' 未注册。可用: {available}"
+
+        # 1. 灰度与运行快照绑定路径
+        if run_id:
+            try:
+                dm = self.get_deployment_manager()
+                body = dm.get_run_body(name, run_id)
+                assigned_ver, content_hash, is_canary = dm.route_version(name, run_id=run_id)
+                source = f"deployment:{'canary' if is_canary else 'stable'}:{assigned_ver}"
+                latency_ms = (datetime.now(timezone.utc) - started).total_seconds() * 1000
+                self._log(
+                    started,
+                    name,
+                    reason,
+                    status="ok",
+                    source=source,
+                    release_id=None,
+                    extra={
+                        "run_id": run_id,
+                        "version": assigned_ver,
+                        "content_hash": content_hash,
+                        "is_canary": is_canary,
+                        "latency_ms": round(latency_ms, 2),
+                        "body_chars": len(body),
+                    },
+                )
+                return body
+            except (ValueError, KeyError) as exc:
+                if "corrupted" in str(exc).lower() or "mismatch" in str(exc).lower() or "fail-closed" in str(exc).lower():
+                    raise
 
         body: str
         source: str

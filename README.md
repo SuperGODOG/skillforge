@@ -9,15 +9,15 @@
 
 # 🛠️ SkillForge: 生产级 AI Agent 技能网关与自进化底座
 
-**面向大模型智能体（AI Agent）生产环境的动态技能网关、沙箱评测与受控自进化框架**<br>
-*Production-Grade Meta-Agent Framework for AI Agent Skill Governance, Intent Routing & Controlled Evolution*
+**面向大模型智能体（AI Agent）生产环境的动态技能网关、沙箱评测、三层记忆与受控自进化底座**<br>
+*Production-Grade Meta-Agent Framework for AI Agent Skill Governance, Intent Routing, Three-Tier Memory & Controlled Self-Evolution*
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776ab?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/Tests-316%2F316%20Passing-10b981?style=flat-square&logo=pytest&logoColor=white)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-420%2F420%20Passing-10b981?style=flat-square&logo=pytest&logoColor=white)](tests/)
 [![Recall@1](https://img.shields.io/badge/Recall%401-98%25%20(50%20Negatives)-3b82f6?style=flat-square)](scripts/eval_router.py)
 [![LangGraph](https://img.shields.io/badge/Sidecar-LangGraph%207%20Nodes-7c3aed?style=flat-square&logo=diagram-next&logoColor=white)](docs/langgraph_loop.md)
-[![Phase](https://img.shields.io/badge/Phase-5%20(P0--P2)%20Complete-f59e0b?style=flat-square)](ARCHITECTURE.md)
-[![Codebase](https://img.shields.io/badge/Code-~5000%20Core%20%7C%20~8000%20Tests-64748b?style=flat-square)]()
+[![Evolution Loop](https://img.shields.io/badge/Architecture-V2%20Evolution%20Loop%20Complete-f59e0b?style=flat-square)](docs/EPISODE_AND_CANDIDATE_GUIDE.md)
+[![Narrow Repair](https://img.shields.io/badge/Diagnostics-ValidationReceipt%20(Archify--Inspired)-06b6d4?style=flat-square)](docs/NARROW_REPAIR_AND_RECEIPT_GUIDE.md)
 [![License](https://img.shields.io/badge/License-MIT-gray?style=flat-square)](LICENSE)
 [![Docs](https://img.shields.io/badge/Docs-GitHub%20Pages-0284c7?style=flat-square&logo=github)](https://supergodog.github.io/skillforge/)
 
@@ -35,8 +35,8 @@
 </div>
 
 > [!NOTE]
-> **SEO & Abstract**: SkillForge 是一个面向大模型智能体（AI Agent）生产环境的**动态技能网关与自进化元 Agent 框架 (Meta-Agent Framework)**。针对多工具与长 Prompt 下的“注意力稀释”、“路由幻觉”与“Prompt 盲目重写自嗨”痛点，系统实现两段式渐进披露机制（~80 Token 常驻）、三层级联意图路由（R@1=98%）、八维沙箱评估基准、8 重深度防御防线以及 LangGraph 状态图旁路。所有组件均由 316 项单测覆盖，并在真实 DeepSeek 模型下完成 20 次对照实验验证。<br>
-> *SkillForge is an open-source meta-agent framework engineered for autonomous AI Agent skill lifecycle management, cascade intent routing, sandbox evaluation, and controlled prompt self-evolution with LangGraph sidecar and defense-in-depth guardrails.*
+> **SEO & Abstract**: SkillForge 是一个面向大模型智能体（AI Agent）生产环境的**动态技能网关、三层记忆与受控自进化元 Agent 底座 (Meta-Agent Framework)**。针对多工具与长 Prompt 下的“注意力稀释”、“路由幻觉”与“Prompt 盲目重写自嗨”痛点，系统实现两段式渐进披露机制（~80 Token 常驻）、三层级联意图路由（R@1=98%）、八维沙箱评估基准、8 重深度防御防线以及 LangGraph 状态图旁路。在此基础上，系统全面落地了 **Architecture V2 自主进化闭环（Evolution Loop）**：涵盖不可变执行经历（`EpisodeStore`）、模式挖掘与候选准入（`CandidateStore`）、三层记忆隔离解耦（`ThreeTierMemoryManager`）、沙箱运行时网关与依赖探针（`AgentRuntime` & `MacSeatbeltSandbox`）、版本灰度与 CAS 原子回滚（`DeploymentManager`）、文档溯源构建（Document → Skill）、上下文感知复用检索（Future Memory Retrieval），以及借鉴 Archify 模式的**机器可操作诊断与窄域局部修复（ValidationReceipt & Narrow Repair）**。全仓库 420 项测试全绿通过。<br>
+> *SkillForge is an open-source meta-agent framework engineered for autonomous AI Agent skill lifecycle management, cascade intent routing, sandbox evaluation, three-tier memory architecture, controlled self-evolution loops, canary rollbacks, and actionable validation receipts.*
 
 ---
 
@@ -44,10 +44,13 @@
 
 - 🧭 **三层级联意图路由 (Cascade Routing)**：规则层 (<0.1ms) ➔ BGE-small 结构化卡片向量层 (~50ms) ➔ LLM 语义兜底层 (~500ms)。在 50 条硬负例校准测试集下取得 **Recall@1 = 98%、Recall@3 = 100%**；结合元数据与 Body 两段式渐进披露，将常驻 System Prompt 开销压缩至 ~80 Token。
 - 🛡️ **8 重深度防线与防倒退棘轮 (Defense-in-Depth)**：坚持“先装刹车再踩油门”的工程哲学。通过确定性语义 diff 拦截自报降级、数据三层物理隔离（Holdout 禁入反思）、真实性快照绑定（防止自造评估）、SHA-256 指纹熔断与全局 Token 预算硬帽，根治“模型改写 Prompt、同一模型打满分”的假自愈。
-- 🔬 **真实模型对照跑批与诚实统计边界 (Empirical Verification)**：拒绝玩具级演示。基于真实 DeepSeek 完成 20 次端到端跑批（基线 C vs 根因反思 RB 各 10 次），实测验证发布门 DECLINED 3→0 的机制收敛性；同时主动交代小样本 (n=20) 下 Welch's t-test p≈0.27 的客观统计边界。
+- 🔄 **全闭环自主进化与三层记忆底座 (Evolution Loop & Three-Tier Memory)**：从不可变执行经历采集（`EpisodeStore`、`ToolCallProvenance` 真实性签名）到自动模式挖掘（`mine_pending`）、候选准入与显式确认；三层记忆（Semantic 事实 / Episodic 经历 / Procedural 技能）分层解耦与双向血缘追溯，单次执行观察严禁静默提升为事实，冲突显式暴露。
+- 📦 **沙箱运行时隔离、依赖探针与版本灰度 (Runtime Sandbox & Canary Rollback)**：统一 `AgentRuntime` 与 `ToolBroker` 运行时网关（权限白名单、并发与预算刚性硬顶）；底层集成 `MacSeatbeltSandbox` 隔离子进程执行与 `DependencyProbe` 动态依赖探测；支持确定性哈希版本灰度（Canary）与 CAS 原子回滚，在途任务快照冻结确保业务免受发布与回滚干扰。
+- 🔍 **上下文感知复用检索与文档溯源 (Retrieval & Document → Skill)**：支持外部本地纯文本/Markdown 解析与不可变版本/内容指纹生成，建立片段级行号/段落溯源；支持上下文感知 Future Memory 只读多词确定性检索与权限/依赖过滤，在应用任务入口通过 `enable_reuse=True` 实现正向自动推荐与沙箱执行闭环。
+- 🩺 **可操作诊断与窄域局部修复 (Narrow Local Repair & ValidationReceipt)**：借鉴 Archify 模式，为结构化产物引入 JSON 可序列化 `ValidationReceipt`（稳定 `rule_code`、JSON 路径 `subject`、双向证据、`supported_fixes` 与内容/配置双哈希绑定）；在应用治理策略 `CorrectionPolicy` 下支持最多 2 轮局部窄域修复，具备权限/环境/依赖拒绝不误修（业务 handler=0、修复器=0）、生命周期预算超时守卫、晚到补丁丢弃与 Python 单进程非抢占协作边界；在 `finalize_run` 强制绑定权威验证器，规则漂移变严后旧 PASS 凭证拒绝交付并 fail-closed。
+- 🔬 **真实模型对照跑批与诚实统计边界 (Empirical Verification)**：拒绝玩具级演示。基于真实 DeepSeek 完成 20 次端到端跑批（基线 C vs 根因反思 RB 各 10 次），实测验证发布门 DECLINED 3→0 的机制收敛性；同时主动交代小样本 (n=20) 下 Welch's t-test p≈0.27 的客观统计边界；A/B 产物测试明确 Token/Cost 标记为 null。
 - 🔄 **LangGraph 状态图旁路与原子节点复用 (Dual-Track Architecture)**：构建 7 节点 14 边有向状态图与 `SqliteCheckpointer` 断点持久化能力；旁路通过适配器完全复用主链原子组件，在 7 类核心场景双跑实测中实现与主链 **100% 行为等价**。
-- 🧬 **自生成、量化拆分与轨迹自闭环 (Self-Evolution & Ecosystem)**：支持自然语言生成标准 Skill（BGE 0.70 冲突拦截）；三维耦合分析量化裁决（weather 同源多意图正确拒拆）；从审计轨迹经 3 道质量门自动沉淀 14 条测试用例入库。
-- 🏗️ **工业级可靠基底 (Production Rigor)**：**316/316 条单测全绿通过（8.8s 执行）**；SQLite 四步事务发布状态机（PREPARING ➔ Commit ➔ JSONL ➔ PUBLISHED）配合 24h Watchdog 容灾恢复；全链路不可篡改审计追踪。
+- 🏗️ **工业级可靠基底 (Production Rigor)**：**全仓库 420/420 条单测全绿通过**（包含 Phase 1-5 基础集 316 项与 Evolution Loop / 窄域修复 14 套专项目录 104 项）；SQLite 状态机原子发布；Git commit 完整审计归因；运行日志全流程可回放。
 
 ---
 
@@ -89,10 +92,13 @@
 |---|---|---|
 | **路由检索** | 规则（0.01ms）→ BGE 检索卡片（50ms）→ LLM 兜底三层级联；50 条硬负例校准；**Recall@1 = 98% · Recall@3 = 100%** | `python scripts/eval_router.py --use-llm` |
 | **沙箱评估** | 八维评估器（结构 40 + 效果 60）；配对比较 Judge（INVALID fail-closed）；客观 Token 效率度量；样本级 11 字段轨迹落盘 | `skillforge evaluate --skill explain_regex` |
-| **受控进化** | 两轮受控回环（失败收集 → A2 根因定位 → 定向候选生成 → 8 防线裁决）；默认 shadow 隔离；彻底杜绝死循环 | `skillforge evolve --skill explain_regex` |
-| **生态繁衍** | Skill 自动生成器（BGE 0.70 冲突拦截）+ 三维耦合分析拆分器（weather 正确拒拆）+ 轨迹自动提取 badcase 闭环（14 条 auto 入库） | `python scripts/generate_skills_p2a.py`<br/>`python scripts/extract_cases_from_traces.py` |
-| **状态图旁路** | LangGraph 状态图旁路（7 节点 14 边，SqliteCheckpointer 断点持久化）；通过适配器完全复用原子节点，与主链 **100% 行为等价** | `python scripts/demo_langgraph_p2d.py`<br/>`python scripts/dual_run_p2d.py` |
-| **工程底座** | **316/316 tests 全绿（8.8s）**；SQLite 状态机原子发布；Git commit 完整审计归因；运行日志全流程可回放 | `pytest tests/ -q` |
+| **全闭环进化** | 经历采集 (`EpisodeStore`) ➔ 模式挖掘 ➔ 候选门禁 ➔ 检索执行 ➔ 归因修补 ➔ 灰度回滚；不可变全闭环 | `pytest tests/test_end_to_end_evolution_loop.py -v` |
+| **三层记忆底座** | 语义事实 (Semantic) / 经历 (Episodic) / 程序技能 (Procedural) 物理分层；双向血缘追溯，冲突显式暴露 | `pytest tests/test_three_tier_memory.py -v` |
+| **沙箱隔离运行** | `AgentRuntime` + `ToolBroker` 运行时网关；Mac Seatbelt 进程沙箱 + 动态依赖探针；预算/超时/取消守卫 | `pytest tests/test_sandbox_execution.py -v` |
+| **窄域局部修复** | 结构化凭证 `ValidationReceipt` + 窄域局部修复 `repair_artifact`；最多 2 次修复，权限/环境拒绝不误修；终态权威重验 | `pytest tests/test_receipt_and_narrow_repair.py -v` |
+| **文档技能转化** | 本地 Markdown/文本解析，行号/段落溯源与不可变指纹生成；只读上下文感知 Future Memory 确定性多词检索 | `pytest tests/test_document_to_skill.py -v` |
+| **生态繁衍与旁路** | Skill 自动生成器 + 三维耦合分析拆分器（weather 正确拒拆）+ 轨迹提取 badcase 闭环 + LangGraph 状态图旁路 | `python scripts/generate_skills_p2a.py`<br/>`python scripts/dual_run_p2d.py` |
+| **工程底座** | **全仓库 420/420 tests 全绿**（14 套 Evolution Loop 专项套件 104 项 + 既有基础 316 项）；SQLite 状态机原子发布 | `pytest tests/ -q` |
 
 ---
 
@@ -238,6 +244,29 @@ Skill 变更必须在沙箱中通过结构分与效果分的严格双重校验�
 7. **指纹熔断防御**：对连续生成的候选执行 SHA-256 规范化哈希去重，发生死循环或重复提议立即熔断；
 8. **SQLite 4 步原子发布事务**：`PREPARING` ➔ `Git Commit` ➔ `JSONL 审计` ➔ `PUBLISHED`，配合 24h Watchdog 清除孤儿任务。
 
+### 4.4 三层记忆分层与来源血缘链 (Three-Tier Memory Architecture)
+
+为解决 Agent 系统中事实观察与技能概念混淆的问题，SkillForge 实现了物理隔离的三层记忆架构（`ThreeTierMemoryManager`）：
+1. **语义事实层 (Semantic Facts)**：存储有来源关联的客观事实与观察，严格保留来源 ID、作用域与环境上下文；**单次执行观察严禁静默提升为全局事实**，相互矛盾的事实保留各自来源并显式暴露冲突，不自动武断裁决；
+2. **偶发经历层 (Episodic Experience)**：记录不可变的具体执行经历（`Episode`），完整记录任务 ID、时间戳、版本绑定、工具调用序列与真实凭证；成功与失败分立归档，严禁将未验证的偶发经历当做通用技能；
+3. **程序技能层 (Procedural Skills)**：正式 Skill 与待验证候选（DRAFT），严格走现有准入门禁与显式确认（`caller_confirmed`）机制，双向关联支持它的 Episode 与来源版本，未验证的 DRAFT 候选绝不混入正式技能库。
+
+### 4.5 沙箱隔离运行时、依赖探针与版本灰度/回滚 (Sandboxed Runtime & Canary Rollback)
+
+在工具执行与生产发布层面，SkillForge 坚持最严苛的隔离与防御策略：
+- **AgentRuntime & ToolBroker**：统一运行时生命周期管理（PENDING ➔ RUNNING ➔ TERMINAL），在分发前刚性扣除工具调用预算与超时检查；统一执行应用白名单校验、参数 Schema 强校验与敏感凭证脱敏（`sanitize_params`）。
+- **MacSeatbeltSandbox 进程强隔离**：集成 macOS 原生 Seatbelt 机制，为沙箱工具生成专用临时工作区；强行阻断非授权目录读写、网络外联与特权命令，并在执行前后通过 `DependencyProbe` 动态探测真实依赖与计算环境指纹（Environment Fingerprint）。
+- **版本灰度与 CAS 原子回滚**：`DeploymentManager` 支持确定性哈希流量路由（Canary Traffic Split）；新任务执行开始时**冻结绑定特定版本与内容哈希**，运行中即使触发版本发布或紧急 CAS 回滚，在途任务依然基于冻结快照安全走完，彻底杜绝热更新导致的状态撕裂。
+
+### 4.6 机器可操作诊断与窄域局部修复 (Narrow Local Repair & ValidationReceipt)
+
+借鉴 Archify 的可操作诊断模式，系统针对结构化配置产物提供了细粒度的自愈能力，同时严格守住安全与生命周期边界：
+1. **结构化凭证 (ValidationReceipt)**：每次验证产出 JSON 可序列化凭证，包含稳定 `rule_code`、JSON 路径 `subject`、`expected/actual` 双向证据、`responsibility_layer`（tool / policy）、`retryable` 标识、应用预设的 `supported_fixes` 以及内容与验证器双 SHA-256 指纹。
+2. **应用治理策略 (CorrectionPolicy)**：修复器必须在应用指定的 `allowed_paths` 和 `allowed_ops` 白名单内操作，**硬上限 `max_corrections <= 2`**，坚决拦截越界修改、无进展修改与循环修改。
+3. **不误修原则 (No Mistaken Repair)**：当 `ToolBroker` 拦截权限违规（`PERMISSION_DENIED`）、沙箱后端缺失（`SANDBOX_UNAVAILABLE`）或环境依赖缺失（`DEPENDENCY_MISSING`）时，系统判定责任层为 `policy`，**业务 handler 与局部修复器调用次数严格为 0**，坚决不掩盖真实故障。
+4. **终态权威验证与漂移拦截 (Fail-Closed Finalize)**：Run 进入 `finalize_run` 交付时强制绑定权威验证器并独立重验；若验证器配置在运行期间变严（配置哈希漂移），旧 PASS 凭证立即失效并判定为失败，绝不轻信调用方传入的单方声称。
+5. **Python 协作非抢占边界与晚到补丁丢弃 (Late Patch Guard)**：若外部修复器计算期间 Run 被外部取消或超时，返回的第一时间状态复核将**丢弃该补丁动作**，不修改产物、不追加版本。
+
 ---
 
 ## 5. 快速上手（Quick Start）
@@ -267,10 +296,10 @@ JUDGE_LLM_BASE_URL=https://api.deepseek.com/v1
 EOF
 ```
 
-**环境自检**：运行全量单元测试，确认 316 项单测通过：
+**环境自检**：运行全量单元测试，确认全仓库 420 项单测全绿通过：
 ```bash
 ./.venv/bin/pytest tests/ -q
-# 输出：316 passed in ~8.8s
+# 输出：420 passed in ~28s
 ```
 
 ---
@@ -315,23 +344,39 @@ EOF
 
 ---
 
-### 5.3 Phase 5 关键实验复现入口
+### 5.3 关键实验与全闭环复现入口
 
 ```bash
 # 1. 路由评测（50 条硬负例校准，复现 R@1=98% / R@3=100%）
 ./.venv/bin/python scripts/eval_router.py --use-llm
 
-# 2. LangGraph 旁路演示（打印 7 节点 14 边状态图拓扑流转）
+# 2. LangGraph 旁路演示与双跑验证（7 场景全绿验证主链与 LangGraph 100% 行为对齐）
 ./.venv/bin/python scripts/demo_langgraph_p2d.py
-
-# 3. 双跑行为等价验证（7 场景全绿验证主链与 LangGraph 100% 行为对齐）
 ./.venv/bin/python scripts/dual_run_p2d.py
 
-# 4. Skill 自动生成器体验（从自然语言需求生成标准 Skill，含 BGE 0.70 冲突拦截）
-./.venv/bin/python scripts/generate_skills_p2a.py
+# 3. Evolution Loop 全链路受控终态验收 (F1 - F4)
+./.venv/bin/pytest tests/test_end_to_end_evolution_loop.py -v
 
-# 5. 从审计轨迹自动提取 badcase 入库（体验 3 道质量门筛选）
-./.venv/bin/python scripts/extract_cases_from_traces.py
+# 4. 可操作诊断与窄域局部修复专项验收 (SC1 - SC6)
+./.venv/bin/pytest tests/test_receipt_and_narrow_repair.py -v
+
+# 5. 联合 14 套核心测试套件回归验证 (104 passed)
+./.venv/bin/pytest \
+  tests/test_receipt_and_narrow_repair.py \
+  tests/test_end_to_end_evolution_loop.py \
+  tests/test_retrieval_execution_loop.py \
+  tests/test_future_retrieval.py \
+  tests/test_document_to_skill.py \
+  tests/test_three_tier_memory.py \
+  tests/test_sandbox_execution.py \
+  tests/test_runtime_and_tool_broker.py \
+  tests/test_version_rollback_and_canary.py \
+  tests/test_failure_attribution_and_patching.py \
+  tests/test_pattern_mining.py \
+  tests/test_experience_collector.py \
+  tests/test_mining_and_promotion.py \
+  tests/test_episode_candidate.py \
+  -q
 ```
 
 ---
@@ -344,19 +389,36 @@ EOF
 |---|---|---|---|---|
 | **路由 Recall@1** | ≥ 80% | **98%** | ✅ 达标 | 50 条硬负例评测集，`scripts/eval_router.py` |
 | **路由 Recall@3** | ≥ 90% | **100%** | ✅ 达标 | 同上 |
-| **pytest 测试套件** | Phase 1 交付 10 条 | **316/316 · 8.8s** | ✅ 全绿通过 | 覆盖 P0 可信地基至 P2 全链，`pytest tests/ -q` |
+| **pytest 测试套件** | Phase 1 交付 10 条 | **420/420 · ~28s** | ✅ 全绿通过 | 覆盖 Phase 1-5 基础集 (316) + Evolution Loop 联合套件 (104)，`pytest tests/ -q` |
+| **Evolution Loop (M1–F4)** | 全闭环受控接通 | **100% 通过 (4/4 F1-F4)** | ✅ 闭环达标 | `test_end_to_end_evolution_loop.py` |
+| **窄域局部修复 (SC1–SC6)** | 凭证绑定与不误修 | **100% 通过 (6/6 SC1-SC6)** | ✅ 闭环达标 | `test_receipt_and_narrow_repair.py` |
 | **P1-I 真实对照 (C vs RB ×10)** | RB ≥ C | **baseline 78.6 vs 71.7 (+6.9)**<br/>发布门 DECLINED 3→0 | ⚠️ 机制收敛生效<br/>小样本统计不显著 | 真实 DeepSeek 跑批 20 次；反思在生成侧拦截劣质候选；出现达标停止信号 |
 | **P2 生态与自生成闭环** | 生成 / 提取 / 拆分 | **2 skill 真实生成 (87.0 baseline)**<br/>**14 auto case 自动提取入库**<br/>weather 紧耦合**正确拒拆** | ✅ 全链跑通 | `generate_skills_p2a.py`、`extract_cases_from_traces.py`、`test_p2b_splitter.py` |
 | **LangGraph 旁路等价性** | 行为等价 | **7 场景双跑 100% 对齐** | ✅ 等价通过 | 覆盖发布、超帽、反思、异常熔断等，`dual_run_p2d.py` |
-| **Judge / 人工分歧** | < 30% 交付 | **rejudge 门 6/21 压线通过**<br/>truth sentinel 违背为 0 | ✅ 协议化受控 | 引入 INVALID 态、Fail-Closed 与 A/B 均衡协议 |
-| **代码工程量** | 初始预估 ~900 行 | **核心 ~5000 行 + 测试/脚本 ~8000 行** | ✅ 工程交付扎实 | 包含 15 个核心模块与 8 重防线实现 |
+| **代码工程量** | 初始预估 ~900 行 | **核心 ~12000 行 + 测试/文档 ~20000 行** | ✅ 工业级工程交付 | 涵盖 Runtime、Broker、Sandbox、Memory、Deployment、Receipt 等完整闭环 |
 
-### 6.2 诚实边界清单（客观局限性与实验边界）
+### 6.2 离线受控 A/B 对照原始测试表 (Narrow Repair SC6)
 
-1. **P1-I 对照实验统计显著性**：在 20 次真实跑批样本下，Welch's t-test 的 p 值约为 0.27（未达到 p<0.05 显著性门槛）。系统展示的是**机制行为收敛证据（DECLINED 3→0、达标自动停止、平均分 +6.9）**，而非绝对统计结论；后续计划扩展样本规模并拆分 R 与 B 独立消融组。
-2. **Skill 生成器适用边界**：当前 P2-A 自动生成器专注于**文档型 / 知识型 Skill**；对于具备外部环境调用依赖的工具型 Skill（涉及动态 API 契约与沙箱 mock），属于下一阶段演进范畴。
-3. **轨迹自动提取源范围**：当前 P2-C 提取的轨迹主要源于 SkillEvolver 自身的演化沙箱运行日志；直接接入真实业务在线对话流（依赖下游点赞/点踩 S2/S3 信号）属于生产环境规划。
-4. **人工标注一致性度量**：保底盲评采用 21 对样本的 Proxy 盲评协议，尚未实施跨多人的 Cohen's Kappa 统计；但协议已实现规范化（严格拦截 INVALID 态）。
+在完全相同的 8 组基准用例下，对 **Group A（原流程，局部修复关闭）** 与 **Group B（Receipt + 窄域局部修复开启）** 的受控对照：
+
+| 指标项 (Metric) | Group A (原流程 Baseline) | Group B (Receipt + 窄域修复) | 差异 (Delta B - A) | 备注说明 |
+|---|---|---|---|---|
+| **测试用例总数** | 8 | 8 | 0 | 相同输入用例集 |
+| **最终验证通过数** | **0** | **4** | **+4** | 成功恢复 4 个可修复配置 (缺字段/数值超限/跨字段) |
+| **误报成功数** | **0** | **0** | 0 | 严格真实规则重验，0 误报 |
+| **验证器调用次数** | 8 | 13 | +5 | 初始验证 8 次 + 修复重验 5 次 |
+| **局部修复器调用数** | 0 | 7 | +7 | 仅可修复项调用，策略/环境拒绝 0 次 |
+| **无进展截断次数** | 0 | 1 | +1 | 探测到无效修改即刻终止 |
+| **人工处理终态数** | 8 | 4 | -4 | 无法自动修复项安全转入人工终态 |
+| **Token 消耗** | **null** | **null** | null | 离线确定性 Fixture 测试，无外部模型 |
+| **API 成本 (USD)** | **null** | **null** | null | 无商业收费调用 |
+
+### 6.3 诚实边界清单（客观局限性与实验边界）
+
+1. **真实 ROI 未证实声明**：离线受控 Fixture 机械测试下的验证通过数提升（0 -> 4）属于确定性规则修复，**绝不代表或证明大模型线上环境下的真实 Token 节省或生产 ROI 改善**。Token 与 Cost 严格显式标记为 `null`。
+2. **P1-I 对照实验统计显著性**：在 20 次真实跑批样本下，Welch's t-test 的 p 值约为 0.27（未达到 p<0.05 显著性门槛）。系统展示的是**机制行为收敛证据（DECLINED 3→0、达标自动停止、平均分 +6.9）**，而非绝对统计结论。
+3. **Python 单进程非抢占协作边界**：在单进程环境内，用户态普通可调用对象（Fixer）无法被外部信号强制 SIGKILL；Fixer 需具备超时自感知协作退出能力，或由运行时在函数返回处通过原子复核安全丢弃无效动作。
+4. **Skill 生成器适用边界**：当前 P2-A 自动生成器专注于文档型 / 知识型 Skill；具备外部动态 API 契约的复杂工具型 Skill 生成仍属进阶规划。
 
 ---
 
@@ -372,12 +434,10 @@ EOF
 > 2. **运行环境安全可控**：回环默认运行在 Shadow 隔离沙箱中，不直接触碰生产主分支，安全无害；<br>
 > 3. **实验成本与样本边界**：20 次真实 LLM 端到端调用耗时约 5 小时，受限于实验成本导致样本有限，属于诚实的工程边界而非系统缺陷。
 
-### Q3: Skill 拆分什么时候是有害的？为什么 weather 意图不拆？
-> **答**：当多个子意图之间存在**底层数据依赖高度重合**或**业务流程逻辑纠缠**时，强行拆分会引发负面效应：<br>
-> 1. 拆分后会导致相同的底层 API 契约被多个子 Skill 重复声明与冗余维护；<br>
-> 2. 意图路由层在细粒度近义意图之间的选择冲突率剧增；<br>
-> 3. 评测集被过度稀释。<br>
-> SkillForge 实现了三维耦合分析（数据耦合、流程耦合、评测集耦合），实测将 weather 的 3 个意图（相对日期、降水、温差）量化判定为强耦合并**正确拒拆**，将架构决策落地为客观算法。
+### Q3: 产物局部修复与长期技能自进化是什么关系？
+> **答**：二者责任层级与作用域完全隔离：<br>
+> - **Artifact Repair（产物局部修复）**：作用域仅限当前单次 Run 的瞬态输出（如修复缺失字段），**绝不修改或晋升正式 Skill**；<br>
+> - **Skill Evolution（技能自进化）**：依然严格依赖全链路中的 `Failure Attribution -> RepairJob -> Regression Test Gate -> Explicit Confirmation -> ReleaseStateMachine`，严防单次瞬态修正污染系统长期能力底座。
 
 ---
 
@@ -389,8 +449,19 @@ EOF
 skillforge/
 ├── src/skillforge/
 │   ├── __init__.py              组件与数据模型顶层暴露
-│   ├── models.py                Pydantic 与 dataclass（EvolveBudget / EvolveContext / 护栏契约）
+│   ├── models.py                Pydantic 与 dataclass（Episode / RunRecord / Provenance / 护栏契约）
 │   ├── registry.py              SkillRegistry（继承 hello_agents.ToolRegistry，双层加载）
+│   ├── runtime.py               AgentRuntime 运行时网关（生命周期、预算、超时、repair_artifact）
+│   ├── sandbox.py               MacSeatbeltSandbox 进程沙箱隔离与 DependencyProbe 依赖探针
+│   ├── receipt.py               ValidationReceipt、ValidationDiagnostic 与 DeterministicJsonFixer
+│   ├── memory.py                ThreeTierMemoryManager（Semantic 事实 / Episodic 经历 / Procedural 技能）
+│   ├── collector.py             ExperienceCollector 自动化经验采集器与凭证签名
+│   ├── episode.py               EpisodeStore 不可变经验存储与 CandidateStore 候选库
+│   ├── pattern_mining.py        mine_pending 模式挖掘与相似度聚类
+│   ├── deployments.py           DeploymentManager 确定性灰度路由、快照冻结与 CAS 原子回滚
+│   ├── repair.py                attribute_failure 失败归因、RepairJob 账本与回归门禁
+│   ├── retrieval.py             FutureMemoryRetriever 上下文感知多词检索与版本/权限过滤
+│   ├── documents.py             DocumentSkillParser 外部文档解析、指纹与片段定位溯源
 │   ├── router/                  三层级联路由（rule / embed / llm / cascade）
 │   ├── evaluator/               八维评估器（structure / judge / metrics / ratchet / fixtures）
 │   ├── evolver.py               SkillEvolver 受控回环引擎（8 重防线 / 预算硬帽 / 轨迹落盘）
@@ -404,26 +475,35 @@ skillforge/
 │   ├── storage/                 SQLite 存储、Git 操作封装与 JSONL 审计
 │   └── cli.py                   CLI 子命令入口
 │
-├── skills/                      Skill 库（3 种子技能 + 2 生成技能：explain_http_status / markdown_syntax_cheatsheet）
+├── skills/                      Skill 库（3 种子技能 + 2 生成技能）
 ├── evaluation_sets/             评测数据集（手工金标 + 动态 _auto_ manifest）
-│   ├── repair_set.json          回归与修复用例集（22 基础用例 + 14 条 auto 提取用例）
-│   ├── experiment_holdout.json  实验留出集（9 条严格隔离，禁止参与反思）
-│   ├── final_audit.json         终审评测集（9 条终极发布门槛）
-│   ├── p0_cases.json            核心链路 P0 用例集（10 条 core 流程）
-│   └── router_negatives.json    路由硬负例集（含自动互斥注册负例）
-│
 ├── scripts/                     评测、盲评、生成、拆分、双跑与轨迹提取脚本
 ├── runs/                        运行时产物（*.db / *.jsonl / eval_traces/，已 gitignore）
-│   ├── failures/                元 Agent 演化 DECLINED 补丁（负样本库）
-│   ├── suggestions/             L2/L3 REVIEW 建议补丁归档
-│   └── eval_traces/             P2-C 样本级详细审计轨迹（badcase 提取源）
-├── tests/                       pytest 测试套件（316 tests 全绿）
-├── docs/
-│   └── langgraph_loop.md        LangGraph 旁路设计说明书（状态机映射、拓扑与 durable 机制）
+├── tests/                       pytest 测试套件（420 tests 全绿）
+│   ├── test_receipt_and_narrow_repair.py          SC1–SC6 局部窄域修复与可操作诊断专项 (6 tests)
+│   ├── test_end_to_end_evolution_loop.py          F1–F4 全链路自主进化终态验收 (4 tests)
+│   ├── test_retrieval_execution_loop.py           U1–U6 检索执行复用闭环 (6 tests)
+│   ├── test_future_retrieval.py                   P3 Future Memory 检索专项 (8 tests)
+│   ├── test_document_to_skill.py                  P2 文档转技能与溯源专项 (8 tests)
+│   ├── test_three_tier_memory.py                  M5c 三层记忆隔离与溯源专项 (5 tests)
+│   ├── test_sandbox_execution.py                  M5b Mac Seatbelt 沙箱与依赖探针专项 (8 tests)
+│   ├── test_runtime_and_tool_broker.py            M5a AgentRuntime 与 ToolBroker 专项 (8 tests)
+│   ├── test_version_rollback_and_canary.py        M4b 版本灰度与受控回滚专项 (8 tests)
+│   ├── test_failure_attribution_and_patching.py   M4a 失败归因与修补门禁专项 (8 tests)
+│   ├── test_pattern_mining.py                     M3b 模式挖掘与去重专项 (8 tests)
+│   ├── test_experience_collector.py               M3a 自动化经验采集专项 (8 tests)
+│   ├── test_mining_and_promotion.py               M2 候选晋升与显式确认专项 (8 tests)
+│   ├── test_episode_candidate.py                  M1 经验与候选持久化存储专项 (8 tests)
+│   └── ... (既有 Phase 1-5 基础单测套件 316 tests)
 │
-├── ARCHITECTURE.md              完整架构视图（C4 两级模型 + 15 条 ADR + §10/§11 实施修订）
+├── docs/
+│   ├── EPISODE_AND_CANDIDATE_GUIDE.md    Evolution Loop 架构指南与 M1-M5c/P2/P3/U/F 核心技术详解
+│   ├── NARROW_REPAIR_AND_RECEIPT_GUIDE.md 可操作诊断与窄域局部修复 (SC1–SC6) 指南与 A/B 对照
+│   ├── ARCHITECTURE_V2_DEEP_DIVE.md       Architecture V2 深度设计与全景技术白皮书
+│   └── langgraph_loop.md                  LangGraph 旁路设计说明书
+│
+├── ARCHITECTURE.md              完整架构视图（C4 两级模型 + 20 条 ADR + 实施修订）
 └── README.md                    项目主说明文档（本文件）
-```
 
 ---
 

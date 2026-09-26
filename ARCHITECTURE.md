@@ -759,3 +759,136 @@ flowchart LR
 | ADR-13 | **有效失败白名单（Effective Failure Allowlist）** | 所有未满分或异常均视作自进化目标 | 仅将外部事实不符、逻辑违背等实质业务缺陷纳为有效失败；严格将 Judge 基础设施崩溃、限流、网络抖动等环境噪声排除在自进化反思之外。 |
 | ADR-14 | **三维耦合分析裁决 Skill 拆分** | 凭 Prompt 长度或单一直觉关键词拆分 | 基于数据依赖同构、流程编排纠缠、评测集交叉三维矩阵量化收益；避免盲目拆分导致数据源重复维护与工具契约分裂（实测精准拒拆 weather）。 |
 | ADR-15 | **LangGraph 旁路独立探索不侵入主链** | 废弃 evolver.py 主循环并全量迁移至 LangGraph | 主链保持零语义变更的轻量确定性 for 循环守住生产稳定性；LangGraph 以 Shadow 旁路引入，复用原子节点并通过 7 场景双跑证明 100% 行为等价。 |
+
+---
+
+## 12. Architecture V2: 自主进化闭环与窄域局部修复架构修订（2026-09-26，M1–M5c / P2 / P3 / U1–U6 / F1–F4 / SC1–SC6）
+
+### 12.1 演进动因与核心突破
+
+在 Phase 5 实现了基础 Prompt 优化与生态繁衍后，系统面临生产级环境更深层的挑战：
+1. **经历与技能混淆**：单次成功的工具调用或对话直接当做“通用能力”，缺乏从原始执行痕迹（Episode）到聚类沉淀（Mining）、候选准入（Candidate Gate）的严格阶梯。
+2. **缺乏多层记忆隔离**：事实（Semantic Facts）、偶发经历（Episodic）与程序技能（Procedural Skills）混在一起，产生灾难性遗忘与观察噪音污染。
+3. **缺少真实的沙箱与运行隔离**：工具调用运行在宿主环境中，无法限制网络与敏感路径；在途任务缺乏版本快照冻结，线上发布或回滚易导致状态撕裂。
+4. **粗粒度报错与自愈盲区**：结构化工具输出失败时，传统报错只能触发盲目全量重跑；缺乏机器可消费诊断凭证与窄域局部自愈机制。
+
+为此，Architecture V2 实现了两大支柱：
+- **Evolution Loop（全闭环自主进化）**：打通经历采集（M3a）➔ 模式挖掘（M3b）➔ 候选准入（M2）➔ 上下文感知检索复用（P3 / Phase U）➔ 失败归因（M4a）➔ 有界修补 ➔ 灰度发布与 CAS 原子回滚（M4b）。
+- **Narrow Local Repair & ValidationReceipt（机器可操作诊断与窄域局部修复）**：借鉴 Archify 模式，以 JSON Receipt + 白名单治理策略实现确定性局部修复，且与长期技能演化严格解耦。
+
+### 12.2 全闭环架构全景拓扑 (C4 Level 2 升级)
+
+```mermaid
+flowchart TD
+    subgraph ExecutionLayer ["1. 统一运行时与沙箱网关 (Runtime & ToolBroker)"]
+        TaskRun["AgentRuntime.start_run()<br/>(enable_reuse=True / 预算硬顶)"]
+        Broker["ToolBroker<br/>(权限白名单 / Schema 强校验 / 脱敏)"]
+        Sandbox["MacSeatbeltSandbox<br/>(只读限制 / 禁网络 / 临时目录)"]
+        Probe["DependencyProbe<br/>(动态探针 / 环境指纹)"]
+        TaskRun --> Broker --> Sandbox
+        Sandbox --- Probe
+    end
+
+    subgraph MemoryLayer ["2. 三层记忆与经历沉淀 (Three-Tier Memory & Lineage)"]
+        Collector["ExperienceCollector<br/>(签名真实性 Provenance)"]
+        EpStore[("EpisodeStore<br/>(不可变经历: 成功/失败分立)")]
+        ThreeTier["ThreeTierMemoryManager<br/>(Semantic 事实 / Episodic 经历 / Procedural 技能)"]
+        Sandbox -->|"执行终态"| Collector
+        Collector --> EpStore
+        EpStore --- ThreeTier
+    end
+
+    subgraph MiningGate ["3. 模式挖掘与准入守卫 (Mining & Promotion)"]
+        Mine["mine_pending()<br/>(余弦/向量聚类 / 批次指纹幂等)"]
+        CandStore[("CandidateStore<br/>(DRAFT 候选 / 来源追溯)")]
+        Gate{"Promotion Gate<br/>(Ratchet & caller_confirmed=True)"}
+        Registry[("SkillRegistry & DeploymentManager<br/>(正式版本发布)")]
+        EpStore --> Mine --> CandStore --> Gate -->|显式确认| Registry
+    end
+
+    subgraph RetrievalLayer ["4. 上下文感知检索复用 (Contextual Retrieval)"]
+        FutureRetriever["FutureMemoryRetriever<br/>(任务意图匹配 / 权限依赖过滤)"]
+        Registry -.-> FutureRetriever
+        ThreeTier -.-> FutureRetriever
+        FutureRetriever -->|"正向自动推荐"| TaskRun
+    end
+
+    subgraph RepairLayer ["5. 失败归因与窄域局部修复 (Attribution & Narrow Repair)"]
+        Attribution["attribute_failure()<br/>(Skill / Tool / Policy 责任划分)"]
+        RepairJobLedger[("RepairJob Ledger<br/>(max_attempts=2 / 回归门禁)")]
+        ReceiptRepair["repair_artifact()<br/>(ValidationReceipt / max_corrections<=2)"]
+        TaskRun -->|"运行时工具产物缺陷"| ReceiptRepair
+        TaskRun -->|"任务终态失败"| Attribution
+        Attribution -->|Skill 责任| RepairJobLedger
+        Attribution -->|Policy 责任| RejectRepair["拒绝修补 (handler=0, fixer=0)"]
+    end
+
+    subgraph CanaryDeploy ["6. 版本灰度、快照冻结与受控回滚 (Canary & Rollback)"]
+        CanaryRoute["DeploymentManager.route_version()<br/>(确定性哈希分流 / 快照冻结)"]
+        Rollback["emergency_rollback()<br/>(CAS 原子回退 / 终态历史不可篡改)"]
+        Registry --> CanaryRoute
+        CanaryRoute -.->|"在途任务冻结版本"| TaskRun
+        Rollback --> Registry
+    end
+```
+
+### 12.3 核心新增模块设计与职责划分
+
+| 模块 / 组件 | 文件路径 | 核心类与函数 | 架构设计职责与契约 |
+|---|---|---|---|
+| **Collector & Provenance** | `src/skillforge/collector.py` | `ExperienceCollector` | 统一生命周期终态拦截器；生成包含 SHA-256 签名的不可变 `ToolCallProvenance`；坚持**独立验证决定业务结果**（模型自断言与工具文本不决定 outcome）。 |
+| **Episode & Candidate** | `src/skillforge/episode.py` | `EpisodeStore`, `CandidateStore` | 存储不可变执行经历与待提炼候选；支持分区过滤、内容去重与血缘来源跟踪。 |
+| **Pattern Mining** | `src/skillforge/pattern_mining.py` | `mine_pending` | 自动化模式挖掘器；基于语义与余弦相似度聚类沉淀候选，执行批次指纹幂等与过滤 evaluation 隔离用例。 |
+| **Runtime & ToolBroker** | `src/skillforge/runtime.py` | `AgentRuntime`, `ToolBroker` | 统一工具分发与生命周期网关；实现 pre-dispatch 预算票据扣减、截止时间戳与取消信号感知；内嵌 `repair_artifact` 局部修复引擎与 `register_artifact_validator` 权威验证器注册。 |
+| **Sandbox & Probe** | `src/skillforge/sandbox.py` | `MacSeatbeltSandbox`, `DependencyProbe` | 基于 macOS Seatbelt 原生机制实现的零外部服务沙箱；提供受限临时工作区、网络隔离与路径黑名单；动态探针实时计算环境指纹。 |
+| **Deployments & Canary** | `src/skillforge/deployments.py` | `DeploymentManager` | 版本生命周期状态机；支持基于 run_id 确定性哈希的 Canary 流量分配；执行前快照冻结（在途任务不受热发布与回滚影响）；CAS 原子回滚。 |
+| **Three-Tier Memory** | `src/skillforge/memory.py` | `ThreeTierMemoryManager` | 物理隔离 Semantic 事实、Episodic 经历与 Procedural 技能；支持只读跨层检索与双向血缘回溯；矛盾事实显式保留来源暴露冲突。 |
+| **Document to Skill** | `src/skillforge/documents.py` | `DocumentSkillParser` | 本地纯文本/Markdown 结构化解析器；提取段落/行号级不可变定位指纹；生成带文档血缘的 DRAFT 候选。 |
+| **Future Retrieval** | `src/skillforge/retrieval.py` | `FutureMemoryRetriever` | 上下文感知多词确定性检索器；结合任务 ID、权限白名单与依赖要求执行只读过滤，输出可解释推荐分。 |
+| **Attribution & Repair** | `src/skillforge/repair.py` | `attribute_failure`, `RepairJob` | 三层失败归因器（Skill / Tool / Policy）；SQLite 修补账本；修补候选回归评估门禁与发布前阻断。 |
+| **Receipt & Narrow Repair** | `src/skillforge/receipt.py` | `ValidationReceipt`, `JsonConfigValidator`, `DeterministicJsonFixer` | Archify 风格的可操作诊断凭证与窄域局部修复；双 SHA-256 指纹强绑定；白名单治理策略与硬上限控制。 |
+
+### 12.4 六大核心防御与一致性设计原则
+
+1. **真实性与验证门禁 (Trusted Verification Boundary)**：
+   - 任务成功与否（`outcome`）只能由独立的验证证据（`verification_evidence.independent_pass`）决定；模型的自然语言自我声明或工具自报在架构层完全隔离，绝不作为业务达标判定依据。
+2. **三层记忆物理隔离与冲突显式暴露**：
+   - 单次执行的局部观察绝不能静默提升为全局事实；
+   - 两个不同来源产生的事实发生冲突时，系统完整保留各自来源 ID 与上下文并显式暴露冲突，拒绝在没有应用介入的情况下武断“自动裁决覆盖”；
+   - 未经验证或被拒绝的 DRAFT 候选绝不进入正式 Skill 库。
+3. **沙箱强隔离与在途快照冻结**：
+   - 任何涉及不受信代码或指令的工具调用均强制在 `MacSeatbeltSandbox` 临时工作区内执行，阻断网络外联与敏感系统目录；
+   - 任务启动时，`AgentRuntime` 冻结绑定当前路由的 Skill 版本与依赖；在任务执行期间，即便并发触发了新版本发布或版本回滚，在途任务依然基于冻结快照稳定执行至终态。
+4. **不误修原则与责任分层 (No Mistaken Repair)**：
+   - 当 `ToolBroker` 拦截权限违规（`PERMISSION_DENIED`）、沙箱后端缺失（`SANDBOX_UNAVAILABLE`）或环境依赖缺失（`DEPENDENCY_MISSING`）时，系统判定责任层为 `policy`；
+   - 此时底层业务 handler 计数严格为 0，局部修复器调用计数严格为 0，系统拒绝调用修复器掩盖底层基础设施故障，亦不触发无关 Skill 的错误修改。
+5. **验证器权威终态绑定与漂移拦截 (Authoritative Finalize Gate)**：
+   - 凡启用 Receipt/Correction 的 Run，进入 `finalize_run` 交付时必须绑定当前应用注册的权威验证器；
+   - `finalize_run` 独立核验内容指纹、验证器 ID、版本与配置哈希 `config_hash`，并由持有的验证器执行独立重验；
+   - 若验证器配置在运行期间变严（配置哈希漂移），旧 PASS 凭证拒绝交付并 fail-closed，准确终态，不可信任调用方单方面声明。
+6. **生命周期硬上限与晚到补丁丢弃 (Late Patch Guard & Cooperative Boundary)**：
+   - 即使应用配置更大的修复次数，系统强制执行硬上限 `max_corrections <= 2`；单步或总工具调用预算耗尽立即硬停；
+   - 修复循环在每次迭代前后均核查截止时间戳与取消信号；
+   - 若外部修复器计算耗时较长、在返回后发现 Run 已被外部取消或超时，其生成的修复动作被直接丢弃，不生效也不污染产物；
+   - 明确声明 Python 单进程非抢占协作边界：用户态普通函数无法被强制 SIGKILL，Fixer 需自感知超时，运行时通过返回处状态复核兜底。
+
+### 12.5 新增架构决策记录 (ADR-16 至 ADR-20)
+
+| # | 决策 | 备选方案 | 选择理由（精简 ≤4 行） |
+|---|---|---|---|
+| ADR-16 | **经历、事实与程序技能三层物理记忆解耦** | 将对话/工具输出直接混入知识库或单一向量库 | 杜绝单次观察无条件提升为全局事实；保留矛盾事实各自来源并显式暴露冲突；未验证候选不得当正式 Skill。 |
+| ADR-17 | **在途任务快照冻结与 CAS 确定性灰度路由** | 运行中动态加载最新发布版本 | 防止热发布或紧急回滚导致在途任务执行中途版本漂移；基于 run_id 确定性哈希分流，CAS 保证回滚并发安全。 |
+| ADR-18 | **基于 Mac Seatbelt 与动态探针的沙箱零依赖隔离** | 依赖外部 Docker 守护进程或裸进程执行 | 无需启动重型容器即可实现严格的文件读写白名单、网络封锁与特权参数拦截，配合 DependencyProbe 实现运行前环境校验。 |
+| ADR-19 | **Archify 风格可操作诊断凭证（ValidationReceipt）双向绑定** | 返回普通字符串错误提示 | 结构化提供 rule_code、JSON 路径、双向证据与 supported_fixes，强绑定产物与验证器双 SHA-256 指纹，杜绝错绑与凭证伪造。 |
+| ADR-20 | **窄域局部修复与长期技能自进化严格两级隔离** | 修复产物时自动修改底层 Skill Prompt | 产物修复仅限当前 Run 瞬态输出（硬上限 2 次，白名单字段）；技能演化必须走归因、RepairJob、回归门与显式发布，防瞬态特化污染长期基线。 |
+
+### 12.6 数据对账与验证证据 (420 Tests 全绿)
+
+1. **全仓库 420 项测试全部收集通过**：
+   - 既有 Phase 1–5 基础单测套件：316 项全绿（耗时 ~8.8s）；
+   - Evolution Loop / 窄域修复 14 套专项目录：104 项全绿（耗时 ~19.8s）；
+   - 总计：**420 passed in ~28s, 0 failed, 0 error**。
+2. **离线受控 A/B 对照原始测试表 (Narrow Repair SC6)**：
+   - 8 组基准用例实测：Group A（修复关闭）通过数 0/8 ➔ Group B（修复开启）通过数 4/8，成功恢复 4 个缺失/超限配置；
+   - 严格恪守诚实声明：Token/Cost 字段显式标记为 `null`，明确说明离线机械 Fixture 收益不代表真实线上 LLM 成本节约。
+

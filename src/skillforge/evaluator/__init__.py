@@ -14,7 +14,7 @@ import hashlib
 import time
 from pathlib import Path
 from statistics import mean
-from typing import Any, Optional
+from typing import Any, Optional, Literal
 
 from hello_agents.tools import Tool, ToolParameter
 
@@ -175,6 +175,8 @@ class SkillEvaluator(Tool):
         if judge_llm is llm:
             raise ValueError("执行 LLM 与 Judge 必须使用不同 client/session 实例")
         self.judge = PairwiseJudge(judge_llm)
+        self.judge_llm = judge_llm
+        self.ledger = ledger
         self.output_cache = output_cache if output_cache is not None else EvaluatorOutputCache()
         self.router_init_error: Optional[str] = None
         if router is not None:
@@ -259,6 +261,12 @@ class SkillEvaluator(Tool):
         cases: Optional[list[dict]] = None,
         p0_ids: Optional[list[str]] = None,
         verbose: bool = False,
+        collector: Optional[Any] = None,
+        run_id: Optional[str] = None,
+        task_id: Optional[str] = None,
+        purpose: Literal["evaluation", "learning"] = "evaluation",
+        runtime: Optional[Any] = None,
+        tool_broker: Optional[Any] = None,
     ) -> EvalResult:
         """
         跑评估的核心方法（不强依赖 release_id）。
@@ -270,217 +278,351 @@ class SkillEvaluator(Tool):
             cases:      可选，直接传 case 列表（供测试注入）
             p0_ids:     可选，P0 case ID 列表（不传则从 p0_cases.json 读）
             verbose:    True 时逐 case 打印进度
+            collector:  可选，ExperienceCollector 实例，托管自动运行采集生命周期
+            run_id:     可选，指定 run_id（不传则自动生成）
+            task_id:    可选，指定 task_id（不传则使用 eval_set:skill_name）
+            purpose:    用途标记，默认 "evaluation"（heldout/评估隔离），显式声明 "learning" 时可用于候选挖掘
+            runtime:    可选，AgentRuntime 实例，统一管理运行生命周期与 Broker 工具调度
+            tool_broker: 可选，ToolBroker 实例，工具权限与模式校验
         """
-        meta = self.registry.get_meta(skill_name)
-        # 从注册表拿磁盘 body（Phase 3 不强绑 git commit 版本）
-        body = self.registry._bodies.get(skill_name, "")
+        effective_run_id = run_id or f"eval_{skill_name}_{int(time.time() * 1000)}"
+        effective_task_id = task_id or (release_id or f"{eval_set}:{skill_name}")
 
-        if cases is None:
-            cases = self._load_cases(eval_set, skill_name)
+        meta = None
+        try:
+            meta = self.registry.get_meta(skill_name)
+        except Exception:
+            pass
+        body = self.registry._bodies.get(skill_name, "") if hasattr(self.registry, "_bodies") else ""
 
-        # 1. 结构分
-        struct = score_structure(meta, body)
+        if runtime is not None:
+            if collector is None and getattr(runtime, "collector", None) is not None:
+                collector = runtime.collector
+            runtime.start_run(
+                run_id=effective_run_id,
+                task_id=effective_task_id,
+                skill_name=skill_name,
+                purpose=purpose,
+            )
+        elif collector is not None:
+            skill_ver = meta.version if meta is not None else ""
+            collector.start_run(
+                run_id=effective_run_id,
+                task_id=effective_task_id,
+                skill_name=skill_name,
+                skill_version=skill_ver,
+                environment={
+                    "eval_set": eval_set,
+                    "release_id": release_id,
+                    "purpose": purpose,
+                },
+            )
 
-        # 空用例集 fail-closed 拦截：不允许伪造空评估全通
-        if not cases:
-            return EvalResult(
+        try:
+            if meta is None:
+                meta = self.registry.get_meta(skill_name)
+
+            if cases is None:
+                cases = self._load_cases(eval_set, skill_name)
+
+            # 1. 结构分
+            struct = score_structure(meta, body)
+
+            # 空用例集 fail-closed 拦截：不允许伪造空评估全通
+            if not cases:
+                empty_res = EvalResult(
+                    release_id=release_id,
+                    structure_score=struct,
+                    effect_score={"task": 0.0, "robust": 0.0, "readability": 0.0, "efficiency": 0.0},
+                    objective_metrics={},
+                    p0_pass=False,
+                    case_verdicts=[],
+                    case_outputs=[],
+                    valid=False,
+                    invalid_reasons=[f"用例集为空 (eval_set={eval_set}, skill={skill_name})，按 fail-closed 判为 INVALID"],
+                    hit_layer="unknown",
+                    verdict="EMPTY_CASES",
+                    matched_keywords=[],
+                    routing_notes="用例集为空，未执行路由评估",
+                    route_result=None,
+                    route_error="ROUTER_NOT_RUN: empty evaluation case set",
+                )
+                evidence = {
+                    "independent_pass": None,
+                    "is_invalid_eval": True,
+                    "failure_reason": f"用例集为空 (eval_set={eval_set}, skill={skill_name})，按 fail-closed 判为 INVALID",
+                    "valid": False,
+                    "p0_pass": False,
+                }
+                if runtime is not None:
+                    runtime.finalize_run(
+                        run_id=effective_run_id,
+                        model_output="",
+                        verification_evidence=evidence,
+                        acceptance_criteria={"eval_set": eval_set, "cases_count": 0},
+                    )
+                elif collector is not None:
+                    collector.finish_run(
+                        run_id=effective_run_id,
+                        model_output="",
+                        verification_evidence=evidence,
+                        acceptance_criteria={"eval_set": eval_set, "cases_count": 0},
+                    )
+                return empty_res
+
+            if p0_ids is None:
+                p0_ids = self._load_p0_ids()
+
+            dependencies = list(getattr(meta, "dependencies", []) or [])
+            all_provenances: list[Any] = []
+
+            # 2. 效果分（3 维 Judge 配对 + 1 维客观效率）
+            verdicts = {"task_completion": [], "robustness": [], "readability": []}
+            base_metrics_list = []
+            skill_metrics_list = []
+            p0_pass = True
+            invalid_reasons: list[str] = []
+            ordering_run_id = release_id or f"{eval_set}:{skill_name}"
+
+            case_verdicts: list[dict] = []  # Phase 4 元 Agent 输入
+            case_outputs: list[dict] = []
+
+            for i, case in enumerate(cases):
+                query = case["query"]
+                ref = case.get("reference")
+                case_id = case["id"]
+
+                if verbose:
+                    print(f"  [{i + 1}/{len(cases)}] {case_id}: {query[:40]}...")
+
+                base_out, base_m = self._run_bare(query)
+                skill_out, skill_m = self._run_with_skill(
+                    query,
+                    body,
+                    dependencies=dependencies,
+                    skill_name=skill_name,
+                    runtime=runtime,
+                    tool_broker=tool_broker,
+                    run_id=effective_run_id,
+                )
+                case_provs = list(getattr(self, "_last_skill_provenances", []) or [])
+                all_provenances.extend(case_provs)
+                if collector is not None and (runtime is None or getattr(runtime, "collector", None) is not collector):
+                    for prov in case_provs:
+                        collector.record_tool_call(
+                            run_id=effective_run_id,
+                            provenance=prov,
+                            action_summary=f"Case {case_id} tool execution",
+                        )
+                base_metrics_list.append(base_m)
+                skill_metrics_list.append(skill_m)
+
+                per_case = {"case_id": case_id, "query": query}
+                for dim_index, dim in enumerate(verdicts):
+                    skill_as_a = skill_is_presented_as_a(i, dim_index, ordering_run_id)
+                    if skill_as_a:
+                        judged = self.judge.compare_detailed(
+                            query,
+                            skill_out,
+                            base_out,
+                            dim,
+                            reference=ref,
+                            tool_evidence_a=case_provs,
+                            tool_evidence_b=None,
+                        )
+                        v = judged.verdict
+                        presented_order = {"A": "skill", "B": "baseline"}
+                    else:
+                        judged = self.judge.compare_detailed(
+                            query,
+                            base_out,
+                            skill_out,
+                            dim,
+                            reference=ref,
+                            tool_evidence_a=None,
+                            tool_evidence_b=case_provs,
+                        )
+                        v = invert_verdict(judged.verdict)
+                        presented_order = {"A": "baseline", "B": "skill"}
+                    verdicts[dim].append((case_id, v))
+                    per_case[dim] = v
+                    per_case.setdefault("judge_audit", {})[dim] = {
+                        "presented_order": presented_order,
+                        "raw_verdict": judged.verdict,
+                        "canonical_verdict": v,
+                        "reason_codes": list(judged.reason_codes),
+                        "evidence_summary": judged.evidence_summary,
+                        "source": judged.source,
+                        "raw_response": judged.raw_response,
+                        "ordering_run_id": ordering_run_id,
+                    }
+                    if v == "INVALID":
+                        invalid_reasons.append(
+                            f"{case_id}/{dim}: "
+                            + (",".join(judged.reason_codes) or "INVALID_JUDGE_RESULT")
+                        )
+                    # P0 语义：task 维度上 skill 版被判 B_better（不如 baseline） → P0 fail
+                    if (
+                        case_id in p0_ids
+                        and dim == "task_completion"
+                        and v in {"B_better", "INVALID"}
+                    ):
+                        p0_pass = False
+                case_verdicts.append(per_case)
+                case_outputs.append({
+                    "case_id": case_id,
+                    "query": query,
+                    "reference": ref,
+                    "output_skill": skill_out,
+                    "output_baseline": base_out,
+                    "provenances": [
+                        p.to_dict() if hasattr(p, "to_dict") else vars(p)
+                        for p in case_provs
+                    ],
+                })
+
+            # 效果分：胜=1 平=0.5 负=0 加权
+            effect = {
+                "task": self._dim_score_or_zero(verdicts["task_completion"], max_score=25.0),
+                "robust": self._dim_score_or_zero(verdicts["robustness"], max_score=15.0),
+                "readability": self._dim_score_or_zero(verdicts["readability"], max_score=10.0),
+                "efficiency": self._efficiency_score(base_metrics_list, skill_metrics_list),
+            }
+
+            # 3. 客观指标平均
+            obj = {
+                "avg_turns_skill": round(mean(m["turns"] for m in skill_metrics_list), 2),
+                "avg_tokens_skill": round(mean(m["tokens"] for m in skill_metrics_list), 2),
+                "avg_tokens_baseline": round(mean(m["tokens"] for m in base_metrics_list), 2),
+                "avg_latency_ms_skill": round(mean(m["latency_ms"] for m in skill_metrics_list), 2),
+            }
+
+            # P0-1: 真实路由判定链计算与保存
+            routed_results: list[tuple[dict, RouteResult]] = []
+            route_error: Optional[str] = None
+            if getattr(self, "router", None) is None:
+                route_error = (
+                    getattr(self, "router_init_error", None)
+                    or "ROUTER_UNAVAILABLE: IntentRouter is not configured"
+                )
+            elif cases:
+                for c in cases:
+                    try:
+                        q = c.get("query", "")
+                        res = self.router.route(q)
+                        routed_results.append((c, res))
+                    except Exception as exc:
+                        route_error = f"ROUTER_ERROR: {type(exc).__name__}: {exc}"
+                        break
+
+            route_result: Optional[RouteResult] = None
+            hit_layer = "unknown"
+            verdict_str = "ROUTE_UNEVALUATED"
+            matched_kws: list[str] = []
+            routing_notes = ""
+
+            if route_error:
+                hit_layer = "unknown"
+                verdict_str = "ROUTE_UNAVAILABLE"
+                matched_kws = []
+                routing_notes = route_error
+                route_result = None
+            elif routed_results:
+                target_pair = next((p for p in routed_results if p[1].chosen == skill_name), None)
+                if target_pair:
+                    _, route_result = target_pair
+                    verdict_str = "ROUTE_MATCH"
+                else:
+                    _, route_result = routed_results[0]
+                    verdict_str = "ROUTE_REJECT" if route_result.chosen is None else f"ROUTE_MISMATCH_{route_result.chosen}"
+                hit_layer = route_result.hit_layer
+                matched_kws = list(route_result.matched_keywords)
+                routing_notes = route_result.routing_notes
+            else:
+                route_error = "ROUTER_UNAVAILABLE: no route result was produced"
+                hit_layer = "unknown"
+                verdict_str = "ROUTE_UNAVAILABLE"
+                routing_notes = route_error
+
+            eval_res = EvalResult(
                 release_id=release_id,
                 structure_score=struct,
-                effect_score={"task": 0.0, "robust": 0.0, "readability": 0.0, "efficiency": 0.0},
-                objective_metrics={},
-                p0_pass=False,
-                case_verdicts=[],
-                case_outputs=[],
-                valid=False,
-                invalid_reasons=[f"用例集为空 (eval_set={eval_set}, skill={skill_name})，按 fail-closed 判为 INVALID"],
-                hit_layer="unknown",
-                verdict="EMPTY_CASES",
-                matched_keywords=[],
-                routing_notes="用例集为空，未执行路由评估",
-                route_result=None,
-                route_error="ROUTER_NOT_RUN: empty evaluation case set",
+                effect_score=effect,
+                objective_metrics=obj,
+                p0_pass=p0_pass,
+                case_verdicts=case_verdicts,
+                case_outputs=case_outputs,
+                validation_channels=["dependency_fixtures"] if all_provenances else [],
+                provenances=all_provenances,
+                valid=not invalid_reasons,
+                invalid_reasons=invalid_reasons,
+                hit_layer=hit_layer,
+                verdict=verdict_str,
+                matched_keywords=matched_kws,
+                routing_notes=routing_notes,
+                route_result=route_result,
+                route_error=route_error,
             )
 
-        if p0_ids is None:
-            p0_ids = self._load_p0_ids()
-
-        dependencies = list(getattr(meta, "dependencies", []) or [])
-        all_provenances: list[Any] = []
-
-        # 2. 效果分（3 维 Judge 配对 + 1 维客观效率）
-        verdicts = {"task_completion": [], "robustness": [], "readability": []}
-        base_metrics_list = []
-        skill_metrics_list = []
-        p0_pass = True
-        invalid_reasons: list[str] = []
-        ordering_run_id = release_id or f"{eval_set}:{skill_name}"
-
-        case_verdicts: list[dict] = []  # Phase 4 元 Agent 输入
-        case_outputs: list[dict] = []
-
-        for i, case in enumerate(cases):
-            query = case["query"]
-            ref = case.get("reference")
-            case_id = case["id"]
-
-            if verbose:
-                print(f"  [{i + 1}/{len(cases)}] {case_id}: {query[:40]}...")
-
-            base_out, base_m = self._run_bare(query)
-            skill_out, skill_m = self._run_with_skill(
-                query, body, dependencies=dependencies, skill_name=skill_name
-            )
-            case_provs = list(getattr(self, "_last_skill_provenances", []) or [])
-            all_provenances.extend(case_provs)
-            base_metrics_list.append(base_m)
-            skill_metrics_list.append(skill_m)
-
-            per_case = {"case_id": case_id, "query": query}
-            for dim_index, dim in enumerate(verdicts):
-                skill_as_a = skill_is_presented_as_a(i, dim_index, ordering_run_id)
-                if skill_as_a:
-                    judged = self.judge.compare_detailed(
-                        query,
-                        skill_out,
-                        base_out,
-                        dim,
-                        reference=ref,
-                        tool_evidence_a=case_provs,
-                        tool_evidence_b=None,
-                    )
-                    v = judged.verdict
-                    presented_order = {"A": "skill", "B": "baseline"}
-                else:
-                    judged = self.judge.compare_detailed(
-                        query,
-                        base_out,
-                        skill_out,
-                        dim,
-                        reference=ref,
-                        tool_evidence_a=None,
-                        tool_evidence_b=case_provs,
-                    )
-                    v = invert_verdict(judged.verdict)
-                    presented_order = {"A": "baseline", "B": "skill"}
-                verdicts[dim].append((case_id, v))
-                per_case[dim] = v
-                per_case.setdefault("judge_audit", {})[dim] = {
-                    "presented_order": presented_order,
-                    "raw_verdict": judged.verdict,
-                    "canonical_verdict": v,
-                    "reason_codes": list(judged.reason_codes),
-                    "evidence_summary": judged.evidence_summary,
-                    "source": judged.source,
-                    "raw_response": judged.raw_response,
-                    "ordering_run_id": ordering_run_id,
+            if runtime is not None or collector is not None:
+                is_valid = eval_res.valid
+                is_p0_pass = eval_res.p0_pass
+                evidence = {
+                    "checker": "SkillEvaluator.evaluate_skill",
+                    "valid": is_valid,
+                    "p0_pass": is_p0_pass,
+                    "structure_score": eval_res.structure_score,
+                    "effect_score": eval_res.effect_score,
+                    "verdict": eval_res.verdict,
                 }
-                if v == "INVALID":
-                    invalid_reasons.append(
-                        f"{case_id}/{dim}: "
-                        + (",".join(judged.reason_codes) or "INVALID_JUDGE_RESULT")
+                if not is_valid:
+                    evidence["independent_pass"] = None
+                    evidence["is_invalid_eval"] = True
+                    evidence["failure_reason"] = "; ".join(eval_res.invalid_reasons) or "Evaluation invalid"
+                elif not is_p0_pass:
+                    evidence["independent_pass"] = False
+                    evidence["failure_reason"] = "P0 gate failed: task completion regressed against baseline"
+                else:
+                    evidence["independent_pass"] = True
+
+                last_output = ""
+                if case_outputs:
+                    last_output = str(case_outputs[-1].get("skill", ""))
+
+                criteria = {
+                    "eval_set": eval_set,
+                    "p0_required": True,
+                    "min_cases": len(cases),
+                }
+
+                if runtime is not None:
+                    runtime.finalize_run(
+                        run_id=effective_run_id,
+                        model_output=last_output,
+                        verification_evidence=evidence,
+                        acceptance_criteria=criteria,
                     )
-                # P0 语义：task 维度上 skill 版被判 B_better（不如 baseline） → P0 fail
-                if (
-                    case_id in p0_ids
-                    and dim == "task_completion"
-                    and v in {"B_better", "INVALID"}
-                ):
-                    p0_pass = False
-            case_verdicts.append(per_case)
-            case_outputs.append({
-                "case_id": case_id,
-                "query": query,
-                "reference": ref,
-                "output_skill": skill_out,
-                "output_baseline": base_out,
-                "provenances": [
-                    p.to_dict() if hasattr(p, "to_dict") else vars(p)
-                    for p in case_provs
-                ],
-            })
+                elif collector is not None:
+                    collector.finish_run(
+                        run_id=effective_run_id,
+                        model_output=last_output,
+                        verification_evidence=evidence,
+                        acceptance_criteria=criteria,
+                    )
 
-        # 效果分：胜=1 平=0.5 负=0 加权
-        effect = {
-            "task": self._dim_score_or_zero(verdicts["task_completion"], max_score=25.0),
-            "robust": self._dim_score_or_zero(verdicts["robustness"], max_score=15.0),
-            "readability": self._dim_score_or_zero(verdicts["readability"], max_score=10.0),
-            "efficiency": self._efficiency_score(base_metrics_list, skill_metrics_list),
-        }
-
-        # 3. 客观指标平均
-        obj = {
-            "avg_turns_skill": round(mean(m["turns"] for m in skill_metrics_list), 2),
-            "avg_tokens_skill": round(mean(m["tokens"] for m in skill_metrics_list), 2),
-            "avg_tokens_baseline": round(mean(m["tokens"] for m in base_metrics_list), 2),
-            "avg_latency_ms_skill": round(mean(m["latency_ms"] for m in skill_metrics_list), 2),
-        }
-
-        # P0-1: 真实路由判定链计算与保存
-        routed_results: list[tuple[dict, RouteResult]] = []
-        route_error: Optional[str] = None
-        if getattr(self, "router", None) is None:
-            route_error = (
-                getattr(self, "router_init_error", None)
-                or "ROUTER_UNAVAILABLE: IntentRouter is not configured"
-            )
-        elif cases:
-            for c in cases:
-                try:
-                    q = c.get("query", "")
-                    res = self.router.route(q)
-                    routed_results.append((c, res))
-                except Exception as exc:
-                    route_error = f"ROUTER_ERROR: {type(exc).__name__}: {exc}"
-                    break
-
-        route_result: Optional[RouteResult] = None
-        hit_layer = "unknown"
-        verdict_str = "ROUTE_UNEVALUATED"
-        matched_kws: list[str] = []
-        routing_notes = ""
-
-        if route_error:
-            hit_layer = "unknown"
-            verdict_str = "ROUTE_UNAVAILABLE"
-            matched_kws = []
-            routing_notes = route_error
-            route_result = None
-        elif routed_results:
-            target_pair = next((p for p in routed_results if p[1].chosen == skill_name), None)
-            if target_pair:
-                _, route_result = target_pair
-                verdict_str = "ROUTE_MATCH"
-            else:
-                _, route_result = routed_results[0]
-                verdict_str = "ROUTE_REJECT" if route_result.chosen is None else f"ROUTE_MISMATCH_{route_result.chosen}"
-            hit_layer = route_result.hit_layer
-            matched_kws = list(route_result.matched_keywords)
-            routing_notes = route_result.routing_notes
-        else:
-            route_error = "ROUTER_UNAVAILABLE: no route result was produced"
-            hit_layer = "unknown"
-            verdict_str = "ROUTE_UNAVAILABLE"
-            routing_notes = route_error
-
-        return EvalResult(
-            release_id=release_id,
-            structure_score=struct,
-            effect_score=effect,
-            objective_metrics=obj,
-            p0_pass=p0_pass,
-            case_verdicts=case_verdicts,
-            case_outputs=case_outputs,
-            validation_channels=["dependency_fixtures"] if all_provenances else [],
-            provenances=all_provenances,
-            valid=not invalid_reasons,
-            invalid_reasons=invalid_reasons,
-            hit_layer=hit_layer,
-            verdict=verdict_str,
-            matched_keywords=matched_kws,
-            routing_notes=routing_notes,
-            route_result=route_result,
-            route_error=route_error,
-        )
+            return eval_res
+        except Exception as exc:
+            if runtime is not None:
+                runtime.finalize_run(
+                    run_id=effective_run_id,
+                    infra_error=f"{type(exc).__name__}: {exc}",
+                )
+            elif collector is not None:
+                collector.finish_run(
+                    run_id=effective_run_id,
+                    infra_error=f"{type(exc).__name__}: {exc}",
+                )
+            raise
 
     # ----------------- 辅助 -----------------
 
@@ -535,8 +677,11 @@ class SkillEvaluator(Tool):
         body: str,
         dependencies: Optional[list[str]] = None,
         skill_name: Optional[str] = None,
+        runtime: Optional[Any] = None,
+        tool_broker: Optional[Any] = None,
+        run_id: Optional[str] = None,
     ) -> tuple[str, dict]:
-        """有 Skill 的 Agent 跑：若具备依赖且支持工具调用，则挂载受控 fixture 生成 provenance"""
+        """有 Skill 的 Agent 跑：若具备依赖且支持工具调用，则挂载受控 fixture 或 BrokeredTool 生成 provenance"""
         fingerprint = self.get_config_fingerprint()
         if self.output_cache is not None:
             cached = self.output_cache.get_with_skill(query, body, fingerprint, dependencies)
@@ -547,7 +692,10 @@ class SkillEvaluator(Tool):
                     self._last_skill_provenances = []
                 return cached[0], cached[1]
 
-        self._last_skill_provenances = []
+        if getattr(self, "_injected_provenances", None) is not None:
+            self._last_skill_provenances = list(self._injected_provenances)
+        else:
+            self._last_skill_provenances = []
         started = time.perf_counter()
 
         if dependencies and hasattr(self.llm, "invoke_with_tools"):
@@ -558,12 +706,27 @@ class SkillEvaluator(Tool):
 
             active_fixtures: dict[str, Any] = {}
             tool_registry = ToolRegistry()
+            effective_broker = tool_broker or (runtime.tool_broker if runtime else None)
+            prov_count_before = (
+                len(runtime.get_provenances(run_id))
+                if (runtime and run_id and hasattr(runtime, "get_provenances"))
+                else 0
+            )
+
             for dep in dependencies:
                 factory = _FIXTURE_FACTORIES.get(dep)
-                if factory is not None:
-                    fixture = factory()
-                    active_fixtures[dep] = fixture
-                    tool_registry.register_tool(fixture)
+                if runtime is not None:
+                    if effective_broker is not None and effective_broker.get_tool(dep) is None:
+                        if factory is not None:
+                            effective_broker.register_tool(dep, factory())
+                    brokered = runtime.create_brokered_tool(dep, run_id=run_id or "eval_run")
+                    tool_registry.register_tool(brokered)
+                    active_fixtures[dep] = brokered
+                else:
+                    if factory is not None:
+                        fixture = factory()
+                        active_fixtures[dep] = fixture
+                        tool_registry.register_tool(fixture)
 
             if active_fixtures:
                 agent = SimpleAgent(
@@ -591,16 +754,19 @@ class SkillEvaluator(Tool):
 
                 latency_ms = (time.perf_counter() - started) * 1000
 
-                case_provs: list[Any] = []
-                for dep, fix in active_fixtures.items():
-                    provs = build_provenances_for_fixture(
-                        dependency=dep,
-                        fixture=fix,
-                        agent_output=content,
-                        skill_body=body,
-                        query=query,
-                    )
-                    case_provs.extend(provs)
+                if runtime is not None and run_id and hasattr(runtime, "get_provenances"):
+                    case_provs = runtime.get_provenances(run_id)[prov_count_before:]
+                else:
+                    case_provs = []
+                    for dep, fix in active_fixtures.items():
+                        provs = build_provenances_for_fixture(
+                            dependency=dep,
+                            fixture=fix,
+                            agent_output=content,
+                            skill_body=body,
+                            query=query,
+                        )
+                        case_provs.extend(provs)
 
                 self._last_skill_provenances = case_provs
 
