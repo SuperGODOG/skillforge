@@ -330,3 +330,377 @@ class BudgetExceededError(RuntimeError):
         self.cap_type = cap_type  # "call", "token", "deadline", "candidate"
         self.limit = limit
         self.current = current
+
+
+EpisodeOutcome = Literal["success", "failure", "unknown"]
+CandidateDecision = Literal["create", "revise", "abandon"]
+CandidateStatus = Literal["DRAFT", "EVALUATING", "APPROVED", "REJECTED", "ABANDONED"]
+
+
+@dataclass
+class Episode:
+    """Execution experience record with environment, tool call provenances, and independent acceptance verification."""
+
+    episode_id: str
+    task_id: str
+    run_id: str
+    skill_name: str
+    skill_version: str
+    environment: dict[str, Any]
+    provenances: list[ToolCallProvenance]
+    acceptance_criteria: dict[str, Any] | str
+    outcome: EpisodeOutcome
+    verification_evidence: Optional[dict[str, Any]] = None
+    outcome_reason: str = ""
+    created_at: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        self.validate()
+
+    def validate(self) -> None:
+        if self.outcome not in ("success", "failure", "unknown"):
+            raise ValueError(f"Invalid outcome: '{self.outcome}'. Must be 'success', 'failure', or 'unknown'")
+
+        # Non-negotiable constraint: model self-assertion alone cannot establish verification success
+        if self.outcome == "success":
+            if not self.verification_evidence:
+                raise ValueError(
+                    "Cannot mark Episode as 'success' without independent verification evidence "
+                    "(model self-assertion is untrusted)"
+                )
+            if (
+                self.verification_evidence.get("source") == "model_self_assertion"
+                or self.verification_evidence.get("self_asserted") is True
+            ):
+                if not self.verification_evidence.get("independent_pass", False):
+                    raise ValueError(
+                        "Cannot mark Episode as 'success' solely on model self-assertion"
+                    )
+
+
+@dataclass
+class CandidateSkill:
+    """Isolated candidate skill generated or revised from source episodes or documents, pending evaluation."""
+
+    candidate_id: str
+    skill_name: str
+    decision: CandidateDecision
+    source_episode_ids: list[str] = field(default_factory=list)
+    meta: SkillMeta = field(default_factory=lambda: SkillMeta(name="unnamed", version="1.0.0", description="", use_when=""))
+    body: str = ""
+    rationale: str = ""
+    status: CandidateStatus = "DRAFT"
+    source_doc_id: Optional[str] = None
+    source_doc_version: Optional[str] = None
+    source_snippet_ids: list[str] = field(default_factory=list)
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if self.decision not in ("create", "revise", "abandon"):
+            raise ValueError(f"Invalid decision '{self.decision}'. Must be 'create', 'revise', or 'abandon'")
+        if not self.source_episode_ids and not self.source_doc_id:
+            raise ValueError(
+                "CandidateSkill must be linked to at least one valid source (source_episode_ids or source_doc_id)"
+            )
+
+
+@dataclass
+class VersionSnapshot:
+    """Immutable snapshot of a skill version including metadata, body, hash, and verification status."""
+
+    skill_name: str
+    version: str
+    content_hash: str
+    meta: Optional[SkillMeta]
+    body: str
+    commit_hash: Optional[str] = None
+    release_id: Optional[str] = None
+    status: str = "PUBLISHED"  # "PUBLISHED", "READY", "UNVERIFIED", "UNAVAILABLE"
+    is_verified: bool = True
+    eval_summary: Optional[dict[str, Any]] = None
+    source_lineage: Optional[list[str]] = None
+    dependencies: list[str] = field(default_factory=list)
+
+
+@dataclass
+class VersionComparison:
+    """Read-only comparison result between two versions of the same skill."""
+
+    skill_name: str
+    version_a: str
+    version_b: str
+    content_diff: str
+    metadata_diff: dict[str, Any]
+    dependencies_diff: dict[str, Any]
+    eval_delta: dict[str, Any]
+    is_comparable: bool = True
+    incomparable_reason: Optional[str] = None
+
+
+@dataclass
+class Deployment:
+    """Persistent deployment state mapping stable and optional canary version."""
+
+    skill_name: str
+    stable_version: str
+    stable_release_id: Optional[str] = None
+    canary_version: Optional[str] = None
+    canary_release_id: Optional[str] = None
+    canary_share: int = 0
+    rollout_id: str = ""
+    revision: int = 1
+    updated_at: Optional[str] = None
+
+
+@dataclass
+class DeploymentAuditEvent:
+    """Audit log entry tracking deployment changes (rollback, canary, share change)."""
+
+    event_id: str
+    operation_id: Optional[str]
+    skill_name: str
+    action: str  # 'SET_CANARY', 'CHANGE_SHARE', 'PROMOTE_CANARY', 'ROLLBACK'
+    from_stable: Optional[str]
+    to_stable: Optional[str]
+    from_canary: Optional[str]
+    to_canary: Optional[str]
+    from_share: Optional[int]
+    to_share: Optional[int]
+    reason: str
+    revision_before: int
+    revision_after: int
+    created_at: Optional[str] = None
+
+
+@dataclass
+class RunVersionBinding:
+    """Frozen version binding for a specific execution run."""
+
+    run_id: str
+    skill_name: str
+    assigned_version: str
+    content_hash: str
+    is_canary: bool
+    frozen_body: str
+    created_at: Optional[str] = None
+
+
+RuntimeStatus = Literal[
+    "PENDING",
+    "RUNNING",
+    "COMPLETED",
+    "FAILED",
+    "CANCELLED",
+    "TIMED_OUT",
+    "BUDGET_EXHAUSTED",
+    "INTERRUPTED",
+]
+
+
+@dataclass
+class ToolCallRecord:
+    """Execution trace of an individual tool call dispatched via ToolBroker."""
+
+    call_id: str
+    run_id: str
+    tool_name: str
+    status: Literal["ADMITTED", "REJECTED", "EXECUTED", "ERROR", "TIMED_OUT", "CANCELLED"]
+    input_params: dict[str, Any]
+    output_text: str = ""
+    output_data: dict[str, Any] = field(default_factory=dict)
+    error_type: Optional[str] = None
+    error_message: Optional[str] = None
+    latency_ms: float = 0.0
+    created_at: Optional[str] = None
+    provenance: Optional[ToolCallProvenance] = None
+
+
+@dataclass
+class RunRecord:
+    """Lifecycle and execution state of an AgentRuntime run."""
+
+    run_id: str
+    task_id: str
+    skill_name: Optional[str]
+    skill_version: Optional[str]
+    content_hash: Optional[str]
+    status: RuntimeStatus
+    purpose: Literal["evaluation", "learning"]
+    budget_max: int = 10
+    budget_consumed: int = 0
+    deadline_ts: Optional[float] = None
+    error_type: Optional[str] = None
+    error_message: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    terminal_at: Optional[str] = None
+
+
+@dataclass
+class SemanticFact:
+    """A scoped observation or fact tied to a verified source in Semantic Memory."""
+
+    fact_id: str  # Must start with 'fact_'
+    statement: str
+    source_id: str  # Provenance source ID: e.g. 'run_...', 'ep_...', 'tool_...', 'manual_...'
+    scope: str = "global"  # Context/environment scope
+    topic: str = "general"  # Subject attribute or category, used for conflict detection
+    is_universal: bool = False  # True indicates universal unconditional fact; False indicates scoped observation
+    tags: list[str] = field(default_factory=list)
+    created_at: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if not self.fact_id.startswith("fact_"):
+            raise ValueError(
+                f"SemanticFact fact_id must start with 'fact_', got '{self.fact_id}'"
+            )
+        if not self.statement or not self.statement.strip():
+            raise ValueError("SemanticFact statement cannot be empty")
+        if not self.source_id or not self.source_id.strip():
+            raise ValueError("SemanticFact source_id cannot be empty")
+        # Invariant: single execution observation cannot be marked as universal fact
+        if self.is_universal and (
+            self.source_id.startswith("run_")
+            or self.source_id.startswith("ep_")
+            or "single_execution" in self.tags
+        ):
+            raise ValueError(
+                f"Single execution observation from '{self.source_id}' cannot be marked as an unconditional universal fact"
+            )
+
+
+@dataclass
+class SemanticConflict:
+    """Representation of conflicting observations on the same topic/attribute across different sources."""
+
+    topic: str
+    facts: list[SemanticFact]
+    description: str = ""
+
+
+@dataclass
+class DocumentSnippet:
+    """A verifiable text snippet from a source document."""
+
+    snippet_id: str  # Must start with 'snip_'
+    doc_id: str
+    doc_version: str
+    section_title: str
+    start_line: int
+    end_line: int
+    content: str
+    content_hash: str
+
+    def __post_init__(self) -> None:
+        if not self.snippet_id.startswith("snip_"):
+            raise ValueError(f"DocumentSnippet snippet_id must start with 'snip_', got '{self.snippet_id}'")
+        if self.start_line < 1 or self.end_line < self.start_line:
+            raise ValueError(f"Invalid line range: {self.start_line}-{self.end_line}")
+
+
+@dataclass
+class DocumentSource:
+    """An independent typed local document source providing candidate skill procedures."""
+
+    doc_id: str  # Must start with 'doc_'
+    title: str
+    version: str
+    content: str
+    content_hash: str
+    snippets: list[DocumentSnippet] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
+    created_at: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if not self.doc_id.startswith("doc_"):
+            raise ValueError(f"DocumentSource doc_id must start with 'doc_', got '{self.doc_id}'")
+        if not self.title or not self.title.strip():
+            raise ValueError("DocumentSource title cannot be empty")
+        if not self.version or not self.version.strip():
+            raise ValueError("DocumentSource version cannot be empty")
+        if not self.content_hash:
+            raise ValueError("DocumentSource content_hash cannot be empty")
+
+
+@dataclass
+class DocumentExtractionResult:
+    """Outcome of attempting to extract operable skill candidates from a DocumentSource."""
+
+    doc_id: str
+    doc_version: str
+    status: Literal["success", "rejected", "conflict"]
+    candidate: Optional[CandidateSkill] = None
+    target_skill_name: str = ""
+    rejection_reasons: list[str] = field(default_factory=list)
+    conflicts: list[str] = field(default_factory=list)
+    extracted_snippets: list[DocumentSnippet] = field(default_factory=list)
+    raw_claims_filtered: list[str] = field(default_factory=list)
+
+
+@dataclass
+class MemoryLineage:
+    """Cross-tier provenance trace linking procedural knowledge -> episodic experiences -> semantic facts -> documents."""
+
+    procedural_id: str
+    procedural_type: Literal["candidate", "release", "skill"]
+    procedural_item: Any
+    supporting_episodes: list[Episode] = field(default_factory=list)
+    source_facts: list[SemanticFact] = field(default_factory=list)
+    source_document: Optional[DocumentSource] = None
+    source_snippets: list[DocumentSnippet] = field(default_factory=list)
+    lineage_broken: bool = False
+    broken_reasons: list[str] = field(default_factory=list)
+
+
+@dataclass
+class RetrievalContext:
+    """Task execution context passed to retrieval for scope, version, and permission filtering."""
+
+    task_id: Optional[str] = None
+    run_id: Optional[str] = None
+    assigned_version: Optional[str] = None
+    allowed_tools: Optional[set[str]] = None
+    available_dependencies: Optional[set[str]] = None
+    scope: Optional[str] = None
+    limit: int = 10
+    include_evidence: bool = True
+
+
+@dataclass
+class SkillRecommendation:
+    """A bounded, reviewable formal skill suggestion with provenance and verification status."""
+
+    skill_name: str
+    version: str
+    content_hash: str
+    meta: Optional[SkillMeta]
+    body: str
+    relevance_score: float
+    match_reasons: list[str] = field(default_factory=list)
+    lineage: Optional[MemoryLineage] = None
+    source_type: Literal["episode_mined", "document_derived", "manual_or_unknown"] = "manual_or_unknown"
+    verification_episodes: list[Episode] = field(default_factory=list)
+    is_verified: bool = True
+    is_canary: bool = False
+    dependencies: list[str] = field(default_factory=list)
+    lineage_broken: bool = False
+    broken_reasons: list[str] = field(default_factory=list)
+
+
+@dataclass
+class FutureRetrievalResult:
+    """Bounded, read-only multi-tier memory retrieval result."""
+
+    query: str
+    skills: list[SkillRecommendation] = field(default_factory=list)
+    evidence_episodes: list[Episode] = field(default_factory=list)
+    evidence_facts: list[SemanticFact] = field(default_factory=list)
+    candidates: list[CandidateSkill] = field(default_factory=list)
+    conflicts: list[SemanticConflict] = field(default_factory=list)
+    filtered_out: list[dict[str, Any]] = field(default_factory=list)
+    empty_reason: Optional[str] = None
+
+
+
+

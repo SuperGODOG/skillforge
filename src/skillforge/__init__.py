@@ -13,6 +13,7 @@ from .models import (
     Trigger,
     Evaluation,
     RouteResult,
+    ToolCallProvenance,
     EvalResult,
     RatchetVerdict,
     Patch,
@@ -25,7 +26,94 @@ from .models import (
     EvolveRecord,
     AttemptRecord,
     AttemptFeedback,
+    Episode,
+    CandidateSkill,
+    EpisodeOutcome,
+    SemanticFact,
+    SemanticConflict,
+    MemoryLineage,
+    DocumentSnippet,
+    DocumentSource,
+    DocumentExtractionResult,
+    RetrievalContext,
+    SkillRecommendation,
+    FutureRetrievalResult,
+    VersionSnapshot,
+    VersionComparison,
+    Deployment,
+    DeploymentAuditEvent,
+    RunVersionBinding,
+    RuntimeStatus,
+    ToolCallRecord,
+    RunRecord,
 )
+from .retrieval import FutureMemoryRetriever
+from .runtime import (
+    ToolBroker,
+    AgentRuntime,
+    BrokeredTool,
+    sanitize_params,
+    validate_parameter_schema,
+)
+from .sandbox import (
+    SandboxConfig,
+    SandboxResult,
+    SandboxBackend,
+    MacSeatbeltSandbox,
+    DependencyProbe,
+    ProbeResult,
+    SandboxedToolSpec,
+)
+from .memory import (
+    SemanticStore,
+    ThreeTierMemoryManager,
+)
+from .documents import (
+    DocumentStore,
+    parse_markdown_snippets,
+    extract_candidate_from_document,
+)
+from .episode import EpisodeStore, CandidateStore
+from .evolution_loop import (
+    MiningResult,
+    ValidationRecord,
+    mine_candidate,
+    validate_candidate,
+    promote_candidate,
+    compute_candidate_hash,
+)
+from .pattern_mining import (
+    PatternMiningConfig,
+    ClusterReport,
+    MiningBatchReport,
+    mine_pending,
+)
+from .repair import (
+    AttributionDiagnosis,
+    RepairAttemptRecord,
+    RepairJob,
+    attribute_failure,
+    repair_skill_failure,
+    promote_repaired_skill,
+)
+from .deployments import (
+    DeploymentManager,
+    ConcurrencyError,
+    compute_content_hash,
+)
+from .receipt import (
+    ValidationDiagnostic,
+    ValidationReceipt,
+    JsonConfigValidator,
+    FixAction,
+    CorrectionPolicy,
+    DeterministicJsonFixer,
+    compute_artifact_fingerprint,
+    apply_action_to_content,
+    get_default_ab_cases,
+    run_artifact_ab_comparison,
+)
+from .collector import ExperienceCollector, RunContext
 from .registry import SkillRegistry
 from .router import IntentRouter
 from .evaluator import (
@@ -64,9 +152,27 @@ from .skill_splitter import (
 __all__ = [
     "__version__",
     "SkillMeta", "Trigger", "Evaluation",
-    "RouteResult", "EvalResult", "RatchetVerdict", "Patch", "PatchStatus", "Release",
+    "RouteResult", "ToolCallProvenance", "EvalResult", "RatchetVerdict", "Patch", "PatchStatus", "Release",
     "EvolveBudget", "BudgetExceededError", "BodySectionStats", "EvolveContext", "EvolveRecord",
     "AttemptRecord", "AttemptFeedback",
+    "Episode", "CandidateSkill", "CandidateDecision", "CandidateStatus", "EpisodeOutcome",
+    "SemanticFact", "SemanticConflict", "MemoryLineage",
+    "VersionSnapshot", "VersionComparison", "Deployment", "DeploymentAuditEvent", "RunVersionBinding",
+    "DocumentSnippet", "DocumentSource", "DocumentExtractionResult",
+    "DocumentStore", "parse_markdown_snippets", "extract_candidate_from_document",
+    "RetrievalContext", "SkillRecommendation", "FutureRetrievalResult", "FutureMemoryRetriever",
+    "SandboxConfig", "SandboxResult", "SandboxBackend", "MacSeatbeltSandbox", "DependencyProbe", "ProbeResult", "SandboxedToolSpec",
+    "EpisodeStore", "CandidateStore", "SemanticStore", "ThreeTierMemoryManager",
+    "MiningResult", "ValidationRecord", "mine_candidate", "validate_candidate", "promote_candidate", "compute_candidate_hash",
+    "PatternMiningConfig", "ClusterReport", "MiningBatchReport", "mine_pending",
+    "AttributionDiagnosis", "RepairAttemptRecord", "RepairJob", "attribute_failure", "repair_skill_failure", "promote_repaired_skill",
+    "DeploymentManager", "ConcurrencyError", "compute_content_hash",
+    "ValidationDiagnostic", "ValidationReceipt", "JsonConfigValidator", "FixAction", "CorrectionPolicy",
+    "DeterministicJsonFixer", "compute_artifact_fingerprint", "apply_action_to_content",
+    "get_default_ab_cases", "run_artifact_ab_comparison",
+    "ExperienceCollector", "RunContext",
+    "ToolBroker", "AgentRuntime", "BrokeredTool", "ToolCallRecord", "RunRecord", "RuntimeStatus",
+    "sanitize_params", "validate_parameter_schema",
     "LLMLedger", "EvaluatorOutputCache",
     "PromptBloatResult", "check_prompt_bloat", "compute_body_section_stats",
     "SkillRegistry",
