@@ -44,3 +44,8 @@ runs/p1i_progress.json
 
 # 样本级审计轨迹（运行时产物不入库）
 runs/eval_traces/
+
+# 本地临时脚本与面试备战材料（不入公共开源仓库）
+scratch/
+面试阐述/
+docs/面试阐述/
