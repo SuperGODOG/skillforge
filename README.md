@@ -60,6 +60,14 @@
 
 ## 2. 系统架构全景
 
+> [!TIP]
+> 🎨 **交互式架构与时序图谱直览（Showcase Visualizations · 支持缩放/高亮/全屏交互）**：
+> - 📖 [**SkillForge 交互式知识索引主页**](docs/skillforge-knowledge-index.html)（包含内置图谱直览器与 30 题库答辩穿透）
+> - 🏛️ [**全景架构拓扑 (Architecture)**](docs/skillforge-architecture.html)：3-Tier 级联路由、沙箱受控执行、ValidationReceipt 局部自愈与三层分级存储
+> - ⚡ [**任务受控时序与自愈 (Sequence)**](docs/skillforge-task-sequence.html)：责任层分流、结构化 Receipt 诊断与 `is_valid_for` 交付双重指纹重验
+> - 🔄 [**经验沉淀工作流 (Workflow)**](docs/skillforge-evolution-workflow.html)：A8 用途隔离、5 维启发式指标、沙箱双轨对决与 ReflectionLoop 反思闭环
+> - 🧬 [**技能全生命周期流转 (Lifecycle)**](docs/skillforge-skill-lifecycle.html)：Candidate DRAFT -> Ratchet PASS -> Git 快照 -> CAS 乐观锁秒级部署与回滚
+
 ```mermaid
 flowchart TB
     subgraph ExecutionLayer ["1. 受控执行 Harness (In-Task Runtime)"]
