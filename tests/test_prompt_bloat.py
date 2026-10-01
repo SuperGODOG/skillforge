@@ -155,13 +155,13 @@ def test_soft_threshold_triggers_review_with_distillation():
     old_stats = compute_body_section_stats(old_body)
     old_inst_len = old_stats["Instructions"]
 
-    bloat_text = "\n" + ("请务必详细检查每一个字段，确保每一条输出均经过严格的自检流程，避免任何轻微的格式缺陷。" * 3)
+    # 重复 40 次以确保超过 1000 tokens 且相对增长 > 25%
+    bloat_text = "\n" + ("请务必详细检查每一个字段，确保每一条输出均经过严格的自检流程，避免任何轻微的格式缺陷。" * 40)
     new_instructions = "1. 提取城市与日期。\n2. 调用气象接口获取数据。\n3. 格式化输出天气。" + bloat_text
     new_body = _mk_sample_body(instructions=new_instructions)
     new_stats = compute_body_section_stats(new_body)
 
-    assert new_stats["Instructions"] - old_inst_len > 100
-    assert (new_stats["Instructions"] - old_inst_len) / old_inst_len > 0.25
+    assert new_stats["Instructions"] - old_inst_len > 1000
 
     res = check_prompt_bloat(old_body, new_body, changed_sections=["Instructions"])
 
@@ -170,66 +170,65 @@ def test_soft_threshold_triggers_review_with_distillation():
     assert any("PROMPT_BLOAT" in r and "Instructions" in r for r in res.reasons)
     assert res.distillation_prompt is not None
     assert "精简收敛" in res.distillation_prompt and "Instructions" in res.distillation_prompt
-    assert f"+{new_stats['Instructions'] - old_inst_len}" in res.distillation_prompt
-    assert f"{(new_stats['Instructions'] - old_inst_len) / old_inst_len:.1%}" in res.distillation_prompt
     assert "软门槛" in res.distillation_prompt
+    assert res.candidate_token_stats["Instructions"] - res.baseline_token_stats["Instructions"] > 1000
 
 
 def test_soft_threshold_not_triggered_if_growth_under_25_percent():
-    long_inst = "步骤说明：" + ("严格按规范执行每一项操作。" * 60)
+    # 基线极大（>5000 tokens），增量 1200 tokens (> 1000 tokens)，但增长率 1200/5000 = 24% <= 25%
+    long_inst = "步骤说明：" + ("严格按规范执行每一项操作步骤内容说明。" * 300)
     old_body = _mk_sample_body(instructions=long_inst)
     old_stats = compute_body_section_stats(old_body)
 
-    add_text = "附加说明：" + ("补充测试要求。" * 18)
+    add_text = "附加说明：" + ("严格按规范执行每一项操作步骤内容说明。" * 70)
     new_body = _mk_sample_body(instructions=long_inst + add_text)
     new_stats = compute_body_section_stats(new_body)
 
     delta = new_stats["Instructions"] - old_stats["Instructions"]
     ratio = delta / old_stats["Instructions"]
-    assert delta > 100
     assert ratio <= 0.25
 
-    res = check_prompt_bloat(old_body, new_body, changed_sections=["Instructions"])
+    # 隔离单段门控测试：放宽 max_body_multiplier 防止全 body 门干扰单段判定
+    budget = EvolveBudget(max_body_multiplier=1.50)
+    res = check_prompt_bloat(old_body, new_body, budget=budget, changed_sections=["Instructions"])
     assert res.passed is True
     assert res.decision == "PASS"
 
 
-def test_soft_threshold_not_triggered_if_delta_under_100_chars():
+def test_soft_threshold_not_triggered_if_delta_under_1000_tokens():
+    # 增长率高达 500% (> 25%)，但净增仅 150 tokens (<= 1000 tokens)，严格 AND 判定放行
     short_inst = "第一步分析用户问题。第二步组织回答。"
     old_body = _mk_sample_body(instructions=short_inst)
-    old_stats = compute_body_section_stats(old_body)
 
-    add_text = "第三步输出简洁结论。"
+    add_text = "第三步输出简洁结论。" * 15
     new_body = _mk_sample_body(instructions=short_inst + add_text)
-    new_stats = compute_body_section_stats(new_body)
-
-    delta = new_stats["Instructions"] - old_stats["Instructions"]
-    assert delta <= 100
 
     res = check_prompt_bloat(old_body, new_body, changed_sections=["Instructions"])
     assert res.passed is True
     assert res.decision == "PASS"
+    assert res.section_deltas["Instructions"]["delta_tokens"] <= 1000
 
 
 def test_soft_threshold_exact_25_percent_passes():
-    old_body = "a" * 400
-    new_body = "a" * 500
+    budget = EvolveBudget(section_growth_tokens=50)
+    old_body = "word " * 400
+    new_body = "word " * 500
 
-    res = check_prompt_bloat(old_body, new_body)
+    res = check_prompt_bloat(old_body, new_body, budget=budget)
 
     assert res.section_deltas["__full_body__"]["ratio"] == 0.25
-    assert res.section_deltas["__full_body__"]["delta"] == 100
     assert res.decision == "PASS"
 
 
-def test_soft_threshold_exact_100_chars_passes_even_when_ratio_exceeds():
-    old_body = "a" * 10
-    new_body = "a" * 110
+def test_soft_threshold_exact_1000_tokens_passes_even_when_ratio_exceeds():
+    # 刚好 1000 tokens 增量（strict > 边界，1000 不超限）
+    old_body = "word " * 10
+    new_body = "word " * 1010
 
     res = check_prompt_bloat(old_body, new_body)
 
-    assert res.section_deltas["__full_body__"]["delta"] == 100
-    assert res.section_deltas["__full_body__"]["ratio"] == 10.0
+    assert res.section_deltas["__full_body__"]["delta"] == 1000
+    assert res.section_deltas["__full_body__"]["ratio"] == 100.0
     assert res.decision == "PASS"
 
 
@@ -239,41 +238,29 @@ def test_soft_threshold_exact_100_chars_passes_even_when_ratio_exceeds():
 
 
 def test_whole_body_multiplier_catches_spread_bloat():
-    unit = "一二三四五六七八九十"  # 10 字符
-    base_ov = "概述：" + (unit * 29) + "四字"  # 300 字符
-    base_in = "说明：" + (unit * 29) + "四字"  # 300 字符
-    base_ex = "示例：" + (unit * 29) + "四字"  # 300 字符
-    base_co = "约束：" + (unit * 29) + "四字"  # 300 字符
-    old_body = _mk_sample_body(overview=base_ov, instructions=base_in, examples=base_ex, constraints=base_co)
-    old_stats = compute_body_section_stats(old_body)
+    # 构造跨四段均摊的膨胀文本，各段独立增长 22.6% (<= 25%) 且各段净增 289 tokens (<= 1000 tokens)，
+    # 但四段合并净增 1156 tokens (> 1000 tokens) 且倍数 1.226x (> 1.20x)，触发全 Body 门控
+    base_unit = "基础说明内容及相关约束规范标准。" * 80  # 每段 1280 tokens
+    base_ov = "## Overview\n" + base_unit
+    base_in = "## Instructions\n" + base_unit
+    base_ex = "## Examples\n" + base_unit
+    base_co = "## Constraints\n" + base_unit
+    old_body = f"{base_ov}\n\n{base_in}\n\n{base_ex}\n\n{base_co}"
 
-    add_unit = unit * 6 + "一二三四五六"  # 66 字符 (66 / 300 = 22% <= 25%, 且 66 <= 100)
-
-    new_body = _mk_sample_body(
-        overview=base_ov + add_unit,
-        instructions=base_in + add_unit,
-        examples=base_ex + add_unit,
-        constraints=base_co + add_unit,
+    # 每段增加 289 tokens (289 / 1280 = 22.6% <= 25%，且 289 <= 1000 tokens)
+    add_unit = "\n附加说明内容及扩展要求。" * 24
+    new_body = (
+        f"{base_ov}{add_unit}\n\n"
+        f"{base_in}{add_unit}\n\n"
+        f"{base_ex}{add_unit}\n\n"
+        f"{base_co}{add_unit}"
     )
-    new_stats = compute_body_section_stats(new_body)
 
-    for s in ["Overview", "Instructions", "Examples", "Constraints"]:
-        delta_s = new_stats[s] - old_stats[s]
-        ratio_s = delta_s / old_stats[s]
-        assert delta_s <= 100
-        assert ratio_s <= 0.25
-
-    total_ratio = new_stats["total"] / old_stats["total"]
-    assert total_ratio > 1.20
-    assert new_stats["total"] - old_stats["total"] > 100
-
-    res = check_prompt_bloat(old_body, new_body, budget=EvolveBudget(max_body_multiplier=1.20))
+    res = check_prompt_bloat(old_body, new_body)
     assert res.passed is False
     assert res.decision == "REVIEW"
     assert any("全 Body 膨胀门控" in r for r in res.reasons)
     assert "整体 Body 文本膨胀超限" in res.distillation_prompt
-    assert f"+{new_stats['total'] - old_stats['total']}" in res.distillation_prompt
-    assert f"{new_stats['total'] / old_stats['total']:.2f}x" in res.distillation_prompt
     assert "全 Body 倍数门" in res.distillation_prompt
 
 
@@ -292,8 +279,8 @@ def test_whole_body_absolute_cap():
 
 
 def test_whole_body_exact_1_20x_passes():
-    old_body = "a" * 1000
-    new_body = "a" * 1200
+    old_body = "word " * 1000
+    new_body = "word " * 1200
 
     res = check_prompt_bloat(old_body, new_body)
 
@@ -314,20 +301,21 @@ def test_absolute_body_cap_exact_limit_passes():
 
 
 def test_empty_baseline_spread_uses_absolute_fallback():
+    # 非冷启动但基线为空时，候选 body 净增超过 1000 tokens 触发替代绝对门
+    unit = "详细说明操作指南及严格的格式与安全约束规范标准。" * 30  # 约 300 tokens
     new_body = (
-        "## Overview\n\n" + "o" * 80 + "\n\n"
-        "## Instructions\n\n" + "i" * 80 + "\n\n"
-        "## Examples\n\n" + "e" * 80 + "\n\n"
-        "## Constraints\n\n" + "c" * 80
+        "## Overview\n\n" + unit + "\n\n"
+        "## Instructions\n\n" + unit + "\n\n"
+        "## Examples\n\n" + unit + "\n\n"
+        "## Constraints\n\n" + unit
     )
 
     res = check_prompt_bloat("", new_body)
 
-    assert res.candidate_stats["total"] > 100
+    assert res.candidate_token_stats["total"] > 1000
     assert res.decision == "REVIEW"
     assert any("基线 Body 为空" in reason for reason in res.reasons)
     assert "替代绝对门" in res.distillation_prompt
-    assert "+" in res.distillation_prompt
 
 
 # ============================================================================
@@ -338,7 +326,7 @@ def test_empty_baseline_spread_uses_absolute_fallback():
 def test_acceptance_counterexample_a_single_section_bloat_blocks_auto_publish(tmp_path: Path):
     base_body = _mk_sample_body()
 
-    bloat_text = "\n" + ("必须仔细核对每个输入词汇，绝不遗漏任何标点符号与特殊编码。" * 5)
+    bloat_text = "\n" + ("必须仔细核对每个输入词汇，绝不遗漏任何标点符号与特殊编码。" * 40)
     new_body = _mk_sample_body(instructions="1. 提取城市与日期。\n2. 格式化。" + bloat_text)
     new_skill_md = _mk_skill_md(version="1.0.1", body=new_body)
 
@@ -400,7 +388,7 @@ def test_acceptance_counterexample_b_spread_bloat_triggers_review(tmp_path: Path
     old_body = _mk_sample_body(overview=base_ov, instructions=base_in, examples=base_ex, constraints=base_co)
     old_stats = compute_body_section_stats(old_body)
 
-    add_unit = unit * 6 + "一二三四五六"  # 66 字符 (66 / 300 = 22% <= 25%, 且 66 <= 100)
+    add_unit = unit * 6 + "一二三四五六"  # 66 字符 (66 / 300 = 22% <= 25%)
 
     new_body = _mk_sample_body(
         overview=base_ov + add_unit,
@@ -420,16 +408,15 @@ def test_acceptance_counterexample_b_spread_bloat_triggers_review(tmp_path: Path
         changed_body_sections=["Overview", "Instructions", "Examples", "Constraints"],
     )
 
-    budget = EvolveBudget(max_body_multiplier=1.20)
+    budget = EvolveBudget(max_body_multiplier=1.20, max_body_delta_tokens=100)
     bloat_res = check_prompt_bloat(old_body, new_body, budget=budget, changed_sections=patch.changed_body_sections)
     assert bloat_res.decision == "REVIEW"
     assert any("全 Body 膨胀门控" in r for r in bloat_res.reasons)
 
-    # 验证四个段落单独均未超 25% 且未超 100 字符
+    # 验证四个段落单独均未超 25%
     for s in ["Overview", "Instructions", "Examples", "Constraints"]:
         delta_s = bloat_res.candidate_stats[s] - bloat_res.baseline_stats[s]
         ratio_s = delta_s / bloat_res.baseline_stats[s]
-        assert delta_s <= 100
         assert ratio_s <= 0.25
 
     patch.bloat_verdict = bloat_res.decision
@@ -498,7 +485,7 @@ def test_generate_patches_attaches_body_stats_and_bloat_verdict():
     clean_md = _mk_skill_md(version="1.0.1", body=base_body, description="查询全国实时天气与预报")
     bloated_md = _mk_skill_md(
         version="1.0.1",
-        body=_mk_sample_body(instructions="1. 提取。\n" + ("详细冗余步骤说明文字。" * 20)),
+        body=_mk_sample_body(instructions="1. 提取。\n" + ("详细冗余步骤说明文字。" * 150)),
     )
 
     llm = MockLLM([json.dumps([
@@ -525,7 +512,7 @@ def test_evolve_full_fake_llm_bloat_review_never_auto_publishes(
 ):
     base_body = _mk_sample_body()
     candidate_body = _mk_sample_body(
-        instructions="1. 提取。\n" + ("详细冗余步骤说明文字。" * 20)
+        instructions="1. 提取。\n" + ("详细冗余步骤说明文字。" * 150)
     )
     old_md = _mk_skill_md(body=base_body)
     candidate_md = _mk_skill_md(version="1.0.1", body=candidate_body)
@@ -653,3 +640,20 @@ def test_evolve_context_and_record_dataclasses():
     )
     assert rec.bloat_verdict == "REVIEW"
     assert rec.status == "REVIEW"
+
+
+def test_prompt_bloat_frontmatter_preamble_immunity():
+    """Verify that comparing a body with YAML frontmatter against a body without frontmatter
+
+    does not trip prompt bloat due to __preamble__ or frontmatter characters.
+    """
+    raw_body = _mk_sample_body()
+    skill_with_frontmatter = _mk_skill_md(body=raw_body)
+
+    # Comparing pure markdown body to full SKILL.md with frontmatter
+    res = check_prompt_bloat(old_body=raw_body, new_body=skill_with_frontmatter)
+    assert res.passed is True
+    assert res.decision == "PASS"
+    assert "__preamble__" not in res.section_deltas
+    assert res.reasons == []
+

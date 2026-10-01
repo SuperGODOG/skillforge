@@ -46,6 +46,9 @@ from .models import (
     RuntimeStatus,
     ToolCallRecord,
     RunRecord,
+    LineageBinding,
+    RecoveryBudget,
+    BoundedRecoveryResult,
 )
 from .retrieval import FutureMemoryRetriever
 from .runtime import (
@@ -195,6 +198,8 @@ __all__ = [
     "deprecate_original_skill",
     "SplitAnalysis",
     "SplitResult",
+    "SplitProposal",
+    "suggest_skill_split",
     "DomainSpec",
     "DimensionCoupling",
     "CaseAssignment",
@@ -203,6 +208,12 @@ __all__ = [
     "build_evolve_state_graph",
     "SqliteCheckpointer",
     "EvolveLoopState",
+    "LineageBinding",
+    "RecoveryBudget",
+    "BoundedRecoveryResult",
+    "run_bounded_recovery",
+    "recover_bloated_candidate",
+    "check_non_recoverable_blockers",
 ]
 
 from .langgraph_loop import (
@@ -212,3 +223,13 @@ from .langgraph_loop import (
     SqliteCheckpointer,
     EvolveLoopState,
 )
+from .skill_splitter import (
+    SplitProposal,
+    suggest_skill_split,
+)
+from .bounded_recovery import (
+    run_bounded_recovery,
+    recover_bloated_candidate,
+    check_non_recoverable_blockers,
+)
+

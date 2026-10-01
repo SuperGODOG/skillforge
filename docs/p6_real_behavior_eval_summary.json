@@ -1,0 +1,897 @@
+{
+  "preflight": {
+    "v1_sha": "3b8b0b6c2224a4ee5d02a9a3370de1736a6cc1935eeddf9756f6c0c6c28d1e43",
+    "v2_sha": "8e70d68c2c144f71fe61914660698e487acdf2e972f03f826c2ee1b0edc348ec",
+    "ckpt": {
+      "cand_v2": {
+        "candidate_id": "cand_lifecycle_v2_8e70d68c",
+        "skill_name": "logistics_tracking",
+        "decision": "revise",
+        "source_episode_ids": "[\"ep_run_lifecycle_v1\"]",
+        "status": "DRAFT",
+        "meta_json": "{\"name\": \"logistics_tracking\", \"version\": \"1.0.1\", \"description\": \"电商多包裹物流客观核查助手（无建议模式）\", \"use_when\": \"当用户需要仅核对多包裹物流客观状态、禁止提供建议时使用\", \"not_for\": [\"金融支付交易\", \"提出后续建议\"], \"dependencies\": [], \"trigger\": {\"keywords\": [\"物流\", \"包裹\", \"运单\", \"签收\", \"客观状态\"]}, \"examples\": [\"核实订单客观物流状态\"], \"evaluation\": {\"last_score\": null, \"last_release_id\": null}}",
+        "body_md": "---\nname: logistics_tracking\nversion: 1.0.1\ndescription: 电商多包裹物流客观核查助手（无建议模式）\nuse_when: 当用户需要仅核对多包裹物流客观状态、禁止提供建议时使用\nnot_for:\n  - 金融支付交易\n  - 提出后续建议\ndependencies: []\ntrigger:\n  keywords:\n    - 物流\n    - 包裹\n    - 运单\n    - 签收\n    - 客观状态\nexamples:\n  - 核实订单客观物流状态\nevaluation:\n  last_score: null\n  last_release_id: null\n---\n## Overview\n电商多包裹订单物流客观状态核查助手。支持严格客观状态核查，禁止任何后续建议或行动指引。\n\n## Instructions\n1. 调用 query_order_packages 查询订单包含的全部包裹单号列表。\n2. 针对每个包裹，调用 query_package_tracking 查询其实时运输与签收状态。\n3. 严格仅输出各包裹客观状态，严禁输出任何售后建议、确认收货建议、催促或行动指引！\n\n## Examples\nQ: 核实订单 ORD_DEV_0601 全部包裹状态，只列出状态，不提出任何后续建议。\nA: 订单 ORD_DEV_0601 包裹状态：PKG_D601 已签收，PKG_D602 已签收。共 2 个包裹，全部签收。以上为全部客观状态。\n\n## Constraints\n- STATUS_ONLY 任务下严禁输出任何后续建议、确认收货建议、催促或行动指引。\n- 仅通过已授权工具查询，不编造不存在的状态。",
+        "rationale": "Revised for STATUS_ONLY goal shift via real model invocation",
+        "source_doc_id": null,
+        "source_doc_version": null,
+        "source_snippet_ids": null,
+        "source_requirement": "核实订单全部包裹状态，只列出状态，不提出任何后续建议",
+        "source_type": "requirement",
+        "task_spec_hash": "1bf7842e38bf0cac",
+        "intent_revision": 1,
+        "superseded_by": null,
+        "supersedes": "cand_real_v1_3b8b0b6c",
+        "created_at": "2026-09-30T15:19:42.793028+00:00",
+        "updated_at": "2026-09-30T15:19:42.793028+00:00"
+      },
+      "ep_v1": {
+        "episode_id": "ep_run_lifecycle_v1",
+        "task_id": "TASK_LC_01",
+        "run_id": "run_lifecycle_v1",
+        "skill_name": "logistics_tracking",
+        "skill_version": "1.0.0",
+        "environment_json": "{\"purpose\": \"evaluation\", \"candidate_id\": \"cand_real_v1_3b8b0b6c\", \"candidate_hash\": \"3b8b0b6c2224a4ee5d02a9a3370de1736a6cc1935eeddf9756f6c0c6c28d1e43\", \"task_spec_hash\": \"hash_spec_req_01\", \"source_requirement\": \"为电商多包裹物流查询订单并给出后续处理建议\"}",
+        "provenances_json": "[{\"tool_name\": \"query_order_packages\", \"fixture_case_id\": \"call_df54a85add9f\", \"call_index\": 0, \"call_count\": 1, \"is_fixture\": true, \"tool_required\": true, \"tool_called\": true, \"tool_success\": true, \"authenticity_pass\": true, \"input_params\": {\"order_id\": \"ORD_DEV_0601\"}, \"output_status\": \"SUCCESS\", \"output_summary\": \"Order ORD_DEV_0601 contains 2 packages: PKG_D601, PKG_D602\", \"latency_ms\": 0.09437510743737221, \"timestamp\": \"2026-09-30T15:19:30.182333+00:00\", \"signature\": \"sha256:40c207f5189886db63e844781d3030303911d7abcf945b2da860f189b987fe0b\", \"snapshot_id\": \"snap_call_df54a85add9f\", \"snapshot_content\": \"Order ORD_DEV_0601 contains 2 packages: PKG_D601, PKG_D602\"}, {\"tool_name\": \"query_package_tracking\", \"fixture_case_id\": \"call_0cc00eeeca92\", \"call_index\": 0, \"call_count\": 1, \"is_fixture\": true, \"tool_required\": true, \"tool_called\": true, \"tool_success\": true, \"authenticity_pass\": true, \"input_params\": {\"package_id\": \"PKG_D601\"}, \"output_status\": \"SUCCESS\", \"output_summary\": \"Package PKG_D601 status is DELIVERED via SF_EXPRESS\", \"latency_ms\": 0.047042034566402435, \"timestamp\": \"2026-09-30T15:19:32.776401+00:00\", \"signature\": \"sha256:8c3bea6977ecd9522c42f6057e33065b9d022192daf7d24a88d706afde058c9a\", \"snapshot_id\": \"snap_call_0cc00eeeca92\", \"snapshot_content\": \"Package PKG_D601 status is DELIVERED via SF_EXPRESS\"}, {\"tool_name\": \"query_package_tracking\", \"fixture_case_id\": \"call_5eb7b01737d5\", \"call_index\": 0, \"call_count\": 1, \"is_fixture\": true, \"tool_required\": true, \"tool_called\": true, \"tool_success\": true, \"authenticity_pass\": true, \"input_params\": {\"package_id\": \"PKG_D602\"}, \"output_status\": \"SUCCESS\", \"output_summary\": \"Package PKG_D602 status is DELIVERED via JD_LOGISTICS\", \"latency_ms\": 0.026166904717683792, \"timestamp\": \"2026-09-30T15:19:32.778845+00:00\", \"signature\": \"sha256:40ba25229270e16661eed2af98311cfe53ed36a3c0b8f98100cde550e3c6cae7\", \"snapshot_id\": \"snap_call_5eb7b01737d5\", \"snapshot_content\": \"Package PKG_D602 status is DELIVERED via JD_LOGISTICS\"}]",
+        "acceptance_json": "{\"intent_revision\": 1}",
+        "verification_json": "{\"independent_pass\": false, \"details\": {\"independent_pass\": false, \"classification\": \"FALSE_NEGATIVE\", \"is_hallucination\": false, \"is_qualified_rejection\": false, \"failure_reason\": \"Contradiction: order ORD_DEV_0601 all packages delivered, but output claimed in transit\", \"ground_truth_all_delivered\": true, \"order_id\": \"ORD_DEV_0601\", \"checked_invariants\": [\"INV_1_PACKAGE_COVERAGE\", \"INV_2_DELIVERY_CLAIM_ACCURACY\", \"INV_3_OUTAGE_ANTI_FABRICATION\", \"INV_4_INTENT_CONSTRAINT\", \"INV_5_PERMISSION_QUALIFIED_REJECTION\"]}}",
+        "outcome": "failure",
+        "outcome_reason": "Business verification failed",
+        "created_at": "2026-09-30T15:19:40.103574+00:00"
+      },
+      "task_context": {
+        "task_id": "DEV_GOAL_01",
+        "goal": "核实订单 ORD_DEV_0601 全部包裹状态，只列出状态，不提出任何后续建议。",
+        "business_scope": "logistics_tracking",
+        "constraints_json": "[\"STATUS_ONLY: 仅核对包裹配送情况，只列出客观事实，禁止输出任何后续建议或行动指引\"]",
+        "acceptance_criteria_json": "{\"intent_constraint\": \"STATUS_ONLY\", \"required_tools\": [\"query_order_packages\", \"query_package_tracking\"]}",
+        "intent_revision": 2,
+        "contract_fingerprint": "1bf7842e38bf0cac",
+        "active_candidate_id": "cand_lifecycle_v2_8e70d68c",
+        "active_skill_name": "logistics_tracking",
+        "active_skill_version": "1.0.1",
+        "active_body_snapshot": "---\nname: logistics_tracking\nversion: 1.0.1\ndescription: 电商多包裹物流客观核查助手（无建议模式）\nuse_when: 当用户需要仅核对多包裹物流客观状态、禁止提供建议时使用\nnot_for:\n  - 金融支付交易\n  - 提出后续建议\ndependencies: []\ntrigger:\n  keywords:\n    - 物流\n    - 包裹\n    - 运单\n    - 签收\n    - 客观状态\nexamples:\n  - 核实订单客观物流状态\nevaluation:\n  last_score: null\n  last_release_id: null\n---\n## Overview\n电商多包裹订单物流客观状态核查助手。支持严格客观状态核查，禁止任何后续建议或行动指引。\n\n## Instructions\n1. 调用 query_order_packages 查询订单包含的全部包裹单号列表。\n2. 针对每个包裹，调用 query_package_tracking 查询其实时运输与签收状态。\n3. 严格仅输出各包裹客观状态，严禁输出任何售后建议、确认收货建议、催促或行动指引！\n\n## Examples\nQ: 核实订单 ORD_DEV_0601 全部包裹状态，只列出状态，不提出任何后续建议。\nA: 订单 ORD_DEV_0601 包裹状态：PKG_D601 已签收，PKG_D602 已签收。共 2 个包裹，全部签收。以上为全部客观状态。\n\n## Constraints\n- STATUS_ONLY 任务下严禁输出任何后续建议、确认收货建议、催促或行动指引。\n- 仅通过已授权工具查询，不编造不存在的状态。",
+        "superseded_cands_json": "[]",
+        "assumptions_json": "[]",
+        "created_at": "2026-09-30T15:19:42.789603+00:00",
+        "updated_at": "2026-09-30T15:19:42.789603+00:00"
+      }
+    },
+    "task_calls_start": 100,
+    "total_calls_start": 225,
+    "revisions_start": 6
+  },
+  "eval_cases_hash": "8e94e152e1803ea8",
+  "config_hash": "a5aabbb49e6857bc",
+  "authoritative_reuse": true,
+  "authoritative_db_path": "/var/folders/2h/03vn62sn2bx9hn1j2hzy067w0000gn/T/sf_p6_eval_ktu64a61/eval.db",
+  "execution_records": [
+    {
+      "group": "B",
+      "skill_name": "logistics_tracking",
+      "task_id": "DEV_GOAL_01",
+      "order_id": "ORD_DEV_0601",
+      "intent_constraint": "STATUS_ONLY",
+      "output": "订单 ORD_DEV_0601 包裹状态如下：\n\n- PKG_D601：已签收（顺丰速运）\n- PKG_D602：已签收（京东物流）",
+      "tool_records": [
+        {
+          "call_id": "call_ebc529ba93d7",
+          "run_id": "run_B_DEV_GOAL_01_1790788150156",
+          "tool_name": "query_order_packages",
+          "status": "EXECUTED",
+          "input_params": {
+            "order_id": "ORD_DEV_0601"
+          },
+          "output_text": "Order ORD_DEV_0601 contains 2 packages: PKG_D601, PKG_D602",
+          "output_data": {
+            "order_id": "ORD_DEV_0601",
+            "buyer": "dev_user_16",
+            "packages": [
+              "PKG_D601",
+              "PKG_D602"
+            ],
+            "order_status": "COMPLETED"
+          },
+          "error_type": null,
+          "error_message": null,
+          "latency_ms": 0.08220807649195194,
+          "created_at": "2026-09-30T17:09:15.660357+00:00",
+          "provenance": {
+            "tool_name": "query_order_packages",
+            "fixture_case_id": "call_ebc529ba93d7",
+            "call_index": 0,
+            "call_count": 1,
+            "is_fixture": true,
+            "tool_required": true,
+            "tool_called": true,
+            "tool_success": true,
+            "authenticity_pass": true,
+            "input_params": {
+              "order_id": "ORD_DEV_0601"
+            },
+            "output_status": "SUCCESS",
+            "output_summary": "Order ORD_DEV_0601 contains 2 packages: PKG_D601, PKG_D602",
+            "latency_ms": 0.08220807649195194,
+            "timestamp": "2026-09-30T17:09:15.660357+00:00",
+            "signature": "sha256:809ce7e79318ab43e1cc36ce1b1a5e55bc2b3d4dc540ded7341be1e914039cb4",
+            "snapshot_id": "snap_call_ebc529ba93d7",
+            "snapshot_content": "Order ORD_DEV_0601 contains 2 packages: PKG_D601, PKG_D602"
+          }
+        },
+        {
+          "call_id": "call_6ee89e601b14",
+          "run_id": "run_B_DEV_GOAL_01_1790788150156",
+          "tool_name": "query_package_tracking",
+          "status": "EXECUTED",
+          "input_params": {
+            "package_id": "PKG_D601"
+          },
+          "output_text": "Package PKG_D601 status is DELIVERED via SF_EXPRESS",
+          "output_data": {
+            "package_id": "PKG_D601",
+            "carrier": "SF_EXPRESS",
+            "status": "DELIVERED",
+            "signed_by": "本人签收",
+            "sign_time": "2026-09-28T21:00:00Z"
+          },
+          "error_type": null,
+          "error_message": null,
+          "latency_ms": 0.05070795305073261,
+          "created_at": "2026-09-30T17:09:20.092020+00:00",
+          "provenance": {
+            "tool_name": "query_package_tracking",
+            "fixture_case_id": "call_6ee89e601b14",
+            "call_index": 0,
+            "call_count": 1,
+            "is_fixture": true,
+            "tool_required": true,
+            "tool_called": true,
+            "tool_success": true,
+            "authenticity_pass": true,
+            "input_params": {
+              "package_id": "PKG_D601"
+            },
+            "output_status": "SUCCESS",
+            "output_summary": "Package PKG_D601 status is DELIVERED via SF_EXPRESS",
+            "latency_ms": 0.05070795305073261,
+            "timestamp": "2026-09-30T17:09:20.092020+00:00",
+            "signature": "sha256:41b4865e40fe3a715840720e24eb59bf1db63e86666e31ac48d1c8d58a579086",
+            "snapshot_id": "snap_call_6ee89e601b14",
+            "snapshot_content": "Package PKG_D601 status is DELIVERED via SF_EXPRESS"
+          }
+        },
+        {
+          "call_id": "call_ed01704cc0d1",
+          "run_id": "run_B_DEV_GOAL_01_1790788150156",
+          "tool_name": "query_package_tracking",
+          "status": "EXECUTED",
+          "input_params": {
+            "package_id": "PKG_D602"
+          },
+          "output_text": "Package PKG_D602 status is DELIVERED via JD_LOGISTICS",
+          "output_data": {
+            "package_id": "PKG_D602",
+            "carrier": "JD_LOGISTICS",
+            "status": "DELIVERED",
+            "signed_by": "快递柜签收",
+            "sign_time": "2026-09-28T21:30:00Z"
+          },
+          "error_type": null,
+          "error_message": null,
+          "latency_ms": 0.015707919374108315,
+          "created_at": "2026-09-30T17:09:20.092254+00:00",
+          "provenance": {
+            "tool_name": "query_package_tracking",
+            "fixture_case_id": "call_ed01704cc0d1",
+            "call_index": 0,
+            "call_count": 1,
+            "is_fixture": true,
+            "tool_required": true,
+            "tool_called": true,
+            "tool_success": true,
+            "authenticity_pass": true,
+            "input_params": {
+              "package_id": "PKG_D602"
+            },
+            "output_status": "SUCCESS",
+            "output_summary": "Package PKG_D602 status is DELIVERED via JD_LOGISTICS",
+            "latency_ms": 0.015707919374108315,
+            "timestamp": "2026-09-30T17:09:20.092254+00:00",
+            "signature": "sha256:4ba4112e74f8ebac417ae08fef234eab44136cf247e7461ff38ab05c1f2c6e7e",
+            "snapshot_id": "snap_call_ed01704cc0d1",
+            "snapshot_content": "Package PKG_D602 status is DELIVERED via JD_LOGISTICS"
+          }
+        }
+      ],
+      "verdict": {
+        "independent_pass": true,
+        "classification": "TRUE_POSITIVE",
+        "is_hallucination": false,
+        "is_qualified_rejection": false,
+        "verdict": "PASS",
+        "order_id": "ORD_DEV_0601",
+        "all_delivered": true,
+        "queried_packages": [
+          "PKG_D601",
+          "PKG_D602"
+        ],
+        "checked_invariants": [
+          "INV_1_PACKAGE_COVERAGE",
+          "INV_2_DELIVERY_CLAIM_ACCURACY",
+          "INV_3_OUTAGE_ANTI_FABRICATION",
+          "INV_4_INTENT_CONSTRAINT",
+          "INV_5_PERMISSION_QUALIFIED_REJECTION"
+        ]
+      },
+      "latency_ms": 14369.353374931961,
+      "usage": {
+        "calls": 3,
+        "prompt_tokens": 1780,
+        "completion_tokens": 155,
+        "total_tokens": 1935
+      }
+    },
+    {
+      "group": "B",
+      "skill_name": "logistics_tracking",
+      "task_id": "DEV_NORM_01",
+      "order_id": "ORD_DEV_0101",
+      "intent_constraint": null,
+      "output": "## 订单 ORD_DEV_0101 配送状态汇总\n\n| 包裹单号 | 承运商 | 状态 |\n|---------|--------|------|\n| PKG_D101 | 顺丰速运 (SF_EXPRESS) | ✅ 已签收 |\n| PKG_D102 | 京东物流 (JD_LOGISTICS) | ✅ 已签收 |\n\n**核查结果**：该订单共 2 个包裹，均已成功签收，物流履约正常完成。\n\n**售后建议**：\n- 建议您尽快验收商品，确认数量与外观无误；\n- 如发现商品有质量问题或与描述不符，可在平台售后时效内（一般为签收后 7~15 天）申请退换货；\n- 若后续需要办理退款，也可随时告知，我可以协助您发起退款申请。",
+      "tool_records": [
+        {
+          "call_id": "call_8f3ac95e1ec5",
+          "run_id": "run_B_DEV_NORM_01_1790788164525",
+          "tool_name": "query_order_packages",
+          "status": "EXECUTED",
+          "input_params": {
+            "order_id": "ORD_DEV_0101"
+          },
+          "output_text": "Order ORD_DEV_0101 contains 2 packages: PKG_D101, PKG_D102",
+          "output_data": {
+            "order_id": "ORD_DEV_0101",
+            "buyer": "dev_user_01",
+            "packages": [
+              "PKG_D101",
+              "PKG_D102"
+            ],
+            "order_status": "COMPLETED"
+          },
+          "error_type": null,
+          "error_message": null,
+          "latency_ms": 0.047165900468826294,
+          "created_at": "2026-09-30T17:09:29.383546+00:00",
+          "provenance": {
+            "tool_name": "query_order_packages",
+            "fixture_case_id": "call_8f3ac95e1ec5",
+            "call_index": 0,
+            "call_count": 1,
+            "is_fixture": true,
+            "tool_required": true,
+            "tool_called": true,
+            "tool_success": true,
+            "authenticity_pass": true,
+            "input_params": {
+              "order_id": "ORD_DEV_0101"
+            },
+            "output_status": "SUCCESS",
+            "output_summary": "Order ORD_DEV_0101 contains 2 packages: PKG_D101, PKG_D102",
+            "latency_ms": 0.047165900468826294,
+            "timestamp": "2026-09-30T17:09:29.383546+00:00",
+            "signature": "sha256:ae1346d7df6e6e344027f4cf16c92027a411145fa58e43e5faba16479ce10fe8",
+            "snapshot_id": "snap_call_8f3ac95e1ec5",
+            "snapshot_content": "Order ORD_DEV_0101 contains 2 packages: PKG_D101, PKG_D102"
+          }
+        },
+        {
+          "call_id": "call_8af0912fa5a9",
+          "run_id": "run_B_DEV_NORM_01_1790788164525",
+          "tool_name": "query_package_tracking",
+          "status": "EXECUTED",
+          "input_params": {
+            "package_id": "PKG_D101"
+          },
+          "output_text": "Package PKG_D101 status is DELIVERED via SF_EXPRESS",
+          "output_data": {
+            "package_id": "PKG_D101",
+            "carrier": "SF_EXPRESS",
+            "status": "DELIVERED",
+            "signed_by": "本人签收",
+            "sign_time": "2026-09-28T09:00:00Z"
+          },
+          "error_type": null,
+          "error_message": null,
+          "latency_ms": 0.03295904025435448,
+          "created_at": "2026-09-30T17:09:34.016456+00:00",
+          "provenance": {
+            "tool_name": "query_package_tracking",
+            "fixture_case_id": "call_8af0912fa5a9",
+            "call_index": 0,
+            "call_count": 1,
+            "is_fixture": true,
+            "tool_required": true,
+            "tool_called": true,
+            "tool_success": true,
+            "authenticity_pass": true,
+            "input_params": {
+              "package_id": "PKG_D101"
+            },
+            "output_status": "SUCCESS",
+            "output_summary": "Package PKG_D101 status is DELIVERED via SF_EXPRESS",
+            "latency_ms": 0.03295904025435448,
+            "timestamp": "2026-09-30T17:09:34.016456+00:00",
+            "signature": "sha256:6294528ac86bd6d72dad7e8f70ea199d3e7ca5e476c03a394285c8fafb05a0e7",
+            "snapshot_id": "snap_call_8af0912fa5a9",
+            "snapshot_content": "Package PKG_D101 status is DELIVERED via SF_EXPRESS"
+          }
+        },
+        {
+          "call_id": "call_895335f7bec5",
+          "run_id": "run_B_DEV_NORM_01_1790788164525",
+          "tool_name": "query_package_tracking",
+          "status": "EXECUTED",
+          "input_params": {
+            "package_id": "PKG_D102"
+          },
+          "output_text": "Package PKG_D102 status is DELIVERED via JD_LOGISTICS",
+          "output_data": {
+            "package_id": "PKG_D102",
+            "carrier": "JD_LOGISTICS",
+            "status": "DELIVERED",
+            "signed_by": "前台签收",
+            "sign_time": "2026-09-28T09:30:00Z"
+          },
+          "error_type": null,
+          "error_message": null,
+          "latency_ms": 0.006583984941244125,
+          "created_at": "2026-09-30T17:09:34.016591+00:00",
+          "provenance": {
+            "tool_name": "query_package_tracking",
+            "fixture_case_id": "call_895335f7bec5",
+            "call_index": 0,
+            "call_count": 1,
+            "is_fixture": true,
+            "tool_required": true,
+            "tool_called": true,
+            "tool_success": true,
+            "authenticity_pass": true,
+            "input_params": {
+              "package_id": "PKG_D102"
+            },
+            "output_status": "SUCCESS",
+            "output_summary": "Package PKG_D102 status is DELIVERED via JD_LOGISTICS",
+            "latency_ms": 0.006583984941244125,
+            "timestamp": "2026-09-30T17:09:34.016591+00:00",
+            "signature": "sha256:54d7ebac75a7a98b3f23b1a4ba042e905bfb90afa2f22a75f01503f00b64c4ac",
+            "snapshot_id": "snap_call_895335f7bec5",
+            "snapshot_content": "Package PKG_D102 status is DELIVERED via JD_LOGISTICS"
+          }
+        }
+      ],
+      "verdict": {
+        "independent_pass": true,
+        "classification": "TRUE_POSITIVE",
+        "is_hallucination": false,
+        "is_qualified_rejection": false,
+        "verdict": "PASS",
+        "order_id": "ORD_DEV_0101",
+        "all_delivered": true,
+        "queried_packages": [
+          "PKG_D101",
+          "PKG_D102"
+        ],
+        "checked_invariants": [
+          "INV_1_PACKAGE_COVERAGE",
+          "INV_2_DELIVERY_CLAIM_ACCURACY",
+          "INV_3_OUTAGE_ANTI_FABRICATION",
+          "INV_4_INTENT_CONSTRAINT",
+          "INV_5_PERMISSION_QUALIFIED_REJECTION"
+        ]
+      },
+      "latency_ms": 16775.199208175763,
+      "usage": {
+        "calls": 3,
+        "prompt_tokens": 1776,
+        "completion_tokens": 318,
+        "total_tokens": 2094
+      }
+    },
+    {
+      "group": "C",
+      "skill_name": "logistics_tracking",
+      "task_id": "DEV_GOAL_01",
+      "order_id": "ORD_DEV_0601",
+      "intent_constraint": "STATUS_ONLY",
+      "output": "订单 ORD_DEV_0601 包裹状态：PKG_D601 已签收（顺丰速运），PKG_D602 已签收（京东物流）。共 2 个包裹，全部签收。以上为全部客观状态。",
+      "tool_records": [
+        {
+          "call_id": "call_0b88c27279d6",
+          "run_id": "run_C_DEV_GOAL_01_1790788181303",
+          "tool_name": "query_order_packages",
+          "status": "EXECUTED",
+          "input_params": {
+            "order_id": "ORD_DEV_0601"
+          },
+          "output_text": "Order ORD_DEV_0601 contains 2 packages: PKG_D601, PKG_D602",
+          "output_data": {
+            "order_id": "ORD_DEV_0601",
+            "buyer": "dev_user_16",
+            "packages": [
+              "PKG_D601",
+              "PKG_D602"
+            ],
+            "order_status": "COMPLETED"
+          },
+          "error_type": null,
+          "error_message": null,
+          "latency_ms": 0.042750034481287,
+          "created_at": "2026-09-30T17:09:46.358408+00:00",
+          "provenance": {
+            "tool_name": "query_order_packages",
+            "fixture_case_id": "call_0b88c27279d6",
+            "call_index": 0,
+            "call_count": 1,
+            "is_fixture": true,
+            "tool_required": true,
+            "tool_called": true,
+            "tool_success": true,
+            "authenticity_pass": true,
+            "input_params": {
+              "order_id": "ORD_DEV_0601"
+            },
+            "output_status": "SUCCESS",
+            "output_summary": "Order ORD_DEV_0601 contains 2 packages: PKG_D601, PKG_D602",
+            "latency_ms": 0.042750034481287,
+            "timestamp": "2026-09-30T17:09:46.358408+00:00",
+            "signature": "sha256:c8d76a7f008449a4e8f6fdb2ca108009c157200ac16ae06144abd286d6108766",
+            "snapshot_id": "snap_call_0b88c27279d6",
+            "snapshot_content": "Order ORD_DEV_0601 contains 2 packages: PKG_D601, PKG_D602"
+          }
+        },
+        {
+          "call_id": "call_f545263c759e",
+          "run_id": "run_C_DEV_GOAL_01_1790788181303",
+          "tool_name": "query_package_tracking",
+          "status": "EXECUTED",
+          "input_params": {
+            "package_id": "PKG_D601"
+          },
+          "output_text": "Package PKG_D601 status is DELIVERED via SF_EXPRESS",
+          "output_data": {
+            "package_id": "PKG_D601",
+            "carrier": "SF_EXPRESS",
+            "status": "DELIVERED",
+            "signed_by": "本人签收",
+            "sign_time": "2026-09-28T21:00:00Z"
+          },
+          "error_type": null,
+          "error_message": null,
+          "latency_ms": 0.06233318708837032,
+          "created_at": "2026-09-30T17:09:50.574330+00:00",
+          "provenance": {
+            "tool_name": "query_package_tracking",
+            "fixture_case_id": "call_f545263c759e",
+            "call_index": 0,
+            "call_count": 1,
+            "is_fixture": true,
+            "tool_required": true,
+            "tool_called": true,
+            "tool_success": true,
+            "authenticity_pass": true,
+            "input_params": {
+              "package_id": "PKG_D601"
+            },
+            "output_status": "SUCCESS",
+            "output_summary": "Package PKG_D601 status is DELIVERED via SF_EXPRESS",
+            "latency_ms": 0.06233318708837032,
+            "timestamp": "2026-09-30T17:09:50.574330+00:00",
+            "signature": "sha256:a910f1eb8f7fcabcf4c7be7840c8781add6a1eaa59f9761bb70de696730c2262",
+            "snapshot_id": "snap_call_f545263c759e",
+            "snapshot_content": "Package PKG_D601 status is DELIVERED via SF_EXPRESS"
+          }
+        },
+        {
+          "call_id": "call_61d0f5124c15",
+          "run_id": "run_C_DEV_GOAL_01_1790788181303",
+          "tool_name": "query_package_tracking",
+          "status": "EXECUTED",
+          "input_params": {
+            "package_id": "PKG_D602"
+          },
+          "output_text": "Package PKG_D602 status is DELIVERED via JD_LOGISTICS",
+          "output_data": {
+            "package_id": "PKG_D602",
+            "carrier": "JD_LOGISTICS",
+            "status": "DELIVERED",
+            "signed_by": "快递柜签收",
+            "sign_time": "2026-09-28T21:30:00Z"
+          },
+          "error_type": null,
+          "error_message": null,
+          "latency_ms": 0.015333062037825584,
+          "created_at": "2026-09-30T17:09:50.574588+00:00",
+          "provenance": {
+            "tool_name": "query_package_tracking",
+            "fixture_case_id": "call_61d0f5124c15",
+            "call_index": 0,
+            "call_count": 1,
+            "is_fixture": true,
+            "tool_required": true,
+            "tool_called": true,
+            "tool_success": true,
+            "authenticity_pass": true,
+            "input_params": {
+              "package_id": "PKG_D602"
+            },
+            "output_status": "SUCCESS",
+            "output_summary": "Package PKG_D602 status is DELIVERED via JD_LOGISTICS",
+            "latency_ms": 0.015333062037825584,
+            "timestamp": "2026-09-30T17:09:50.574588+00:00",
+            "signature": "sha256:ebbef90c6d3bb9433168faad81fa8932f098a88dabf267a84edf5a06c2d878a8",
+            "snapshot_id": "snap_call_61d0f5124c15",
+            "snapshot_content": "Package PKG_D602 status is DELIVERED via JD_LOGISTICS"
+          }
+        }
+      ],
+      "verdict": {
+        "independent_pass": true,
+        "classification": "TRUE_POSITIVE",
+        "is_hallucination": false,
+        "is_qualified_rejection": false,
+        "verdict": "PASS",
+        "order_id": "ORD_DEV_0601",
+        "all_delivered": true,
+        "queried_packages": [
+          "PKG_D601",
+          "PKG_D602"
+        ],
+        "checked_invariants": [
+          "INV_1_PACKAGE_COVERAGE",
+          "INV_2_DELIVERY_CLAIM_ACCURACY",
+          "INV_3_OUTAGE_ANTI_FABRICATION",
+          "INV_4_INTENT_CONSTRAINT",
+          "INV_5_PERMISSION_QUALIFIED_REJECTION"
+        ]
+      },
+      "latency_ms": 14118.851999985054,
+      "usage": {
+        "calls": 3,
+        "prompt_tokens": 2449,
+        "completion_tokens": 163,
+        "total_tokens": 2612
+      }
+    },
+    {
+      "group": "C",
+      "skill_name": "logistics_tracking",
+      "task_id": "DEV_NORM_01",
+      "order_id": "ORD_DEV_0101",
+      "intent_constraint": null,
+      "output": "订单 ORD_DEV_0101 包裹状态：PKG_D101 已签收（顺丰速运），PKG_D102 已签收（京东物流）。共 2 个包裹，全部签收。以上为全部客观状态。",
+      "tool_records": [
+        {
+          "call_id": "call_1d2b26835651",
+          "run_id": "run_C_DEV_NORM_01_1790788195422",
+          "tool_name": "query_order_packages",
+          "status": "EXECUTED",
+          "input_params": {
+            "order_id": "ORD_DEV_0101"
+          },
+          "output_text": "Order ORD_DEV_0101 contains 2 packages: PKG_D101, PKG_D102",
+          "output_data": {
+            "order_id": "ORD_DEV_0101",
+            "buyer": "dev_user_01",
+            "packages": [
+              "PKG_D101",
+              "PKG_D102"
+            ],
+            "order_status": "COMPLETED"
+          },
+          "error_type": null,
+          "error_message": null,
+          "latency_ms": 0.048457877710461617,
+          "created_at": "2026-09-30T17:10:00.693900+00:00",
+          "provenance": {
+            "tool_name": "query_order_packages",
+            "fixture_case_id": "call_1d2b26835651",
+            "call_index": 0,
+            "call_count": 1,
+            "is_fixture": true,
+            "tool_required": true,
+            "tool_called": true,
+            "tool_success": true,
+            "authenticity_pass": true,
+            "input_params": {
+              "order_id": "ORD_DEV_0101"
+            },
+            "output_status": "SUCCESS",
+            "output_summary": "Order ORD_DEV_0101 contains 2 packages: PKG_D101, PKG_D102",
+            "latency_ms": 0.048457877710461617,
+            "timestamp": "2026-09-30T17:10:00.693900+00:00",
+            "signature": "sha256:62158c6721ab5b69258c389d04edd4d36429eaffc5e7a1765e0c8c53b24c1961",
+            "snapshot_id": "snap_call_1d2b26835651",
+            "snapshot_content": "Order ORD_DEV_0101 contains 2 packages: PKG_D101, PKG_D102"
+          }
+        },
+        {
+          "call_id": "call_995928752bd0",
+          "run_id": "run_C_DEV_NORM_01_1790788195422",
+          "tool_name": "query_package_tracking",
+          "status": "EXECUTED",
+          "input_params": {
+            "package_id": "PKG_D101"
+          },
+          "output_text": "Package PKG_D101 status is DELIVERED via SF_EXPRESS",
+          "output_data": {
+            "package_id": "PKG_D101",
+            "carrier": "SF_EXPRESS",
+            "status": "DELIVERED",
+            "signed_by": "本人签收",
+            "sign_time": "2026-09-28T09:00:00Z"
+          },
+          "error_type": null,
+          "error_message": null,
+          "latency_ms": 0.04900014027953148,
+          "created_at": "2026-09-30T17:10:05.781003+00:00",
+          "provenance": {
+            "tool_name": "query_package_tracking",
+            "fixture_case_id": "call_995928752bd0",
+            "call_index": 0,
+            "call_count": 1,
+            "is_fixture": true,
+            "tool_required": true,
+            "tool_called": true,
+            "tool_success": true,
+            "authenticity_pass": true,
+            "input_params": {
+              "package_id": "PKG_D101"
+            },
+            "output_status": "SUCCESS",
+            "output_summary": "Package PKG_D101 status is DELIVERED via SF_EXPRESS",
+            "latency_ms": 0.04900014027953148,
+            "timestamp": "2026-09-30T17:10:05.781003+00:00",
+            "signature": "sha256:739911d0692188298fe2c7b32d3eb18ca5e2792dd9c4a7304cbd4a5206d809cd",
+            "snapshot_id": "snap_call_995928752bd0",
+            "snapshot_content": "Package PKG_D101 status is DELIVERED via SF_EXPRESS"
+          }
+        },
+        {
+          "call_id": "call_297caec026ad",
+          "run_id": "run_C_DEV_NORM_01_1790788195422",
+          "tool_name": "query_package_tracking",
+          "status": "EXECUTED",
+          "input_params": {
+            "package_id": "PKG_D102"
+          },
+          "output_text": "Package PKG_D102 status is DELIVERED via JD_LOGISTICS",
+          "output_data": {
+            "package_id": "PKG_D102",
+            "carrier": "JD_LOGISTICS",
+            "status": "DELIVERED",
+            "signed_by": "前台签收",
+            "sign_time": "2026-09-28T09:30:00Z"
+          },
+          "error_type": null,
+          "error_message": null,
+          "latency_ms": 0.013874843716621399,
+          "created_at": "2026-09-30T17:10:05.781222+00:00",
+          "provenance": {
+            "tool_name": "query_package_tracking",
+            "fixture_case_id": "call_297caec026ad",
+            "call_index": 0,
+            "call_count": 1,
+            "is_fixture": true,
+            "tool_required": true,
+            "tool_called": true,
+            "tool_success": true,
+            "authenticity_pass": true,
+            "input_params": {
+              "package_id": "PKG_D102"
+            },
+            "output_status": "SUCCESS",
+            "output_summary": "Package PKG_D102 status is DELIVERED via JD_LOGISTICS",
+            "latency_ms": 0.013874843716621399,
+            "timestamp": "2026-09-30T17:10:05.781222+00:00",
+            "signature": "sha256:a5dbde9df48879614b172eaa86df4d567fb9d17dbbd8c348833a1331bbe258d5",
+            "snapshot_id": "snap_call_297caec026ad",
+            "snapshot_content": "Package PKG_D102 status is DELIVERED via JD_LOGISTICS"
+          }
+        }
+      ],
+      "verdict": {
+        "independent_pass": true,
+        "classification": "TRUE_POSITIVE",
+        "is_hallucination": false,
+        "is_qualified_rejection": false,
+        "verdict": "PASS",
+        "order_id": "ORD_DEV_0101",
+        "all_delivered": true,
+        "queried_packages": [
+          "PKG_D101",
+          "PKG_D102"
+        ],
+        "checked_invariants": [
+          "INV_1_PACKAGE_COVERAGE",
+          "INV_2_DELIVERY_CLAIM_ACCURACY",
+          "INV_3_OUTAGE_ANTI_FABRICATION",
+          "INV_4_INTENT_CONSTRAINT",
+          "INV_5_PERMISSION_QUALIFIED_REJECTION"
+        ]
+      },
+      "latency_ms": 15141.125249909237,
+      "usage": {
+        "calls": 3,
+        "prompt_tokens": 2437,
+        "completion_tokens": 243,
+        "total_tokens": 2680
+      }
+    }
+  ],
+  "baseline_eval": {
+    "valid": true,
+    "p0_pass": true,
+    "structure_score": {
+      "format": 40.0
+    },
+    "effect_score": {
+      "task_success": 60.0
+    },
+    "invalid_reasons": []
+  },
+  "candidate_eval": {
+    "valid": true,
+    "p0_pass": true,
+    "structure_score": {
+      "format": 40.0
+    },
+    "effect_score": {
+      "task_success": 60.0
+    },
+    "invalid_reasons": []
+  },
+  "validation_record": {
+    "record_id": "vrec_e1ff3e9f659a",
+    "candidate_id": "cand_lifecycle_v2_8e70d68c",
+    "content_hash": "9ad88e906cb5e25d285a04f112d61ed9fed7218600686017d812acede7fe7cbc",
+    "scope_hash": "1bf7842e38bf0cac",
+    "config_hash": "a5aabbb49e6857bc",
+    "dataset_version": "8e94e152e1803ea8",
+    "ratchet_decision": "PASS",
+    "ratchet_reasons": [
+      "全部维度变化 < 10%，无门槛触发"
+    ],
+    "promoted": true
+  },
+  "direct_body_legacy": {
+    "task_id": "DEV_GOAL_02",
+    "order_id": "ORD_DEV_0602",
+    "status": "LEGACY_DOWNGRADED_RUNTIME_CLOSURE_PENDING_KEY",
+    "runtime_auto_retrieved": false,
+    "collector_persisted": false,
+    "output_preview": "订单 ORD_DEV_0602 包裹状态：\n- PKG_D603：已签收（顺丰速运）\n- PKG_D604：运输中（中通快递）\n\n共 2 个包裹，1 个已签收，1 个运输中。以上为全部客观状态。",
+    "tool_calls": 3,
+    "latency_ms": 14199.977125041187,
+    "usage": {
+      "calls": 3,
+      "prompt_tokens": 2048,
+      "completion_tokens": 182,
+      "total_tokens": 2230
+    },
+    "verdict": {
+      "independent_pass": true,
+      "classification": "TRUE_POSITIVE",
+      "is_hallucination": false,
+      "is_qualified_rejection": false,
+      "verdict": "PASS",
+      "order_id": "ORD_DEV_0602",
+      "all_delivered": false,
+      "queried_packages": [
+        "PKG_D603",
+        "PKG_D604"
+      ],
+      "checked_invariants": [
+        "INV_1_PACKAGE_COVERAGE",
+        "INV_2_DELIVERY_CLAIM_ACCURACY",
+        "INV_3_OUTAGE_ANTI_FABRICATION",
+        "INV_4_INTENT_CONSTRAINT",
+        "INV_5_PERMISSION_QUALIFIED_REJECTION"
+      ]
+    },
+    "note": "Legacy direct-body injection execution (not auto-retrieved via Runtime, not persisted to Collector EpisodeStore)"
+  },
+  "runtime_closure_future": {
+    "task_id": "DEV_GOAL_02",
+    "order_id": "ORD_DEV_0602",
+    "run_id": "run_C_DEV_GOAL_02_runtime_1790830389498",
+    "episode_id": "ep_run_C_DEV_GOAL_02_runtime_1790830389498",
+    "selected_skill_name": "logistics_tracking",
+    "selected_skill_version": "1.0.1",
+    "frozen_content_hash": "2450b2341e5bb7ffff30f14b5a460a469784a546d3e38c8d8a639263efdd582b",
+    "canonical_candidate_body_sha": "8e70d68c2c144f71fe61914660698e487acdf2e972f03f826c2ee1b0edc348ec",
+    "pure_instructions_body_sha": "2450b2341e5bb7ffff30f14b5a460a469784a546d3e38c8d8a639263efdd582b",
+    "hash_recipe_note": "8e70d68c is candidate full SKILL.md SHA (frontmatter+body, 741 chars, 1371 bytes); 2450b234 is pure instructions body.strip() SHA (425 chars, 893 bytes) frozen by Runtime and consumed by LLM system prompt. Both forms are mathematically proven identical: candidate.pure_body.strip() == registry.pure_body.strip() == run_record.frozen_body == LLM system prompt content.",
+    "runtime_auto_retrieved": true,
+    "collector_persisted": true,
+    "db_reopen_verified": true,
+    "authoritative_db_path": "/var/folders/2h/03vn62sn2bx9hn1j2hzy067w0000gn/T/sf_p6_eval_ktu64a61/eval.db",
+    "output_preview": "订单 ORD_DEV_0602 包裹状态：\n\n- PKG_D603：已签收，承运商为顺丰速运（SF_EXPRESS）\n- PKG_D604：运输中，承运商为中通快递（ZTO_EXPRESS）\n\n共 2 个包裹：1 个已签收，1 个运输中。以上为全部客观状态。",
+    "tool_calls": 3,
+    "latency_ms": 15164.712166879326,
+    "usage": {
+      "calls": 3,
+      "prompt_tokens": 2048,
+      "completion_tokens": 194,
+      "total_tokens": 2242
+    },
+    "verdict": {
+      "independent_pass": true,
+      "classification": "TRUE_POSITIVE",
+      "is_hallucination": false,
+      "is_qualified_rejection": false,
+      "verdict": "PASS",
+      "order_id": "ORD_DEV_0602",
+      "all_delivered": false,
+      "queried_packages": [
+        "PKG_D603",
+        "PKG_D604"
+      ],
+      "checked_invariants": [
+        "INV_1_PACKAGE_COVERAGE",
+        "INV_2_DELIVERY_CLAIM_ACCURACY",
+        "INV_3_OUTAGE_ANTI_FABRICATION",
+        "INV_4_INTENT_CONSTRAINT",
+        "INV_5_PERMISSION_QUALIFIED_REJECTION"
+      ]
+    }
+  },
+  "future_evidence": {
+    "task_id": "DEV_GOAL_02",
+    "order_id": "ORD_DEV_0602",
+    "run_id": "run_C_DEV_GOAL_02_runtime_1790830389498",
+    "episode_id": "ep_run_C_DEV_GOAL_02_runtime_1790830389498",
+    "selected_skill_name": "logistics_tracking",
+    "selected_skill_version": "1.0.1",
+    "frozen_content_hash": "2450b2341e5bb7ffff30f14b5a460a469784a546d3e38c8d8a639263efdd582b",
+    "canonical_candidate_body_sha": "8e70d68c2c144f71fe61914660698e487acdf2e972f03f826c2ee1b0edc348ec",
+    "pure_instructions_body_sha": "2450b2341e5bb7ffff30f14b5a460a469784a546d3e38c8d8a639263efdd582b",
+    "hash_recipe_note": "8e70d68c is candidate full SKILL.md SHA (frontmatter+body, 741 chars, 1371 bytes); 2450b234 is pure instructions body.strip() SHA (425 chars, 893 bytes) frozen by Runtime and consumed by LLM system prompt. Both forms are mathematically proven identical: candidate.pure_body.strip() == registry.pure_body.strip() == run_record.frozen_body == LLM system prompt content.",
+    "runtime_auto_retrieved": true,
+    "collector_persisted": true,
+    "db_reopen_verified": true,
+    "authoritative_db_path": "/var/folders/2h/03vn62sn2bx9hn1j2hzy067w0000gn/T/sf_p6_eval_ktu64a61/eval.db",
+    "output_preview": "订单 ORD_DEV_0602 包裹状态：\n\n- PKG_D603：已签收，承运商为顺丰速运（SF_EXPRESS）\n- PKG_D604：运输中，承运商为中通快递（ZTO_EXPRESS）\n\n共 2 个包裹：1 个已签收，1 个运输中。以上为全部客观状态。",
+    "tool_calls": 3,
+    "latency_ms": 15164.712166879326,
+    "usage": {
+      "calls": 3,
+      "prompt_tokens": 2048,
+      "completion_tokens": 194,
+      "total_tokens": 2242
+    },
+    "verdict": {
+      "independent_pass": true,
+      "classification": "TRUE_POSITIVE",
+      "is_hallucination": false,
+      "is_qualified_rejection": false,
+      "verdict": "PASS",
+      "order_id": "ORD_DEV_0602",
+      "all_delivered": false,
+      "queried_packages": [
+        "PKG_D603",
+        "PKG_D604"
+      ],
+      "checked_invariants": [
+        "INV_1_PACKAGE_COVERAGE",
+        "INV_2_DELIVERY_CLAIM_ACCURACY",
+        "INV_3_OUTAGE_ANTI_FABRICATION",
+        "INV_4_INTENT_CONSTRAINT",
+        "INV_5_PERMISSION_QUALIFIED_REJECTION"
+      ]
+    }
+  },
+  "ledger_summary": {
+    "task_calls": 103,
+    "total_calls": 228,
+    "total_revisions": 6,
+    "new_calls_used": 3
+  }
+}

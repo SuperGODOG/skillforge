@@ -11,6 +11,7 @@ dependencies = [
     "python-dotenv",
     "requests",
     "pyyaml",
+    "tiktoken>=0.14.0",
     "langgraph>=1.2.11",
 ]
 

@@ -18,7 +18,7 @@ from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 import numpy as np
 import yaml
@@ -177,6 +177,21 @@ class SplitResult:
     unassigned_report_path: Optional[Path] = None
     migration_manifest_path: Optional[Path] = None
     content_audit: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class SplitProposal:
+    """Skill 拆分建议报告 (P5 L6: 建议性产物，未确认前原技能与路由完全不变)"""
+    original_skill: str
+    can_split: bool
+    status: Literal["SUGGESTION", "CANNOT_SPLIT"]
+    applied: bool = False
+    primary_reason: str = ""
+    sub_skill_names: list[str] = field(default_factory=list)
+    analysis: Optional[SplitAnalysis] = None
+    unassigned_cases: list[dict[str, Any]] = field(default_factory=list)
+    explanation: str = ""
+
 
 
 def _load_skill_file(skill_name: str, skills_dir: Path) -> tuple[SkillMeta, str, str]:
@@ -2281,6 +2296,9 @@ def split_skill(
     router_negatives_path: Optional[Path] = None,
     ledger: Optional[LLMLedger] = None,
     budget: Optional[EvolveBudget] = None,
+    caller_confirmed: bool = False,
+    candidate_store: Optional[Any] = None,
+    validation_records: Optional[dict[str, Any]] = None,
 ) -> SplitResult:
     """段 2 核心入口：执行 Skill 拆分，输出 N 个子 Skill 并落盘/分配测试集/原子注册
 
@@ -2484,12 +2502,25 @@ def split_skill(
         file_paths = manifest_paths + [migration_path, unassigned_report_path]
         try:
             with _SplitFilesystemTransaction(file_paths, dir_paths) as transaction:
+                store = candidate_store
+                if store is None and root is not None:
+                    db_p = root / "skillforge.db"
+                    if db_p.exists():
+                        from .episode import CandidateStore
+                        store = CandidateStore(db_p)
+
                 for generated in generated_sub_skills:
+                    val_record = (validation_records or {}).get(generated.name)
+                    if val_record is None and store is not None:
+                        val_record = store.get_validation_record(f"cand_split_{generated.name}") or store.get_validation_record(generated.name)
                     register_skill(
                         generated,
                         repo_root=root,
                         repair_set_path=repair_file,
                         router_negatives_path=router_file,
+                        caller_confirmed=caller_confirmed,
+                        validation_record=val_record,
+                        candidate_store=store,
                     )
                 updates, manifest = _migrate_partition_manifests(
                     original_skill=analysis.skill_name,
@@ -2555,3 +2586,55 @@ def split_skill(
         unassigned_report_path=unassigned_report_path,
         content_audit=content_audit,
     )
+
+
+def suggest_skill_split(
+    skill_name: str,
+    llm: Any = None,
+    repo_root: Optional[Path] = None,
+    repair_set_path: Optional[Path] = None,
+    router_negatives_path: Optional[Path] = None,
+    model_dir: Optional[Path] = None,
+    candidate_domains: Optional[list[DomainSpec]] = None,
+) -> SplitProposal:
+    """首期拆分器建议接口 (L6)：仅给出建议与可解释报告，长但连贯流程不被强拆。
+
+    在用户或调用方显式确认前，原 Skill 与路由完全保持不变 (applied=False)。
+    """
+    analysis = analyze_split(
+        skill_name=skill_name,
+        llm=llm,
+        repo_root=repo_root,
+        repair_set_path=repair_set_path,
+        model_dir=model_dir,
+        candidate_domains=candidate_domains,
+    )
+    if not analysis.can_split:
+        return SplitProposal(
+            original_skill=skill_name,
+            can_split=False,
+            status="CANNOT_SPLIT",
+            applied=False,
+            primary_reason=analysis.primary_reason,
+            sub_skill_names=[],
+            analysis=analysis,
+            unassigned_cases=list(analysis.unassigned_cases),
+            explanation=f"Skill '{skill_name}' 不满足拆分条件 (长但连贯流程保持整体): {analysis.primary_reason}",
+        )
+
+    sub_names = [d.name for d in analysis.domains]
+    return SplitProposal(
+        original_skill=skill_name,
+        can_split=True,
+        status="SUGGESTION",
+        applied=False,
+        primary_reason=analysis.primary_reason,
+        sub_skill_names=sub_names,
+        analysis=analysis,
+        unassigned_cases=list(analysis.unassigned_cases),
+        explanation=(
+            f"Skill '{skill_name}' 检测到 {len(sub_names)} 个互斥/独立意图域 ({', '.join(sub_names)})，"
+            f"建议拆分。本建议仅供审阅 (applied=False)，原技能及路由未发生变更。"
+        ),
+    )
+

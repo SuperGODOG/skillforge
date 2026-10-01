@@ -4973,6 +4973,118 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       svg [data-node-id], svg [data-edge-from], svg [data-detail], svg [data-detail-anchor], svg [data-legend-hit], svg { transition: none !important; }
     }
   </style>
+<!-- SkillForge Interactive Cross-Linkage Styles -->
+<style>
+  .sf-nav-bar {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+    margin-bottom: 6px;
+    align-items: center;
+  }
+  .sf-nav-btn {
+    padding: 5px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    text-decoration: none;
+    transition: all 0.18s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.05);
+    color: #94a3b8;
+  }
+  .sf-nav-btn:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: #f1f5f9;
+    border-color: rgba(255, 255, 255, 0.25);
+    transform: translateY(-1px);
+  }
+  .sf-nav-btn.active {
+    background: rgba(56, 189, 248, 0.2);
+    color: #38bdf8;
+    border-color: rgba(56, 189, 248, 0.5);
+    font-weight: 600;
+  }
+  .sf-nav-btn.index-btn {
+    background: rgba(245, 158, 11, 0.15);
+    color: #fbbf24;
+    border-color: rgba(245, 158, 11, 0.4);
+    font-weight: 600;
+  }
+  .sf-nav-btn.index-btn:hover {
+    background: rgba(245, 158, 11, 0.25);
+    color: #fde68a;
+    border-color: rgba(245, 158, 11, 0.6);
+  }
+  .sf-knowledge-bar {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    align-items: center;
+    background: rgba(15, 23, 42, 0.75);
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    margin-top: 6px;
+    margin-bottom: 4px;
+  }
+  .sf-pill {
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 11.5px;
+    text-decoration: none;
+    transition: all 0.18s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+  }
+  .sf-pill.cyan {
+    background: rgba(56, 189, 248, 0.12);
+    color: #38bdf8;
+    border: 1px solid rgba(56, 189, 248, 0.25);
+  }
+  .sf-pill.cyan:hover {
+    background: rgba(56, 189, 248, 0.24);
+    color: #7dd3fc;
+    border-color: rgba(56, 189, 248, 0.5);
+    transform: translateY(-1px);
+  }
+  .sf-pill.amber {
+    background: rgba(245, 158, 11, 0.15);
+    color: #fbbf24;
+    border: 1px solid rgba(245, 158, 11, 0.35);
+    font-weight: 600;
+  }
+  .sf-pill.amber:hover {
+    background: rgba(245, 158, 11, 0.28);
+    color: #fde68a;
+    border-color: rgba(245, 158, 11, 0.6);
+    transform: translateY(-1px);
+  }
+  .card-footer-kb {
+    margin-top: 14px;
+    padding-top: 10px;
+    border-top: 1px dashed rgba(255, 255, 255, 0.15);
+  }
+  .card-footer-kb a {
+    color: #38bdf8;
+    text-decoration: none;
+    font-size: 11.5px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    transition: all 0.2s ease;
+  }
+  .card-footer-kb a:hover {
+    color: #7dd3fc;
+    transform: translateX(2px);
+  }
+</style>
+
 </head>
 <body>
   <!-- Toolbar: theme, live visual style, trace motion, presentation stage, and export.
@@ -5082,6 +5194,15 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
            data-preset-badge-editorial="EDITORIAL / FIELD NOTE">
         <div class="pulse-dot"></div>
         <h1>SkillForge 端到端请求处理与受控自愈时序</h1>
+      </div>
+      <!-- Injected Interactive Navigation Bar -->
+      <nav class="sf-nav-bar no-print">
+        <span style="opacity: 0.65; font-size: 11px; font-weight: 500;">🔗 视图导航：</span>
+        <a href="skillforge-architecture.html" class="sf-nav-btn">🏛️ 全景架构拓扑</a> <a href="skillforge-task-sequence.html" class="sf-nav-btn active">⚡ 任务受控时序与自愈</a> <a href="skillforge-evolution-workflow.html" class="sf-nav-btn">🔄 经验沉淀工作流</a> <a href="skillforge-skill-lifecycle.html" class="sf-nav-btn">🧬 技能全生命周期</a> <a href="skillforge-knowledge-index.html" class="sf-nav-btn index-btn">📖 核心知识索引</a>
+      </nav>
+      <div class="sf-knowledge-bar no-print">
+        <span style="opacity: 0.8; font-weight: 600; color: #fbbf24; font-size: 11px;">💡 核心知识索引快捷联动：</span>
+        <a href="skillforge-knowledge-index.html#resume-qa-matrix" class="sf-pill amber">📋 简历与30题库</a> <a href="skillforge-knowledge-index.html#execution-sandbox" class="sf-pill cyan">🛡️ 受控执行与沙箱隔离</a> <a href="skillforge-knowledge-index.html#receipt-repair" class="sf-pill cyan">📋 ValidationReceipt 凭据</a> <a href="skillforge-knowledge-index.html#receipt-problem" class="sf-pill cyan">🛑 为什么硬上限修2轮？</a> <a href="skillforge-knowledge-index.html#receipt-finalize" class="sf-pill cyan">🔒 finalize 交付双重哈希</a> <a href="skillforge-knowledge-index.html#receipt-problem" class="sf-pill cyan">🎯 面试必答：传统反思为何失败？</a>
       </div>
     </div>
 
@@ -5227,19 +5348,19 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         </g>
         </g>
 
-        <g data-edge-from="runtime" data-edge-to="fixer" data-edge-label="suggest_fixes(receipt, allowed_paths)" data-edge-key="5" data-edge-id="m6">
+        <g data-edge-from="runtime" data-edge-to="fixer" data-edge-label="run_bounded_recovery(shared_budget, 原时限保持)" data-edge-key="5" data-edge-id="m6">
           <path data-composition-edge-from="runtime" data-composition-edge-to="fixer" data-composition-edge-id="m6" data-composition-points="300.2,338;781.8,338" d="M 300.2 338 L 781.8 338" class="a-default" data-animate="edge" style="--step:5" stroke-width="1.4" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="438.8" y="318" width="204.4" height="16" rx="3" class="c-mask"/>
-          <text x="541" y="328" class="t-backend" font-size="9" text-anchor="middle">suggest_fixes(receipt, allowed_paths)</text>
+          <rect x="412.8" y="318" width="256.4" height="16" rx="3" class="c-mask"/>
+          <text x="541" y="328" class="t-backend" font-size="9" text-anchor="middle">run_bounded_recovery(shared_budget, 原时限保持)</text>
         </g>
         </g>
 
-        <g data-edge-from="fixer" data-edge-to="runtime" data-edge-label="FixActions (set $.workers=64)" data-edge-key="6" data-edge-id="m7">
+        <g data-edge-from="fixer" data-edge-to="runtime" data-edge-label="RecoveryLoopState(5节点影子自愈)" data-edge-key="6" data-edge-id="m7">
           <path data-composition-edge-from="fixer" data-composition-edge-to="runtime" data-composition-edge-id="m7" data-composition-points="781.8,372;300.2,372" d="M 781.8 372 L 300.2 372" class="a-default" data-animate="edge" style="--step:6" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="459.6" y="352" width="162.8" height="16" rx="3" class="c-mask"/>
-          <text x="541" y="362" class="t-muted" font-size="9" text-anchor="middle">FixActions (set $.workers=64)</text>
+          <rect x="451.8" y="352" width="178.4" height="16" rx="3" class="c-mask"/>
+          <text x="541" y="362" class="t-muted" font-size="9" text-anchor="middle">RecoveryLoopState(5节点影子自愈)</text>
         </g>
         </g>
 
@@ -5259,27 +5380,27 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         </g>
         </g>
 
-        <g data-edge-from="runtime" data-edge-to="validator" data-edge-label="is_valid_for(fp_B, cfg_hash) 防旧 PASS" data-edge-key="9" data-edge-id="m10">
+        <g data-edge-from="runtime" data-edge-to="validator" data-edge-label="finalize_run(双重哈希防偷换, 数据集防漂移)" data-edge-key="9" data-edge-id="m10">
           <path data-composition-edge-from="runtime" data-composition-edge-to="validator" data-composition-edge-id="m10" data-composition-points="300.2,475;616.5999999999999,475" d="M 300.2 475 L 616.5999999999999 475" class="a-security" data-animate="edge" style="--step:9" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
         <g data-detail="context">
-          <rect x="353.59999999999997" y="455" width="209.6" height="16" rx="3" class="c-mask"/>
-          <text x="458.4" y="465" class="t-security" font-size="9" text-anchor="middle">is_valid_for(fp_B, cfg_hash) 防旧 PASS</text>
+          <rect x="343.2" y="455" width="230.4" height="16" rx="3" class="c-mask"/>
+          <text x="458.4" y="465" class="t-security" font-size="9" text-anchor="middle">finalize_run(双重哈希防偷换, 数据集防漂移)</text>
         </g>
         </g>
 
-        <g data-edge-from="runtime" data-edge-to="collector" data-edge-label="persist_episode(provenance, outcome=&#39;PASS&#39;)" data-edge-key="10" data-edge-id="m11">
+        <g data-edge-from="runtime" data-edge-to="collector" data-edge-label="persist_episode(标准化不可变存证, exit_0)" data-edge-key="10" data-edge-id="m11">
           <path data-composition-edge-from="runtime" data-composition-edge-to="collector" data-composition-edge-id="m11" data-composition-points="300.2,510;947,510" d="M 300.2 510 L 947 510" class="a-default" data-animate="edge" style="--step:10" stroke-width="1.4" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="505.8" y="490" width="235.6" height="16" rx="3" class="c-mask"/>
-          <text x="623.6" y="500" class="t-backend" font-size="9" text-anchor="middle">persist_episode(provenance, outcome=&#39;PASS&#39;)</text>
+          <rect x="511" y="490" width="225.20000000000002" height="16" rx="3" class="c-mask"/>
+          <text x="623.6" y="500" class="t-backend" font-size="9" text-anchor="middle">persist_episode(标准化不可变存证, exit_0)</text>
         </g>
         </g>
 
-        <g data-edge-from="runtime" data-edge-to="caller" data-edge-label="RunRecord(status=&#39;COMPLETED&#39;, final_receipt)" data-edge-key="11" data-edge-id="m12">
+        <g data-edge-from="runtime" data-edge-to="caller" data-edge-label="RunRecord(status=&#39;COMPLETED&#39;, 显式交付)" data-edge-key="11" data-edge-id="m12">
           <path data-composition-edge-from="runtime" data-composition-edge-to="caller" data-composition-edge-id="m12" data-composition-points="286.2,545;135,545" d="M 286.2 545 L 135 545" class="a-default" data-animate="edge" style="--step:11" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="90.19999999999999" y="525" width="240.8" height="16" rx="3" class="c-mask"/>
-          <text x="210.6" y="535" class="t-muted" font-size="9" text-anchor="middle">RunRecord(status=&#39;COMPLETED&#39;, final_receipt)</text>
+          <rect x="103.19999999999999" y="525" width="214.8" height="16" rx="3" class="c-mask"/>
+          <text x="210.6" y="535" class="t-muted" font-size="9" text-anchor="middle">RunRecord(status=&#39;COMPLETED&#39;, 显式交付)</text>
         </g>
         </g>
 
@@ -5289,8 +5410,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <text x="62" y="117" class="t-dim" font-size="9" font-weight="600">阶段一：受控分发与沙箱初验</text>
         </g>
         <g data-graph-role="segment-label" data-segment-id="1">
-          <rect x="56" y="233" width="196" height="18" rx="3" class="c-mask"/>
-          <text x="62" y="246" class="t-dim" font-size="9" font-weight="600">阶段二：结构化诊断与局部自愈 (≤2次)</text>
+          <rect x="56" y="233" width="232.4" height="18" rx="3" class="c-mask"/>
+          <text x="62" y="246" class="t-dim" font-size="9" font-weight="600">阶段二：结构化诊断与 LangGraph 自愈 (≤2次)</text>
         </g>
         <g data-graph-role="segment-label" data-segment-id="2">
           <rect x="56" y="443" width="175.20000000000002" height="18" rx="3" class="c-mask"/>
@@ -5344,15 +5465,15 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <text data-detail="context" x="623.5999999999999" y="111" class="t-muted" font-size="7" text-anchor="middle">JsonConfigValidator</text>
         </g>
 
-        <g id="node-fixer" data-node-id="fixer" data-node-label="JsonFixer" tabindex="0" role="button" aria-label="Focus JsonFixer, Deterministic 自愈, Sequence participant" aria-pressed="false" data-node-kind="backend" data-node-sublabel="Deterministic 自愈" data-node-context="Sequence participant">
-          <title>JsonFixer · Deterministic 自愈 · Sequence participant</title>
+        <g id="node-fixer" data-node-id="fixer" data-node-label="BoundedRecovery" tabindex="0" role="button" aria-label="Focus BoundedRecovery, LangGraph StateGraph, Sequence participant" aria-pressed="false" data-node-kind="backend" data-node-sublabel="LangGraph StateGraph" data-node-context="Sequence participant">
+          <title>BoundedRecovery · LangGraph StateGraph · Sequence participant</title>
           <rect x="722.8" y="72" width="132" height="54" rx="6" class="c-mask"/>
           <rect x="722.8" y="72" width="132" height="54" rx="6" class="c-backend" data-animate="node" style="--step:4" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(728.8 78) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="788.8" y="94" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">JsonFixer</text>
-          <text data-detail="context" x="788.8" y="111" class="t-muted" font-size="7" text-anchor="middle">Deterministic 自愈</text>
+          <text data-node-label="" data-detail-anchor="" x="788.8" y="94" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">BoundedRecovery</text>
+          <text data-detail="context" x="788.8" y="111" class="t-muted" font-size="7" text-anchor="middle">LangGraph StateGraph</text>
         </g>
 
         <g id="node-collector" data-node-id="collector" data-node-label="EpisodeStore" tabindex="0" role="button" aria-label="Focus EpisodeStore, 凭据与经验沉淀, Sequence participant" aria-pressed="false" data-node-kind="database" data-node-sublabel="凭据与经验沉淀" data-node-context="Sequence participant">
@@ -5579,34 +5700,49 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <h3>受控执行与责任分层</h3>
         </div>
         <ul>
-          <li>&bull; AgentRuntime 负责预扣预算与超时硬限制，ToolBroker 负责 Schema 校验与凭证脱敏</li>
-          <li>&bull; 进程沙箱切断网络 (deny network*)，工作区写隔离</li>
-          <li>&bull; 责任层若归为 tool 或 policy，严禁自愈，直接 Fail-Closed</li>
-        </ul>
+          <li>&bull; AgentRuntime 预扣预算并保持绝对期限，TaskContext 跨运行时恢复</li>
+          <li>&bull; 进程沙箱切断网络 (deny network*)，工作区写隔离；冷启动正文上限 3000 字符</li>
+          <li>&bull; 责任层若归为 tool 或 policy，严禁自愈，直接 Fail-Closed 阻断退出</li>
+                </ul>
+        <div class="card-footer-kb">
+          <a href="skillforge-knowledge-index.html#execution-sandbox">
+            <span>📖 查阅「责任分层与 Fail-Closed 机制」源码实现与面试话术 →</span>
+          </a>
+        </div>
       </div>
 
       <div class="card">
         <div class="card-header">
           <div class="card-dot orange"></div>
-          <h3>Receipt 驱动局部自愈</h3>
+          <h3>Receipt 诊断与 LangGraph 自愈</h3>
         </div>
         <ul>
-          <li>&bull; 生成携带 rule_code 与 JSONPath 的结构化 ValidationReceipt</li>
-          <li>&bull; DeterministicJsonFixer 严格限定在 CorrectionPolicy 白名单路径内</li>
-          <li>&bull; 最大尝试 2 次，哈希环路检测防死循环震荡</li>
-        </ul>
+          <li>&bull; ValidationReceipt 携带 responsibility_layer 结构化归因</li>
+          <li>&bull; LangGraph 5 节点影子状态机：failure_analysis -&gt; candidate_gen -&gt; validation</li>
+          <li>&bull; 共享预算与原始期限保持，已完成步骤不重复跑，达到上限以 EXHAUSTED 退出</li>
+                </ul>
+        <div class="card-footer-kb">
+          <a href="skillforge-knowledge-index.html#receipt-repair">
+            <span>📖 查阅「LangGraph 影子状态机与共享预算」算法原理与面试话术 →</span>
+          </a>
+        </div>
       </div>
 
       <div class="card">
         <div class="card-header">
           <div class="card-dot rose"></div>
-          <h3>交付双重验防漂移</h3>
+          <h3>交付双重验与漂移阻断</h3>
         </div>
         <ul>
-          <li>&bull; finalize_run 校验实时内容 SHA-256 与验证器配置哈希</li>
-          <li>&bull; 中途改动产物或规则漂移立即作废旧 PASS，阻断错误交付</li>
-          <li>&bull; 生成包含真实物理调用凭据的不可变 Episode 存证</li>
-        </ul>
+          <li>&bull; finalize_run 校验实时内容 SHA-256 与验证器配置哈希，杜绝脏产物交付</li>
+          <li>&bull; 数据集权威哈希绑定：用例漂移立即触发 CHECKPOINT_INVALIDATED 阻断</li>
+          <li>&bull; 生成包含不可变调用凭据的标准化 Episode 存证</li>
+                </ul>
+        <div class="card-footer-kb">
+          <a href="skillforge-knowledge-index.html#receipt-finalize">
+            <span>📖 查阅「finalize 双重哈希与数据集防漂移」实现细节与面试话术 →</span>
+          </a>
+        </div>
       </div>
     </div>
 

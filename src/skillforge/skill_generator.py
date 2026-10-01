@@ -6,10 +6,12 @@
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
 import tempfile
+import uuid
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,7 +20,7 @@ from typing import Any, Optional
 import yaml
 
 from .evaluator.llm_factory import LLMLedger, TrackedLLM
-from .models import BudgetExceededError, EvolveBudget, SkillMeta
+from .models import BudgetExceededError, CandidateSkill, EvolveBudget, SkillMeta, ValidationRecord
 from .registry import _FRONTMATTER_RE, SkillRegistry
 
 
@@ -374,6 +376,7 @@ def _build_full_skill_md_text(
 def validate_generated_structure(
     full_skill_md: str,
     existing_names: set[str],
+    allow_existing: bool = False,
 ) -> tuple[bool, str, Optional[SkillMeta], Optional[str], Optional[str]]:
     """Fail-closed 结构与命名校验。
 
@@ -431,10 +434,10 @@ def validate_generated_structure(
             None,
         )
 
-    if name in existing_names:
+    if not allow_existing and name in existing_names:
         return False, f"name '{name}' 与现有 Skill 重名冲突", None, None, None
 
-    if version != "1.0.0":
+    if not allow_existing and version != "1.0.0":
         return False, f"新生成 Skill 的 version 必须为 '1.0.0'，当前为 '{version}'", None, None, None
 
     if len(description) < 5:
@@ -563,6 +566,9 @@ def generate_skill(
     ledger: Optional[LLMLedger] = None,
     budget: Optional[EvolveBudget] = None,
     max_retries: int = DEFAULT_GENERATOR_MAX_RETRIES,
+    caller_confirmed: bool = False,
+    validation_record: Optional[Any] = None,
+    allow_existing: bool = False,
 ) -> GeneratedSkill | GenerationFailure:
     """P2-A Skill 生成器主入口 (文档型/无工具域)。
 
@@ -804,6 +810,7 @@ evaluation:
     ok_struct, struct_msg, meta, fm_raw, body_raw = validate_generated_structure(
         full_skill_md=full_skill_md,
         existing_names=existing_names,
+        allow_existing=allow_existing,
     )
     if not ok_struct or meta is None:
         return GenerationFailure(
@@ -861,9 +868,10 @@ evaluation:
     formatted_cases.append(_build_independent_hard_case(meta, existing_queries, len(formatted_cases) + 1))
 
     # 6. 路由冲突校验 (fail-closed)
+    conflict_candidates = [m for m in existing_metas if m.name != meta.name] if allow_existing else existing_metas
     has_conflict, conflict_msg = check_conflict(
         candidate_meta=meta,
-        existing_metas=existing_metas,
+        existing_metas=conflict_candidates,
         method=conflict_method,
         threshold=similarity_threshold,
         llm=llm,
@@ -890,8 +898,39 @@ evaluation:
     )
 
     if register:
+        if not caller_confirmed:
+            return GenerationFailure(
+                reason="REGISTER_UNCONFIRMED",
+                message=(
+                    "直接向正式技能库注册已受控，请先生成 Candidate 进行受控试用与验证，"
+                    "或显式传入 caller_confirmed=True。"
+                ),
+                details={"stage": "register", **_ledger_details(active_ledger)},
+            )
+        if validation_record is None:
+            return GenerationFailure(
+                reason="REGISTER_UNVALIDATED",
+                message=(
+                    "无法直接落盘：候选必须先通过共同门禁验证并持有有效 PASS 验证记录。"
+                ),
+                details={"stage": "register", **_ledger_details(active_ledger)},
+            )
+        rec_decision = getattr(validation_record, "ratchet_decision", None)
+        if isinstance(validation_record, dict):
+            rec_decision = validation_record.get("ratchet_decision", rec_decision)
+        if rec_decision != "PASS":
+            return GenerationFailure(
+                reason="REGISTER_REJECTED",
+                message=f"共同门禁验证未通过（决策: {rec_decision}），拒绝落盘",
+                details={"stage": "register", **_ledger_details(active_ledger)},
+            )
         try:
-            register_skill(generated, repo_root=root)
+            register_skill(
+                generated,
+                repo_root=root,
+                caller_confirmed=caller_confirmed,
+                validation_record=validation_record,
+            )
         except Exception as exc:
             return GenerationFailure(
                 reason="REGISTER_ERROR",
@@ -900,6 +939,172 @@ evaluation:
             )
 
     return generated
+
+
+def generate_candidate_from_requirement(
+    request: str,
+    candidate_store: Optional[Any] = None,
+    llm: Any = None,
+    repo_root: Optional[Path] = None,
+    budget: Optional[EvolveBudget] = None,
+    max_retries: int = DEFAULT_GENERATOR_MAX_RETRIES,
+    registry: Optional[SkillRegistry] = None,
+    candidate_id: Optional[str] = None,
+    conflict_method: str = "embedding",
+    similarity_threshold: float = DEFAULT_SIMILARITY_THRESHOLD,
+    model_dir: Optional[Path] = None,
+    task_id: Optional[str] = None,
+    allow_existing: bool = False,
+    purpose: str = "learning",
+    is_heldout: bool = False,
+    source_type: str = "requirement",
+    session_id: Optional[str] = None,
+    message_ids: Optional[list[str]] = None,
+) -> CandidateSkill | GenerationFailure:
+    """从自然语言需求或会话引用直接生成草稿 CandidateSkill (P1 快速生成).
+
+    让短需求或单次经历在没有前置 Episode 历史时，即可进入 Candidate 生命周期
+    并在当前任务中进行受控试用，而不是伪造 Episode 或强行落盘注册。
+    当提供 task_id 或 session_id 时，会将标识纳入 task_spec_hash 计算，避免不同任务共享私有草稿。
+    """
+    if purpose in ("evaluation", "heldout", "experiment_holdout", "final_audit") or is_heldout:
+        raise ValueError(
+            f"Purpose isolation violation: cannot generate candidate skills from locked evaluation/heldout tasks (purpose='{purpose}')"
+        )
+
+    if not isinstance(request, str) or not request.strip():
+
+        return GenerationFailure(
+            reason="INVALID_ARGUMENT",
+            message="request 必须是非空字符串",
+        )
+
+    root = repo_root or Path(__file__).resolve().parents[2]
+    skills_dir = root / "skills"
+
+    eff_allow_existing = allow_existing
+    if not eff_allow_existing:
+        req_lower = request.lower()
+        if any(kw in req_lower for kw in ("revise", "update", "modify", "修订", "更新", "修改")):
+            known_names: set[str] = set()
+            if registry is not None:
+                known_names.update(registry.list_names())
+            if skills_dir.exists():
+                known_names.update(
+                    p.name for p in skills_dir.iterdir() if p.is_dir() and (p / "SKILL.md").exists()
+                )
+            for existing_name in known_names:
+                if re.search(r"\b" + re.escape(existing_name.lower()) + r"\b", req_lower):
+                    eff_allow_existing = True
+                    break
+
+    result = generate_skill(
+        request=request,
+        llm=llm,
+        repo_root=repo_root,
+        register=False,
+        conflict_method=conflict_method,
+        similarity_threshold=similarity_threshold,
+        model_dir=model_dir,
+        budget=budget,
+        max_retries=max_retries,
+        allow_existing=eff_allow_existing,
+    )
+    if isinstance(result, GenerationFailure):
+        return result
+
+    root = repo_root or Path(__file__).resolve().parents[2]
+    skills_dir = root / "skills"
+    is_existing = False
+    if registry is not None:
+        is_existing = result.name in registry.list_names()
+    elif skills_dir.exists():
+        is_existing = (skills_dir / result.name).is_dir()
+
+    eff_source_type = source_type
+    if (session_id is not None or message_ids is not None) and source_type == "requirement":
+        eff_source_type = "conversation"
+
+    decision = "revise" if is_existing else "create"
+    if session_id:
+        raw_spec = f"{task_id or ''}:{session_id}:{request.strip()}"
+    elif task_id:
+        raw_spec = f"{task_id}:{request.strip()}"
+    else:
+        raw_spec = request.strip()
+    spec_hash = hashlib.sha256(raw_spec.encode("utf-8")).hexdigest()[:16]
+
+    from .evaluator.prompt_bloat import check_prompt_bloat
+    bloat_res = None
+    if is_existing:
+        old_body = ""
+        if registry is not None:
+            old_meta = registry.get_meta(result.name)
+            old_body = registry.get_body(result.name)
+        elif skills_dir.exists():
+            from .registry import _FRONTMATTER_RE
+            skill_md_path = skills_dir / result.name / "SKILL.md"
+            if skill_md_path.exists():
+                text = skill_md_path.read_text(encoding="utf-8")
+                m = _FRONTMATTER_RE.match(text)
+                if m:
+                    old_body = m.group(2).strip()
+        bloat_res = check_prompt_bloat(old_body, result.body_raw, budget=budget)
+    else:
+        bloat_res = check_prompt_bloat("", result.body_raw, budget=budget, cold_start=True)
+
+    bloat_warning = ""
+    if bloat_res is not None and not bloat_res.passed:
+        bloat_warning = f" [Bloat Warning: {bloat_res.reasons[0]}]"
+
+    existing_candidate: Optional[CandidateSkill] = None
+    if candidate_id:
+        cid = candidate_id
+    elif candidate_store is not None and hasattr(candidate_store, "get_candidate_by_spec_hash"):
+        existing_candidate = candidate_store.get_candidate_by_spec_hash(spec_hash, status="DRAFT")
+        if existing_candidate is not None:
+            cid = existing_candidate.candidate_id
+        else:
+            cid = f"cand_{uuid.uuid4().hex[:12]}"
+    else:
+        cid = f"cand_{uuid.uuid4().hex[:12]}"
+
+    source_msg_ids = list(message_ids) if message_ids else []
+    rationale_source = "conversation" if eff_source_type == "conversation" else "requirement"
+    candidate = CandidateSkill(
+        candidate_id=cid,
+        skill_name=result.name,
+        decision=decision,
+        source_episode_ids=[],
+        meta=result.meta,
+        body=result.body_raw,
+        rationale=f"Generated from {rationale_source}: {request.strip()[:100]}{bloat_warning}",
+        status="DRAFT",
+        source_requirement=request.strip(),
+        source_type=eff_source_type,
+        task_spec_hash=spec_hash,
+        source_session_id=session_id,
+        source_message_ids=source_msg_ids,
+    )
+
+    if candidate_store is not None:
+        candidate_store.save_candidate(
+            candidate,
+            on_conflict="update" if existing_candidate is not None else "error",
+        )
+        if bloat_res is not None and not bloat_res.passed:
+            val_rec = ValidationRecord(
+                candidate_id=cid,
+                content_hash=hashlib.sha256((result.body_raw or "").encode("utf-8")).hexdigest()[:16],
+                baseline_version=None,
+                ratchet_decision=bloat_res.decision,
+                eval_result=None,
+                ratchet_verdict=bloat_res.to_ratchet_verdict(),
+                scope_hash=spec_hash,
+            )
+            candidate_store.save_validation_record(val_rec)
+
+    return candidate
 
 
 def _load_registration_json(path: Path, label: str) -> dict[str, Any]:
@@ -1198,21 +1403,117 @@ def _commit_atomic_registration(
             stage.unlink(missing_ok=True)
 
 
+def compute_generated_hash(generated: GeneratedSkill) -> str:
+    """Compute canonical content hash of GeneratedSkill for validation gate matching."""
+    meta_dict = (
+        generated.meta.model_dump()
+        if hasattr(generated.meta, "model_dump")
+        else (generated.meta.dict() if hasattr(generated.meta, "dict") else dict(generated.meta))
+    )
+    body = (generated.body_raw or "").strip()
+    raw = json.dumps(meta_dict, sort_keys=True, ensure_ascii=False) + "\n---\n" + body
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
 def register_skill(
     generated: GeneratedSkill,
     repo_root: Optional[Path] = None,
     repair_set_path: Optional[Path] = None,
     router_negatives_path: Optional[Path] = None,
+    caller_confirmed: bool = False,
+    validation_record: Optional[Any] = None,
+    candidate_store: Optional[Any] = None,
+    expected_scope_hash: Optional[str] = None,
+    expected_config_hash: Optional[str] = None,
+    expected_dataset_version: Optional[str] = None,
 ) -> Path:
     """Atomically register SKILL.md, repair manifest, and router cases.
 
     All schema, duplicate, prefix, quota, and path checks happen before any
     write.  A new skill never overwrites an existing skill and a colliding case
     ID is an explicit error rather than a silently skipped sample.
+
+    Formal admission gate requirements:
+    1. Explicit caller confirmation (caller_confirmed=True).
+    2. Authoritative CandidateStore containing a valid PASS ValidationRecord.
+    3. Content hash must match current generated skill body.
+    4. Scope hash, config hash, and dataset version must match when specified.
     """
+    if not caller_confirmed:
+        raise RegistrationError(
+            "直接向正式技能库落盘注册已受控，请先生成 Candidate 并通过试用与门禁验证，"
+            "或在明确已知风险且确需直接注册时显式传入 caller_confirmed=True。"
+        )
+    if validation_record is None:
+        raise RegistrationError(
+            "无法直接落盘：候选必须先通过共同门禁验证并持有有效 PASS 验证记录 (ValidationRecord)。"
+        )
+
+    root = repo_root or Path(__file__).resolve().parents[2]
+
+    # Resolve authoritative CandidateStore
+    store = candidate_store
+    if store is None and hasattr(validation_record, "_candidate_store"):
+        store = getattr(validation_record, "_candidate_store")
+    if store is None and root is not None:
+        for db_name in ["skillforge.db", ".skillforge/skillforge.db"]:
+            db_p = root / db_name
+            if db_p.exists():
+                from .episode import CandidateStore
+                store = CandidateStore(db_p)
+                break
+
+    if store is None:
+        raise RegistrationError(
+            "无法直接落盘：未经过共同门禁权威验证或验证记录不存在（伪造验证被拒绝）"
+        )
+
+    cid = getattr(validation_record, "candidate_id", None)
+    if isinstance(validation_record, dict):
+        cid = validation_record.get("candidate_id", cid)
+
+    if not cid:
+        raise RegistrationError(
+            "无法直接落盘：未经过共同门禁权威验证或验证记录不存在（伪造验证被拒绝）"
+        )
+
+    stored_rec = store.get_validation_record(cid)
+    if stored_rec is None:
+        raise RegistrationError(
+            "无法直接落盘：未经过共同门禁权威验证或验证记录不存在（伪造验证被拒绝）"
+        )
+
+    # Fail-closed check on incomplete or corrupted records
+    if not stored_rec.content_hash or not stored_rec.ratchet_decision:
+        raise RegistrationError("验证记录已失效：记录损坏或缺少关键字段 (fail-closed)")
+
+    if stored_rec.ratchet_decision != "PASS":
+        raise RegistrationError(
+            f"共同门禁验证未通过（决策: {stored_rec.ratchet_decision}），拒绝晋升落盘"
+        )
+
+    expected_hash = compute_generated_hash(generated)
+    full_md_hash = hashlib.sha256(generated.full_skill_md.encode("utf-8")).hexdigest()
+    if stored_rec.content_hash not in (expected_hash, full_md_hash):
+        raise RegistrationError(
+            f"验证记录已失效：候选正文在验证后发生变更（记录哈希: {stored_rec.content_hash} vs 当前哈希: {expected_hash}）"
+        )
+
+    if expected_scope_hash is not None and stored_rec.scope_hash != expected_scope_hash:
+        raise RegistrationError(
+            f"验证记录已失效：任务意图范围发生变更（'{stored_rec.scope_hash}' vs '{expected_scope_hash}'）"
+        )
+    if expected_config_hash is not None and stored_rec.config_hash != expected_config_hash:
+        raise RegistrationError(
+            f"验证记录已失效：验证器配置发生变更（'{stored_rec.config_hash}' vs '{expected_config_hash}'）"
+        )
+    if expected_dataset_version is not None and stored_rec.dataset_version != expected_dataset_version:
+        raise RegistrationError(
+            f"验证记录已失效：评测数据集版本发生变更（'{stored_rec.dataset_version}' vs '{expected_dataset_version}'）"
+        )
+
     if not isinstance(generated, GeneratedSkill):
         raise RegistrationError("generated 必须是 GeneratedSkill")
-    root = repo_root or Path(__file__).resolve().parents[2]
     if not isinstance(generated.name, str) or not NAME_PATTERN.fullmatch(generated.name):
         raise RegistrationError(f"Skill name 非法: {generated.name!r}")
 
@@ -1267,6 +1568,11 @@ def register_skill(
     if len({target for target, _ in targets}) != len(targets):
         raise RegistrationError("SKILL.md、repair_set 与 router manifest 目标路径必须互不相同")
     _commit_atomic_registration(targets, skill_dir)
+
+    try:
+        store.mark_promoted(cid)
+    except Exception:
+        pass
 
     generated.skill_dir = skill_dir
     generated.skill_file = skill_file

@@ -6,9 +6,11 @@
 参见 ARCHITECTURE §5。
 """
 from __future__ import annotations
+import time
 from dataclasses import dataclass, field
 from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field
+
 
 
 class Trigger(BaseModel):
@@ -99,6 +101,27 @@ class EvalResult:
 class RatchetVerdict:
     decision: Literal["PASS", "REVIEW", "DECLINED"]
     reasons: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ValidationRecord:
+    """Evaluation gate record binding candidate identity, content hash, and ratchet verdict."""
+
+    candidate_id: str
+    content_hash: str
+    baseline_version: Optional[str] = None
+    ratchet_decision: Literal["PASS", "REVIEW", "DECLINED"] = "DECLINED"
+    eval_result: Optional[EvalResult] = None
+    ratchet_verdict: Optional[RatchetVerdict] = None
+    promoted: bool = False
+    release_id: Optional[str] = None
+    verification_episode_ids: list[str] = field(default_factory=list)
+    record_id: Optional[str] = None
+    scope_hash: Optional[str] = None
+    config_hash: Optional[str] = None
+    dataset_version: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
 
 
 PatchStatus = Literal["PUBLISHED", "REVIEW", "SUGGESTION", "DECLINED", "PASS"]
@@ -262,12 +285,15 @@ class EvolveBudget:
     # P1-I A2 Root Cause Switch (C/R vs B/RB)
     enable_a2: bool = True
 
-    # Prompt Bloat Guardrails (P1-E)
-    section_growth_ratio: float = 0.25      # 单段相对 baseline 字符增长门槛 (>25%)
-    section_growth_chars: int = 100        # 单段绝对字符增长门槛 (>100 chars)
-    max_body_multiplier: float = 1.20      # 整 Body 字符数倍数门限 (>1.20x)
-    max_body_chars: Optional[int] = None   # 整 Body 绝对字符数上限（可选）
+    # Prompt Bloat Guardrails (P1-E / Token 1000-AND Policy)
+    section_growth_ratio: float = 0.25      # 单段相对 baseline 增长门槛 (>25%)
+    section_growth_tokens: int = 1000       # 单段绝对 token 净增门槛 (>1000 tokens)
+    section_growth_chars: int = 100         # 保留兼容字段（新门控下不再作为阻断阈值）
+    max_body_multiplier: float = 1.20       # 整 Body 倍数门限 (>1.20x，即相对增长 > 20%)
+    max_body_delta_tokens: int = 1000       # 整 Body 净增 token 门槛 (>1000 tokens)
+    max_body_chars: Optional[int] = None    # 整 Body 绝对字符数上限（冷启动 Draft 仍保留原 3000 上界）
     on_body_bloat: Literal["REVIEW", "DECLINED"] = "REVIEW"  # 全 body 门控动作
+    tokenizer_name: str = "tiktoken:cl100k_base"  # 规范 Policy Tokenizer 口径
 
     # P1-I Fail-Closed Granularity & Case-level Fault Tolerance (A/D)
     invalid_case_ratio_threshold: float = 0.20   # baseline invalid case 容错比例阈值（默认 >20% 停止）
@@ -334,7 +360,7 @@ class BudgetExceededError(RuntimeError):
 
 EpisodeOutcome = Literal["success", "failure", "unknown"]
 CandidateDecision = Literal["create", "revise", "abandon"]
-CandidateStatus = Literal["DRAFT", "EVALUATING", "APPROVED", "REJECTED", "ABANDONED"]
+CandidateStatus = Literal["DRAFT", "EVALUATING", "APPROVED", "REJECTED", "ABANDONED", "SUPERSEDED"]
 
 
 @dataclass
@@ -393,16 +419,109 @@ class CandidateSkill:
     source_doc_id: Optional[str] = None
     source_doc_version: Optional[str] = None
     source_snippet_ids: list[str] = field(default_factory=list)
+    source_requirement: Optional[str] = None
+    source_type: Optional[str] = None
+    task_spec_hash: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    intent_revision: int = 1
+    superseded_by: Optional[str] = None
+    supersedes: Optional[str] = None
+    parent_candidate_id: Optional[str] = None
+    source_session_id: Optional[str] = None
+    source_message_ids: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if self.parent_candidate_id is None and self.supersedes is not None:
+            self.parent_candidate_id = self.supersedes
+        elif self.supersedes is None and self.parent_candidate_id is not None:
+            self.supersedes = self.parent_candidate_id
+
+        if self.decision not in ("create", "revise", "abandon"):
+            raise ValueError(f"Invalid decision '{self.decision}'. Must be 'create', 'revise', or 'abandon'")
+        if not self.source_episode_ids and not self.source_doc_id and not self.source_requirement:
+            raise ValueError(
+                "CandidateSkill must be linked to at least one valid source (source_episode_ids, source_doc_id, or source_requirement)"
+            )
+
+    def is_trial_tested(self, episode_store: Any) -> bool:
+        """Calculate dynamically if this candidate has at least one recorded trial execution in EpisodeStore."""
+        if episode_store is None:
+            return False
+        try:
+            conn = episode_store._get_conn()
+            row = conn.execute(
+                "SELECT 1 FROM episodes WHERE json_extract(environment_json, '$.candidate_id') = ? LIMIT 1",
+                (self.candidate_id,),
+            ).fetchone()
+            return row is not None
+        except Exception:
+            return False
+
+
+@dataclass
+class TaskContext:
+    """Bounded task execution and intent context tracking user goals, constraints, and revisions."""
+
+    task_id: str
+    goal: str
+    business_scope: str = ""
+    constraints: list[str] = field(default_factory=list)
+    acceptance_criteria: dict[str, Any] = field(default_factory=dict)
+    intent_revision: int = 1
+    contract_fingerprint: str = ""
+    active_candidate_id: Optional[str] = None
+    active_skill_name: Optional[str] = None
+    active_skill_version: Optional[str] = None
+    active_body_snapshot: Optional[str] = None
+    superseded_candidate_ids: list[str] = field(default_factory=list)
+    assumptions: list[str] = field(default_factory=list)
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
-    def __post_init__(self) -> None:
-        if self.decision not in ("create", "revise", "abandon"):
-            raise ValueError(f"Invalid decision '{self.decision}'. Must be 'create', 'revise', or 'abandon'")
-        if not self.source_episode_ids and not self.source_doc_id:
-            raise ValueError(
-                "CandidateSkill must be linked to at least one valid source (source_episode_ids or source_doc_id)"
-            )
+    def compute_fingerprint(self) -> str:
+        import hashlib
+        payload = f"{self.task_id}:{self.goal.strip()}:{sorted(self.constraints)}:{self.business_scope.strip()}"
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "task_id": self.task_id,
+            "goal": self.goal,
+            "business_scope": self.business_scope,
+            "constraints": self.constraints,
+            "acceptance_criteria": self.acceptance_criteria,
+            "intent_revision": self.intent_revision,
+            "contract_fingerprint": self.contract_fingerprint or self.compute_fingerprint(),
+            "active_candidate_id": self.active_candidate_id,
+            "active_skill_name": self.active_skill_name,
+            "active_skill_version": self.active_skill_version,
+            "active_body_snapshot": self.active_body_snapshot,
+            "superseded_candidate_ids": self.superseded_candidate_ids,
+            "assumptions": self.assumptions,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> TaskContext:
+        return cls(
+            task_id=data["task_id"],
+            goal=data.get("goal", ""),
+            business_scope=data.get("business_scope", ""),
+            constraints=list(data.get("constraints") or []),
+            acceptance_criteria=dict(data.get("acceptance_criteria") or {}),
+            intent_revision=int(data.get("intent_revision", 1)),
+            contract_fingerprint=data.get("contract_fingerprint", ""),
+            active_candidate_id=data.get("active_candidate_id"),
+            active_skill_name=data.get("active_skill_name"),
+            active_skill_version=data.get("active_skill_version"),
+            active_body_snapshot=data.get("active_body_snapshot"),
+            superseded_candidate_ids=list(data.get("superseded_candidate_ids") or []),
+            assumptions=list(data.get("assumptions") or []),
+            created_at=data.get("created_at"),
+            updated_at=data.get("updated_at"),
+        )
 
 
 @dataclass
@@ -535,6 +654,10 @@ class RunRecord:
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     terminal_at: Optional[str] = None
+    frozen_body: Optional[str] = None
+    intent_revision: int = 1
+    task_spec_hash: Optional[str] = None
+    candidate_id: Optional[str] = None
 
 
 @dataclass
@@ -700,6 +823,281 @@ class FutureRetrievalResult:
     conflicts: list[SemanticConflict] = field(default_factory=list)
     filtered_out: list[dict[str, Any]] = field(default_factory=list)
     empty_reason: Optional[str] = None
+
+
+@dataclass
+class TestCaseProposal:
+    """Structured, reproducible test case proposal synthesized from Episode/eval trace."""
+
+    __test__ = False
+
+    proposal_id: str
+    skill_name: str
+    source_task_id: str
+    intent_revision: int = 1
+    contract_fingerprint: str = ""
+    query: str = ""
+    tool_snapshots: list[dict[str, Any]] = field(default_factory=list)
+    expected_output: Optional[str | dict[str, Any]] = None
+    expectation_source: str = "missing"  # "business_rule" | "oracle" | "human_confirmed" | "tool_snapshot" | "draft_proposal" | "missing"
+    status: Literal["APPROVED", "PENDING_APPROVAL", "REJECTED"] = "PENDING_APPROVAL"
+    failure_attribution: Literal["skill", "infrastructure", "policy", "unknown"] = "unknown"
+    is_regression_case: bool = False
+    actual_output: Optional[str] = None
+    rejection_reason: Optional[str] = None
+    partition_tier: str = "repair"  # "repair" (dev) | "experiment_holdout" | "final_audit"
+    variant_family: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "proposal_id": self.proposal_id,
+            "skill_name": self.skill_name,
+            "source_task_id": self.source_task_id,
+            "intent_revision": self.intent_revision,
+            "contract_fingerprint": self.contract_fingerprint,
+            "query": self.query,
+            "tool_snapshots": self.tool_snapshots,
+            "expected_output": self.expected_output,
+            "expectation_source": self.expectation_source,
+            "status": self.status,
+            "failure_attribution": self.failure_attribution,
+            "is_regression_case": self.is_regression_case,
+            "actual_output": self.actual_output,
+            "rejection_reason": self.rejection_reason,
+            "partition_tier": self.partition_tier,
+            "variant_family": self.variant_family,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> TestCaseProposal:
+        return cls(
+            proposal_id=data["proposal_id"],
+            skill_name=data.get("skill_name", ""),
+            source_task_id=data.get("source_task_id", ""),
+            intent_revision=int(data.get("intent_revision", 1)),
+            contract_fingerprint=data.get("contract_fingerprint", ""),
+            query=data.get("query", ""),
+            tool_snapshots=list(data.get("tool_snapshots") or []),
+            expected_output=data.get("expected_output"),
+            expectation_source=data.get("expectation_source", "missing"),
+            status=data.get("status", "PENDING_APPROVAL"),
+            failure_attribution=data.get("failure_attribution", "unknown"),
+            is_regression_case=bool(data.get("is_regression_case", False)),
+            actual_output=data.get("actual_output"),
+            rejection_reason=data.get("rejection_reason"),
+            partition_tier=data.get("partition_tier", "repair"),
+            variant_family=data.get("variant_family"),
+            created_at=data.get("created_at"),
+            updated_at=data.get("updated_at"),
+        )
+
+
+@dataclass
+class PurificationResult:
+    """Categorized trace purification outcome routing failures, regressions, and anomalies."""
+
+    category: Literal[
+        "business_failure",
+        "regression_success",
+        "diagnosis_only",
+        "infrastructure_report",
+        "policy_compliance",
+    ]
+    proposal: Optional[TestCaseProposal] = None
+    diagnosis: dict[str, Any] = field(default_factory=dict)
+    can_trigger_skill_evolution: bool = False
+    notes: str = ""
+
+
+@dataclass
+class LineageBinding:
+    """Lineage binding for bounded exception recovery and checkpoint invalidation (L4)."""
+
+    skill_name: str
+    baseline_version: str
+    baseline_hash: str
+    intent_revision: int = 1
+    business_scope: str = "default"
+    contract_fingerprint: str = ""
+    task_id: Optional[str] = None
+    config_hash: Optional[str] = None
+    candidate_hash: Optional[str] = None
+    dataset_version: Optional[str] = None
+
+    def validate_match(self, current: LineageBinding) -> tuple[bool, str]:
+        if self.skill_name != current.skill_name:
+            return False, f"CHECKPOINT_INVALIDATED: skill_name mismatch ('{self.skill_name}' != '{current.skill_name}')"
+        if self.baseline_version != current.baseline_version:
+            return False, f"CHECKPOINT_INVALIDATED: baseline_version changed ('{self.baseline_version}' != '{current.baseline_version}')"
+        if self.baseline_hash != current.baseline_hash:
+            return False, f"CHECKPOINT_INVALIDATED: baseline_hash changed ('{self.baseline_hash}' != '{current.baseline_hash}')"
+        if self.intent_revision != current.intent_revision:
+            return False, f"CHECKPOINT_INVALIDATED: intent_revision changed ({self.intent_revision} != {current.intent_revision})"
+        if self.business_scope != current.business_scope:
+            return False, f"CHECKPOINT_INVALIDATED: business_scope changed ('{self.business_scope}' != '{current.business_scope}')"
+        if (self.contract_fingerprint or current.contract_fingerprint) and self.contract_fingerprint != current.contract_fingerprint:
+            return False, f"CHECKPOINT_INVALIDATED: contract_fingerprint changed ('{self.contract_fingerprint}' != '{current.contract_fingerprint}')"
+        if (self.config_hash or current.config_hash) and self.config_hash != current.config_hash:
+            return False, f"CHECKPOINT_INVALIDATED: validator config_hash changed ('{self.config_hash}' != '{current.config_hash}')"
+        if (self.candidate_hash or current.candidate_hash) and self.candidate_hash != current.candidate_hash:
+            return False, f"CHECKPOINT_INVALIDATED: candidate content_hash changed ('{self.candidate_hash}' != '{current.candidate_hash}')"
+        if (self.dataset_version or current.dataset_version) and self.dataset_version != current.dataset_version:
+            return False, f"CHECKPOINT_INVALIDATED: dataset_version changed ('{self.dataset_version}' != '{current.dataset_version}')"
+        return True, ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "skill_name": self.skill_name,
+            "baseline_version": self.baseline_version,
+            "baseline_hash": self.baseline_hash,
+            "intent_revision": self.intent_revision,
+            "business_scope": self.business_scope,
+            "contract_fingerprint": self.contract_fingerprint,
+            "task_id": self.task_id,
+            "config_hash": self.config_hash,
+            "candidate_hash": self.candidate_hash,
+            "dataset_version": self.dataset_version,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> LineageBinding:
+        return cls(
+            skill_name=data["skill_name"],
+            baseline_version=data["baseline_version"],
+            baseline_hash=data["baseline_hash"],
+            intent_revision=int(data.get("intent_revision", 1)),
+            business_scope=data.get("business_scope", "default"),
+            contract_fingerprint=data.get("contract_fingerprint", ""),
+            task_id=data.get("task_id"),
+            config_hash=data.get("config_hash"),
+            candidate_hash=data.get("candidate_hash"),
+            dataset_version=data.get("dataset_version"),
+        )
+
+
+@dataclass
+class RecoveryBudget:
+    """Shared top-level budget tracker across graph and repair jobs (L3)."""
+
+    max_attempts: int = 2
+    consumed_attempts: int = 0
+    max_tokens: int = 50_000
+    consumed_tokens: int = 0
+    max_calls: int = 10
+    consumed_calls: int = 0
+    max_tool_calls: int = 10
+    consumed_tool_calls: int = 0
+    deadline_seconds: Optional[float] = None
+    start_time: float = field(default_factory=time.time)
+    executed_side_effects: list[str] = field(default_factory=list)
+    has_real_token_accounting: bool = False
+
+    @property
+    def remaining_attempts(self) -> int:
+        return max(0, self.max_attempts - self.consumed_attempts)
+
+    @property
+    def remaining_calls(self) -> int:
+        return max(0, self.max_calls - self.consumed_calls)
+
+    @property
+    def remaining_tokens(self) -> int:
+        return max(0, self.max_tokens - self.consumed_tokens)
+
+    @property
+    def remaining_tool_calls(self) -> int:
+        return max(0, self.max_tool_calls - self.consumed_tool_calls)
+
+    def is_timed_out(self) -> bool:
+        if self.deadline_seconds is None:
+            return False
+        return (time.time() - self.start_time) > self.deadline_seconds
+
+    def can_attempt(self) -> bool:
+        if self.consumed_attempts >= self.max_attempts:
+            return False
+        if self.consumed_calls >= self.max_calls:
+            return False
+        if self.consumed_tool_calls >= self.max_tool_calls:
+            return False
+        if self.consumed_tokens >= self.max_tokens:
+            return False
+        if self.is_timed_out():
+            return False
+        return True
+
+    def consume(
+        self,
+        attempts: int = 1,
+        calls: int = 1,
+        tokens: Optional[int] = None,
+        tool_calls: int = 0,
+        side_effect: Optional[str] = None,
+    ) -> None:
+        self.consumed_attempts += attempts
+        self.consumed_calls += calls
+        self.consumed_tool_calls += tool_calls
+        if tokens is not None:
+            self.consumed_tokens += tokens
+            self.has_real_token_accounting = True
+        if side_effect and side_effect not in self.executed_side_effects:
+            self.executed_side_effects.append(side_effect)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "max_attempts": self.max_attempts,
+            "consumed_attempts": self.consumed_attempts,
+            "max_tokens": self.max_tokens,
+            "consumed_tokens": self.consumed_tokens,
+            "max_calls": self.max_calls,
+            "consumed_calls": self.consumed_calls,
+            "max_tool_calls": self.max_tool_calls,
+            "consumed_tool_calls": self.consumed_tool_calls,
+            "deadline_seconds": self.deadline_seconds,
+            "start_time": self.start_time,
+            "executed_side_effects": list(self.executed_side_effects),
+            "has_real_token_accounting": self.has_real_token_accounting,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> RecoveryBudget:
+        return cls(
+            max_attempts=int(data.get("max_attempts", 2)),
+            consumed_attempts=int(data.get("consumed_attempts", 0)),
+            max_tokens=int(data.get("max_tokens", 50_000)),
+            consumed_tokens=int(data.get("consumed_tokens", 0)),
+            max_calls=int(data.get("max_calls", 10)),
+            consumed_calls=int(data.get("consumed_calls", 0)),
+            max_tool_calls=int(data.get("max_tool_calls", 10)),
+            consumed_tool_calls=int(data.get("consumed_tool_calls", 0)),
+            deadline_seconds=data.get("deadline_seconds"),
+            start_time=float(data.get("start_time", time.time())),
+            executed_side_effects=list(data.get("executed_side_effects") or []),
+            has_real_token_accounting=bool(data.get("has_real_token_accounting", False)),
+        )
+
+
+@dataclass
+class BoundedRecoveryResult:
+    """Outcome of bounded exception recovery run (L1–L5)."""
+
+    status: Literal["SUCCESS", "AWAITING_REVIEW", "BLOCKED", "DECLINED", "EXHAUSTED", "STOPPED"]
+    reason_code: Optional[str] = None
+    candidate: Optional[CandidateSkill] = None
+    validation_record: Optional[ValidationRecord] = None
+    budget: Optional[RecoveryBudget] = None
+    lineage: Optional[LineageBinding] = None
+    attempts: list[dict[str, Any]] = field(default_factory=list)
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+    shadow_root: Optional[str] = None
+    applied_to_registry: bool = False
+    repair_job: Optional[Any] = None
+    transition_history: list[dict[str, Any]] = field(default_factory=list)
+
 
 
 

@@ -64,11 +64,63 @@ CREATE TABLE IF NOT EXISTS candidate_skills (
     source_doc_id        TEXT,
     source_doc_version   TEXT,
     source_snippet_ids   TEXT,
+    source_requirement   TEXT,
+    source_type          TEXT,
+    task_spec_hash       TEXT,
+    intent_revision      INTEGER NOT NULL DEFAULT 1,
+    superseded_by        TEXT,
+    supersedes           TEXT,
+    source_session_id    TEXT,
+    source_message_ids   TEXT,
     created_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_candidates_skill  ON candidate_skills(skill_name, status);
+
+CREATE TABLE IF NOT EXISTS task_contexts (
+    task_id                  TEXT PRIMARY KEY,
+    goal                     TEXT NOT NULL,
+    business_scope           TEXT NOT NULL DEFAULT '',
+    constraints_json         TEXT NOT NULL DEFAULT '[]',
+    acceptance_criteria_json TEXT NOT NULL DEFAULT '{}',
+    intent_revision          INTEGER NOT NULL DEFAULT 1,
+    contract_fingerprint     TEXT NOT NULL,
+    active_candidate_id      TEXT,
+    active_skill_name        TEXT,
+    active_skill_version     TEXT,
+    active_body_snapshot     TEXT,
+    superseded_cands_json    TEXT NOT NULL DEFAULT '[]',
+    assumptions_json         TEXT NOT NULL DEFAULT '[]',
+    created_at               TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at               TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_contexts_cand ON task_contexts(active_candidate_id);
+
+CREATE TABLE IF NOT EXISTS test_case_proposals (
+    proposal_id              TEXT PRIMARY KEY,
+    skill_name               TEXT NOT NULL,
+    source_task_id           TEXT NOT NULL,
+    intent_revision          INTEGER NOT NULL DEFAULT 1,
+    contract_fingerprint     TEXT NOT NULL,
+    query                    TEXT NOT NULL,
+    tool_snapshots_json      TEXT NOT NULL DEFAULT '[]',
+    expected_output_json     TEXT,
+    expectation_source       TEXT NOT NULL,
+    status                   TEXT NOT NULL,
+    failure_attribution      TEXT NOT NULL,
+    is_regression_case       INTEGER NOT NULL DEFAULT 0,
+    actual_output            TEXT,
+    rejection_reason         TEXT,
+    partition_tier           TEXT NOT NULL DEFAULT 'repair',
+    variant_family           TEXT,
+    created_at               TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at               TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_proposals_skill ON test_case_proposals(skill_name, status);
+CREATE INDEX IF NOT EXISTS idx_proposals_task ON test_case_proposals(source_task_id, intent_revision);
 
 CREATE TABLE IF NOT EXISTS mined_batches (
     batch_fingerprint    TEXT PRIMARY KEY,
@@ -169,7 +221,11 @@ CREATE TABLE IF NOT EXISTS runtime_runs (
     error_message        TEXT,
     created_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    terminal_at          TIMESTAMP
+    terminal_at          TIMESTAMP,
+    frozen_body          TEXT,
+    intent_revision      INTEGER NOT NULL DEFAULT 1,
+    task_spec_hash       TEXT,
+    candidate_id         TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_runtime_runs_status ON runtime_runs(status);
@@ -231,6 +287,27 @@ CREATE TABLE IF NOT EXISTS document_snippets (
 );
 
 CREATE INDEX IF NOT EXISTS idx_doc_snippets_doc ON document_snippets(doc_id, doc_version);
+
+CREATE TABLE IF NOT EXISTS validation_records (
+    record_id                TEXT PRIMARY KEY,
+    candidate_id             TEXT UNIQUE NOT NULL,
+    content_hash             TEXT NOT NULL,
+    baseline_version         TEXT,
+    ratchet_decision         TEXT NOT NULL,
+    eval_result_json         TEXT,
+    ratchet_verdict_json     TEXT,
+    promoted                 INTEGER NOT NULL DEFAULT 0,
+    release_id               TEXT,
+    verification_eids_json   TEXT NOT NULL DEFAULT '[]',
+    scope_hash               TEXT,
+    config_hash              TEXT,
+    dataset_version          TEXT,
+    created_at               TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at               TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (candidate_id) REFERENCES candidate_skills(candidate_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_val_records_cand ON validation_records(candidate_id);
 """
 
 
@@ -260,9 +337,106 @@ def init_db(db_path: Path) -> sqlite3.Connection:
         ("source_doc_id", "TEXT"),
         ("source_doc_version", "TEXT"),
         ("source_snippet_ids", "TEXT"),
+        ("source_requirement", "TEXT"),
+        ("source_type", "TEXT"),
+        ("task_spec_hash", "TEXT"),
+        ("intent_revision", "INTEGER NOT NULL DEFAULT 1"),
+        ("superseded_by", "TEXT"),
+        ("supersedes", "TEXT"),
+        ("source_session_id", "TEXT"),
+        ("source_message_ids", "TEXT"),
     ]:
         if col not in cand_cols:
             conn.execute(f"ALTER TABLE candidate_skills ADD COLUMN {col} {col_type}")
 
+    # Ensure snapshot columns exist in runtime_runs for pre-existing DBs
+    cur = conn.execute("PRAGMA table_info(runtime_runs)")
+    run_cols = [r[1] for r in cur.fetchall()]
+    for col, col_type in [
+        ("frozen_body", "TEXT"),
+        ("intent_revision", "INTEGER NOT NULL DEFAULT 1"),
+        ("task_spec_hash", "TEXT"),
+        ("candidate_id", "TEXT"),
+    ]:
+        if col not in run_cols:
+            conn.execute(f"ALTER TABLE runtime_runs ADD COLUMN {col} {col_type}")
+
+    # Ensure task_contexts table exists for pre-existing DBs
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS task_contexts (
+            task_id                  TEXT PRIMARY KEY,
+            goal                     TEXT NOT NULL,
+            business_scope           TEXT NOT NULL DEFAULT '',
+            constraints_json         TEXT NOT NULL DEFAULT '[]',
+            acceptance_criteria_json TEXT NOT NULL DEFAULT '{}',
+            intent_revision          INTEGER NOT NULL DEFAULT 1,
+            contract_fingerprint     TEXT NOT NULL,
+            active_candidate_id      TEXT,
+            active_skill_name        TEXT,
+            active_skill_version     TEXT,
+            active_body_snapshot     TEXT,
+            superseded_cands_json    TEXT NOT NULL DEFAULT '[]',
+            assumptions_json         TEXT NOT NULL DEFAULT '[]',
+            created_at               TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at               TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )"""
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_task_contexts_cand ON task_contexts(active_candidate_id)"
+    )
+
+    # Ensure validation_records table exists for pre-existing DBs
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS validation_records (
+            record_id                TEXT PRIMARY KEY,
+            candidate_id             TEXT UNIQUE NOT NULL,
+            content_hash             TEXT NOT NULL,
+            baseline_version         TEXT,
+            ratchet_decision         TEXT NOT NULL,
+            eval_result_json         TEXT,
+            ratchet_verdict_json     TEXT,
+            promoted                 INTEGER NOT NULL DEFAULT 0,
+            release_id               TEXT,
+            verification_eids_json   TEXT NOT NULL DEFAULT '[]',
+            scope_hash               TEXT,
+            config_hash              TEXT,
+            dataset_version          TEXT,
+            created_at               TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at               TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (candidate_id) REFERENCES candidate_skills(candidate_id)
+        )"""
+    )
+
+    # Ensure test_case_proposals table exists for pre-existing DBs
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS test_case_proposals (
+            proposal_id              TEXT PRIMARY KEY,
+            skill_name               TEXT NOT NULL,
+            source_task_id           TEXT NOT NULL,
+            intent_revision          INTEGER NOT NULL DEFAULT 1,
+            contract_fingerprint     TEXT NOT NULL,
+            query                    TEXT NOT NULL,
+            tool_snapshots_json      TEXT NOT NULL DEFAULT '[]',
+            expected_output_json     TEXT,
+            expectation_source       TEXT NOT NULL,
+            status                   TEXT NOT NULL,
+            failure_attribution      TEXT NOT NULL,
+            is_regression_case       INTEGER NOT NULL DEFAULT 0,
+            actual_output            TEXT,
+            rejection_reason         TEXT,
+            partition_tier           TEXT NOT NULL DEFAULT 'repair',
+            variant_family           TEXT,
+            created_at               TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at               TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )"""
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_proposals_skill ON test_case_proposals(skill_name, status)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_proposals_task ON test_case_proposals(source_task_id, intent_revision)"
+    )
+
     conn.commit()
     return conn
+

@@ -303,11 +303,53 @@ def test_synthetic_carrier_split_success_and_assignment(tmp_path: Path, syntheti
     unassigned_ids = [c["id"] for c in analysis.unassigned_cases]
     assert "confused_01" in unassigned_ids
 
-    # 2. 运行段 2 拆分执行器并执行原子注册
+    # 2. 运行段 2 拆分执行器并执行原子注册（经共同门禁 CandidateStore 验证）
+    from skillforge.episode import CandidateStore
+    from skillforge.models import CandidateSkill, ValidationRecord
+    from skillforge.skill_generator import compute_generated_hash
+
+    cand_store = CandidateStore(tmp_path / "skillforge.db")
+    preview = split_skill(
+        analysis,
+        repo_root=tmp_path,
+        register=False,
+        repair_set_path=repair_file,
+        router_negatives_path=router_file,
+    )
+    for sub in preview.sub_skills:
+        cid = f"cand_split_{sub.name}"
+        cand_store.save_candidate(
+            CandidateSkill(
+                candidate_id=cid,
+                skill_name=sub.name,
+                decision="create",
+                source_episode_ids=[],
+                meta=sub.meta,
+                body=sub.body_raw or "",
+                rationale="Split proposal validated",
+                status="APPROVED",
+                source_requirement="split",
+                source_type="requirement",
+            )
+        )
+        cand_store.save_validation_record(
+            ValidationRecord(
+                candidate_id=cid,
+                content_hash=compute_generated_hash(sub),
+                baseline_version=None,
+                ratchet_decision="PASS",
+                eval_result=None,
+                ratchet_verdict=None,
+                promoted=False,
+            )
+        )
+
     split_res = split_skill(
         analysis,
         repo_root=tmp_path,
         register=True,
+        caller_confirmed=True,
+        candidate_store=cand_store,
         backup_original=True,
         repair_set_path=repair_file,
         router_negatives_path=router_file,

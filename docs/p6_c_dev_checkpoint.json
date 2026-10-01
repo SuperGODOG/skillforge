@@ -1,0 +1,315 @@
+{
+  "candidate_id": "cand_real_v2_fb30297b",
+  "content_hash": "fb30297bbe949474556ab20f1ab15abed8f29db662be315ef9d39f3176300c6e",
+  "sample_size": 6,
+  "passed_count": 6,
+  "failed_count": 0,
+  "pass_rate": "6/6",
+  "family_breakdown": {
+    "NORMAL_ALL_DELIVERED": {
+      "passed": 2,
+      "total": 2
+    },
+    "PARTIAL_IN_TRANSIT": {
+      "passed": 2,
+      "total": 2
+    },
+    "GOAL_SHIFT_STATUS_ONLY": {
+      "passed": 2,
+      "total": 2
+    }
+  },
+  "normal_capability_preserved": true,
+  "tasks": [
+    {
+      "task_id": "DEV_NORM_01",
+      "task_family": "NORMAL_ALL_DELIVERED",
+      "order_id": "ORD_DEV_0101",
+      "user_query": "查询订单 ORD_DEV_0101 的包裹配送状态。",
+      "intent_constraint": null,
+      "group": "C",
+      "model_output": "订单 ORD_DEV_0101 包裹状态：\n\n- **PKG_D101**：已签收（顺丰速运）\n- **PKG_D102**：已签收（京东物流）\n\n共 2 个包裹，全部已送达。\n\n建议：请及时确认收货并检查商品是否完好，如有问题尽快联系商家售后。",
+      "tool_calls_count": 3,
+      "tool_records": [
+        {
+          "tool_name": "query_order_packages",
+          "parameters": {
+            "order_id": "ORD_DEV_0101"
+          },
+          "status": "EXECUTED",
+          "output_preview": "Order ORD_DEV_0101 contains 2 packages: PKG_D101, PKG_D102"
+        },
+        {
+          "tool_name": "query_package_tracking",
+          "parameters": {
+            "package_id": "PKG_D101"
+          },
+          "status": "EXECUTED",
+          "output_preview": "Package PKG_D101 status is DELIVERED via SF_EXPRESS"
+        },
+        {
+          "tool_name": "query_package_tracking",
+          "parameters": {
+            "package_id": "PKG_D102"
+          },
+          "status": "EXECUTED",
+          "output_preview": "Package PKG_D102 status is DELIVERED via JD_LOGISTICS"
+        }
+      ],
+      "latency_ms": 14741.573083912954,
+      "usage": {
+        "calls": 3,
+        "prompt_tokens": 2004,
+        "completion_tokens": 243,
+        "total_tokens": 2247
+      },
+      "verdict": "PASS",
+      "classification": "TRUE_POSITIVE",
+      "failure_reason": null,
+      "episode_id": "ep_C_DEV_NORM_01_fb30297b"
+    },
+    {
+      "task_id": "DEV_NORM_02",
+      "task_family": "NORMAL_ALL_DELIVERED",
+      "order_id": "ORD_DEV_0102",
+      "user_query": "核对订单 ORD_DEV_0102 中3个包裹的签收情况。",
+      "intent_constraint": null,
+      "group": "C",
+      "model_output": "订单 ORD_DEV_0102 包裹签收情况：\n\n- PKG_D103（顺丰速运）：已签收\n- PKG_D104（中通快递）：已签收\n- PKG_D105（圆通速递）：已签收\n\n共 3 个包裹，全部已签收。建议：请及时确认收货并检查商品是否完好，如有问题尽快联系商家售后。",
+      "tool_calls_count": 4,
+      "tool_records": [
+        {
+          "tool_name": "query_order_packages",
+          "parameters": {
+            "order_id": "ORD_DEV_0102"
+          },
+          "status": "EXECUTED",
+          "output_preview": "Order ORD_DEV_0102 contains 3 packages: PKG_D103, PKG_D104, PKG_D105"
+        },
+        {
+          "tool_name": "query_package_tracking",
+          "parameters": {
+            "package_id": "PKG_D103"
+          },
+          "status": "EXECUTED",
+          "output_preview": "Package PKG_D103 status is DELIVERED via SF_EXPRESS"
+        },
+        {
+          "tool_name": "query_package_tracking",
+          "parameters": {
+            "package_id": "PKG_D104"
+          },
+          "status": "EXECUTED",
+          "output_preview": "Package PKG_D104 status is DELIVERED via ZTO_EXPRESS"
+        },
+        {
+          "tool_name": "query_package_tracking",
+          "parameters": {
+            "package_id": "PKG_D105"
+          },
+          "status": "EXECUTED",
+          "output_preview": "Package PKG_D105 status is DELIVERED via YTO_EXPRESS"
+        }
+      ],
+      "latency_ms": 15176.790333120152,
+      "usage": {
+        "calls": 3,
+        "prompt_tokens": 1994,
+        "completion_tokens": 248,
+        "total_tokens": 2242
+      },
+      "verdict": "PASS",
+      "classification": "TRUE_POSITIVE",
+      "failure_reason": null,
+      "episode_id": "ep_C_DEV_NORM_02_fb30297b"
+    },
+    {
+      "task_id": "DEV_PART_01",
+      "task_family": "PARTIAL_IN_TRANSIT",
+      "order_id": "ORD_DEV_0201",
+      "user_query": "请核查订单 ORD_DEV_0201 的所有包裹状态。",
+      "intent_constraint": null,
+      "group": "C",
+      "model_output": "订单 ORD_DEV_0201 共包含 2 个包裹，状态如下：\n\n| 包裹号 | 承运商 | 状态 |\n|--------|--------|------|\n| PKG_D201 | 顺丰速运（SF_EXPRESS） | 已签收 |\n| PKG_D202 | 中通快递（ZTO_EXPRESS） | 运输中 |\n\n**汇总**：1 个包裹已签收，1 个包裹仍在运输途中。\n\n**建议**：已签收的 PKG_D201 请及时检查商品是否完好；PKG_D202 尚未送达，可稍后关注物流更新，若长时间无进展可联系商家或承运方咨询。",
+      "tool_calls_count": 3,
+      "tool_records": [
+        {
+          "tool_name": "query_order_packages",
+          "parameters": {
+            "order_id": "ORD_DEV_0201"
+          },
+          "status": "EXECUTED",
+          "output_preview": "Order ORD_DEV_0201 contains 2 packages: PKG_D201, PKG_D202"
+        },
+        {
+          "tool_name": "query_package_tracking",
+          "parameters": {
+            "package_id": "PKG_D201"
+          },
+          "status": "EXECUTED",
+          "output_preview": "Package PKG_D201 status is DELIVERED via SF_EXPRESS"
+        },
+        {
+          "tool_name": "query_package_tracking",
+          "parameters": {
+            "package_id": "PKG_D202"
+          },
+          "status": "EXECUTED",
+          "output_preview": "Package PKG_D202 status is IN_TRANSIT via ZTO_EXPRESS"
+        }
+      ],
+      "latency_ms": 12580.408999929205,
+      "usage": {
+        "calls": 3,
+        "prompt_tokens": 2015,
+        "completion_tokens": 294,
+        "total_tokens": 2309
+      },
+      "verdict": "PASS",
+      "classification": "TRUE_POSITIVE",
+      "failure_reason": null,
+      "episode_id": "ep_C_DEV_PART_01_fb30297b"
+    },
+    {
+      "task_id": "DEV_PART_02",
+      "task_family": "PARTIAL_IN_TRANSIT",
+      "order_id": "ORD_DEV_0202",
+      "user_query": "查询订单 ORD_DEV_0202 物流是否有送达。",
+      "intent_constraint": null,
+      "group": "C",
+      "model_output": "订单 ORD_DEV_0202 包裹状态：\n\n- **PKG_D203**：运输中（圆通速递 YTO_EXPRESS）\n- **PKG_D204**：运输中（申通快递 STO_EXPRESS）\n\n共 2 个包裹，目前均未送达，全部处于运输途中。建议您耐心等待，物流到达后请及时签收并检查商品是否完好，如有问题可联系商家售后。",
+      "tool_calls_count": 3,
+      "tool_records": [
+        {
+          "tool_name": "query_order_packages",
+          "parameters": {
+            "order_id": "ORD_DEV_0202"
+          },
+          "status": "EXECUTED",
+          "output_preview": "Order ORD_DEV_0202 contains 2 packages: PKG_D203, PKG_D204"
+        },
+        {
+          "tool_name": "query_package_tracking",
+          "parameters": {
+            "package_id": "PKG_D203"
+          },
+          "status": "EXECUTED",
+          "output_preview": "Package PKG_D203 status is IN_TRANSIT via YTO_EXPRESS"
+        },
+        {
+          "tool_name": "query_package_tracking",
+          "parameters": {
+            "package_id": "PKG_D204"
+          },
+          "status": "EXECUTED",
+          "output_preview": "Package PKG_D204 status is IN_TRANSIT via STO_EXPRESS"
+        }
+      ],
+      "latency_ms": 14487.895417027175,
+      "usage": {
+        "calls": 3,
+        "prompt_tokens": 2016,
+        "completion_tokens": 205,
+        "total_tokens": 2221
+      },
+      "verdict": "PASS",
+      "classification": "TRUE_POSITIVE",
+      "failure_reason": null,
+      "episode_id": "ep_C_DEV_PART_02_fb30297b"
+    },
+    {
+      "task_id": "DEV_GOAL_01",
+      "task_family": "GOAL_SHIFT_STATUS_ONLY",
+      "order_id": "ORD_DEV_0601",
+      "user_query": "核实订单 ORD_DEV_0601 全部包裹状态，只列出状态，不提出任何后续建议。",
+      "intent_constraint": "STATUS_ONLY",
+      "group": "C",
+      "model_output": "订单 ORD_DEV_0601 包裹状态：PKG_D601 已签收（顺丰速运），PKG_D602 已签收（京东物流）。共 2 个包裹，全部签收。以上为全部客观状态。",
+      "tool_calls_count": 3,
+      "tool_records": [
+        {
+          "tool_name": "query_order_packages",
+          "parameters": {
+            "order_id": "ORD_DEV_0601"
+          },
+          "status": "EXECUTED",
+          "output_preview": "Order ORD_DEV_0601 contains 2 packages: PKG_D601, PKG_D602"
+        },
+        {
+          "tool_name": "query_package_tracking",
+          "parameters": {
+            "package_id": "PKG_D601"
+          },
+          "status": "EXECUTED",
+          "output_preview": "Package PKG_D601 status is DELIVERED via SF_EXPRESS"
+        },
+        {
+          "tool_name": "query_package_tracking",
+          "parameters": {
+            "package_id": "PKG_D602"
+          },
+          "status": "EXECUTED",
+          "output_preview": "Package PKG_D602 status is DELIVERED via JD_LOGISTICS"
+        }
+      ],
+      "latency_ms": 10456.730958074331,
+      "usage": {
+        "calls": 3,
+        "prompt_tokens": 2049,
+        "completion_tokens": 138,
+        "total_tokens": 2187
+      },
+      "verdict": "PASS",
+      "classification": "TRUE_POSITIVE",
+      "failure_reason": null,
+      "episode_id": "ep_C_DEV_GOAL_01_fb30297b"
+    },
+    {
+      "task_id": "DEV_GOAL_02",
+      "task_family": "GOAL_SHIFT_STATUS_ONLY",
+      "order_id": "ORD_DEV_0602",
+      "user_query": "核对 ORD_DEV_0602 包裹配送情况，仅输出客观事实，不要给我任何建议或催促。",
+      "intent_constraint": "STATUS_ONLY",
+      "group": "C",
+      "model_output": "订单 ORD_DEV_0602 包裹状态：PKG_D603 已签收（顺丰速运），PKG_D604 运输中（中通快递）。共 2 个包裹，1 个已签收，1 个在途。以上为全部客观状态。",
+      "tool_calls_count": 3,
+      "tool_records": [
+        {
+          "tool_name": "query_order_packages",
+          "parameters": {
+            "order_id": "ORD_DEV_0602"
+          },
+          "status": "EXECUTED",
+          "output_preview": "Order ORD_DEV_0602 contains 2 packages: PKG_D603, PKG_D604"
+        },
+        {
+          "tool_name": "query_package_tracking",
+          "parameters": {
+            "package_id": "PKG_D603"
+          },
+          "status": "EXECUTED",
+          "output_preview": "Package PKG_D603 status is DELIVERED via SF_EXPRESS"
+        },
+        {
+          "tool_name": "query_package_tracking",
+          "parameters": {
+            "package_id": "PKG_D604"
+          },
+          "status": "EXECUTED",
+          "output_preview": "Package PKG_D604 status is IN_TRANSIT via ZTO_EXPRESS"
+        }
+      ],
+      "latency_ms": 11894.765082979575,
+      "usage": {
+        "calls": 3,
+        "prompt_tokens": 3080,
+        "completion_tokens": 176,
+        "total_tokens": 3256
+      },
+      "verdict": "PASS",
+      "classification": "TRUE_POSITIVE",
+      "failure_reason": null,
+      "episode_id": "ep_C_DEV_GOAL_02_fb30297b"
+    }
+  ]
+}

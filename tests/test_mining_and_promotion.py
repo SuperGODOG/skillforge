@@ -38,9 +38,20 @@ from skillforge import (
     compute_candidate_hash,
 )
 from skillforge.evaluator.judge import skill_is_presented_as_a
+from skillforge.models import EvalResult, RatchetVerdict
 
 
 # ==================== Test Doubles & Fixtures ====================
+
+def _mock_eval_result() -> EvalResult:
+    return EvalResult(
+        release_id="rel_mock",
+        structure_score={"format": 40.0},
+        effect_score={"task": 60.0},
+        objective_metrics={},
+        p0_pass=True,
+        valid=True,
+    )
 
 def _judge_json(verdict: str) -> str:
     return json.dumps({
@@ -122,7 +133,7 @@ def test_scenario_a1_create_candidate_from_two_valid_episodes(
         run_id="r1",
         skill_name="weather_reporter",
         skill_version="0.1.0",
-        environment={"os": "darwin"},
+        environment={"os": "darwin", "purpose": "learning"},
         provenances=[mock_provenance],
         acceptance_criteria={"check": "sunny"},
         outcome="success",
@@ -134,7 +145,7 @@ def test_scenario_a1_create_candidate_from_two_valid_episodes(
         run_id="r2",
         skill_name="weather_reporter",
         skill_version="0.1.0",
-        environment={"os": "darwin"},
+        environment={"os": "darwin", "purpose": "learning"},
         provenances=[mock_provenance],
         acceptance_criteria={"check": "sunny"},
         outcome="failure",
@@ -227,7 +238,7 @@ def test_scenario_a2_empty_or_nonexistent_source_and_unknown_abandon(
         run_id="ru",
         skill_name="target_skill",
         skill_version="1.0.0",
-        environment={},
+        environment={"purpose": "learning"},
         provenances=[],  # No tool evidence
         acceptance_criteria={},
         outcome="unknown",
@@ -261,7 +272,7 @@ def test_scenario_a3_illegal_structure_and_forged_source_rejected(
         run_id="r3",
         skill_name="math_calc",
         skill_version="1.0.0",
-        environment={},
+        environment={"purpose": "learning"},
         provenances=[mock_provenance],
         acceptance_criteria={},
         outcome="failure",
@@ -332,7 +343,7 @@ Old baseline body v1.0.0.
         run_id="r_calc",
         skill_name="calc_skill",
         skill_version="1.0.0",
-        environment={},
+        environment={"purpose": "learning"},
         provenances=[mock_provenance],
         acceptance_criteria={},
         outcome="failure",
@@ -451,7 +462,7 @@ def test_scenario_a6_pass_unconfirmed_unpromoted_and_confirmed_promoted_with_lin
         run_id="rc",
         skill_name="text_cleaner",
         skill_version="1.0.0",
-        environment={},
+        environment={"purpose": "learning"},
         provenances=[mock_provenance],
         acceptance_criteria={},
         outcome="success",
@@ -483,9 +494,10 @@ def test_scenario_a6_pass_unconfirmed_unpromoted_and_confirmed_promoted_with_lin
         content_hash=compute_candidate_hash(candidate_create),
         baseline_version=None,
         ratchet_decision="PASS",
-        eval_result=None,
-        ratchet_verdict=None,
+        eval_result=_mock_eval_result(),
+        ratchet_verdict=RatchetVerdict(decision="PASS", reasons=[]),
     )
+    cand_store.save_validation_record(rec_pass)
 
     # Unconfirmed -> blocked
     with pytest.raises(ValueError, match="requires explicit caller confirmation"):
@@ -511,7 +523,7 @@ def test_scenario_a6_pass_unconfirmed_unpromoted_and_confirmed_promoted_with_lin
         run_id="rr",
         skill_name="text_cleaner",
         skill_version="1.0.0",
-        environment={},
+        environment={"purpose": "learning"},
         provenances=[mock_provenance],
         acceptance_criteria={},
         outcome="failure",
@@ -541,9 +553,10 @@ def test_scenario_a6_pass_unconfirmed_unpromoted_and_confirmed_promoted_with_lin
         content_hash=compute_candidate_hash(candidate_revise),
         baseline_version="1.0.0",
         ratchet_decision="PASS",
-        eval_result=None,
-        ratchet_verdict=None,
+        eval_result=_mock_eval_result(),
+        ratchet_verdict=RatchetVerdict(decision="PASS", reasons=[]),
     )
+    cand_store.save_validation_record(rec_rev_pass)
     rel_rev = promote_candidate(candidate_revise, rec_rev_pass, sm, reg, cand_store, caller_confirmed=True)
     assert rel_rev.version == "1.1.0"
     assert reg.get_meta("text_cleaner").version == "1.1.0"
@@ -574,7 +587,7 @@ def test_scenario_a7_content_hash_baseline_mismatch_and_duplicate_promotion_reje
         run_id="r7",
         skill_name="hash_test_skill",
         skill_version="1.0.0",
-        environment={},
+        environment={"purpose": "learning"},
         provenances=[mock_provenance],
         acceptance_criteria={},
         outcome="success",
@@ -604,9 +617,10 @@ def test_scenario_a7_content_hash_baseline_mismatch_and_duplicate_promotion_reje
         content_hash=compute_candidate_hash(candidate),
         baseline_version=None,
         ratchet_decision="PASS",
-        eval_result=None,
-        ratchet_verdict=None,
+        eval_result=_mock_eval_result(),
+        ratchet_verdict=RatchetVerdict(decision="PASS", reasons=[]),
     )
+    cand_store.save_validation_record(rec)
 
     # 1. Mutate body after validation -> rejected
     candidate.body = "Tampered body injected after evaluation"
@@ -645,7 +659,7 @@ def test_scenario_a8_heldout_sentinel_never_leaked_to_miner_prompt(
         run_id="r8",
         skill_name="sentinel_skill",
         skill_version="1.0.0",
-        environment={},
+        environment={"purpose": "learning"},
         provenances=[mock_provenance],
         acceptance_criteria={},
         outcome="failure",
