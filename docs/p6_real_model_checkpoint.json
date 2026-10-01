@@ -1,0 +1,149 @@
+{
+  "v1_candidate_id": "cand_real_v1_3b8b0b6c",
+  "dev_task_runs": [
+    {
+      "task_id": "DEV_NORM_01",
+      "task_family": "NORMAL_ALL_DELIVERED",
+      "order_id": "ORD_DEV_0101",
+      "user_query": "查询订单 ORD_DEV_0101 的包裹配送状态。",
+      "intent_constraint": null,
+      "group": "B",
+      "model_output": "## 订单 ORD_DEV_0101 物流核查结果\n\n| 包裹单号 | 状态 | 承运商 |\n|---------|------|--------|\n| PKG_D101 | ✅ 已签收 | 顺丰速运 |\n| PKG_D102 | ✅ 已签收 | 京东物流 |\n\n**汇总**：订单下全部 2 个包裹均已送达并签收，物流履约完成。\n\n**售后建议**：请及时确认收货并检查商品是否完好；如发现商品有破损、缺件或与描述不符，建议尽快联系商家申请退换货处理。",
+      "tool_calls_count": 3,
+      "latency_ms": 16746.803042013198,
+      "usage": {
+        "calls": 3,
+        "prompt_tokens": 2154,
+        "completion_tokens": 281,
+        "total_tokens": 2435
+      },
+      "verdict": "FAIL",
+      "classification": "FALSE_NEGATIVE",
+      "failure_reason": "Contradiction: order ORD_DEV_0101 all packages delivered, but output claimed in transit",
+      "episode_id": "ep_DEV_NORM_01_3b8b0b6c"
+    },
+    {
+      "task_id": "DEV_NORM_02",
+      "task_family": "NORMAL_ALL_DELIVERED",
+      "order_id": "ORD_DEV_0102",
+      "user_query": "核对订单 ORD_DEV_0102 中3个包裹的签收情况。",
+      "intent_constraint": null,
+      "group": "B",
+      "model_output": "## 订单 ORD_DEV_0102 签收核查结果 ✅\n\n| 包裹单号 | 承运商 | 状态 |\n|---|---|---|\n| PKG_D103 | 顺丰速运（SF_EXPRESS） | 已签收 |\n| PKG_D104 | 中通快递（ZTO_EXPRESS） | 已签收 |\n| PKG_D105 | 圆通速递（YTO_EXPRESS） | 已签收 |\n\n**汇总**：该订单下全部 3 个包裹均已成功签收，物流履约完整，无异常包裹。\n\n**售后建议**：\n- 请您及时开箱验货，确认商品数量与完好程度；\n- 若发现破损、缺件或与描述不符，建议尽快联系商家申请售后（退换货通常有签收后时效要求）；\n- 确认无误后可对订单进行收货确认与评价。",
+      "tool_calls_count": 4,
+      "latency_ms": 28920.2711249236,
+      "usage": {
+        "calls": 3,
+        "prompt_tokens": 2217,
+        "completion_tokens": 398,
+        "total_tokens": 2615
+      },
+      "verdict": "FAIL",
+      "classification": "FALSE_NEGATIVE",
+      "failure_reason": "Contradiction: order ORD_DEV_0102 all packages delivered, but output claimed in transit",
+      "episode_id": "ep_DEV_NORM_02_3b8b0b6c"
+    },
+    {
+      "task_id": "DEV_PART_01",
+      "task_family": "PARTIAL_IN_TRANSIT",
+      "order_id": "ORD_DEV_0201",
+      "user_query": "请核查订单 ORD_DEV_0201 的所有包裹状态。",
+      "intent_constraint": null,
+      "group": "B",
+      "model_output": "## 订单 ORD_DEV_0201 物流核查结果\n\n该订单共包含 **2 个包裹**，当前状态如下：\n\n| 包裹单号 | 承运商 | 物流状态 |\n|---------|--------|---------|\n| PKG_D201 | 顺丰速运（SF_EXPRESS） | ✅ 已签收（DELIVERED） |\n| PKG_D202 | 中通快递（ZTO_EXPRESS） | 🚚 运输中（IN_TRANSIT） |\n\n## 汇总与建议\n\n- **包裹一（PKG_D201）** 已由顺丰速运完成签收，建议您及时确认商品是否完好。\n- **包裹二（PKG_D202）** 正在中通快递运输途中，尚未到达，请耐心等待派送。\n\n**售后处理建议：**\n1. 等待 PKG_D202 送达并验收后，再整体确认收货，避免部分商品缺失引发售后纠纷；\n2. 若 PKG_D202 长时间未更新物流动态（如超过 3-5 天无新轨迹），建议联系商家或承运商催件；\n3. 若收货后发现商品问题，请在签收后尽快（一般为 7 天内）联系商家申请退换货，以保障您的售后权益。\n\n如需继续跟进该包裹的后续物流状态，随时告诉我！",
+      "tool_calls_count": 3,
+      "latency_ms": 21124.133166158572,
+      "usage": {
+        "calls": 3,
+        "prompt_tokens": 2206,
+        "completion_tokens": 516,
+        "total_tokens": 2722
+      },
+      "verdict": "PASS",
+      "classification": "TRUE_POSITIVE",
+      "failure_reason": null,
+      "episode_id": "ep_DEV_PART_01_3b8b0b6c"
+    },
+    {
+      "task_id": "DEV_PART_02",
+      "task_family": "PARTIAL_IN_TRANSIT",
+      "order_id": "ORD_DEV_0202",
+      "user_query": "查询订单 ORD_DEV_0202 物流是否有送达。",
+      "intent_constraint": null,
+      "group": "B",
+      "model_output": "您好，订单 **ORD_DEV_0202** 的物流查询结果如下：\n\n| 包裹单号 | 承运商 | 当前状态 |\n|---------|--------|---------|\n| PKG_D203 | 圆通速递（YTO_EXPRESS） | 运输中（IN_TRANSIT） |\n| PKG_D204 | 申通快递（STO_EXPRESS） | 运输中（IN_TRANSIT） |\n\n**结论**：该订单的两个包裹目前均**尚未送达**，仍在运输途中。\n\n**售后建议**：\n- 目前物流状态正常，建议您耐心等待包裹送达；\n- 若较长时间（如超出预计送达时间 2~3 天）仍无状态更新，可联系承运商圆通/申通客服查询运单详情，或联系平台客服协助跟进；\n- 请留意物流通知，收到包裹后及时验货并确认签收。",
+      "tool_calls_count": 3,
+      "latency_ms": 11426.827166927978,
+      "usage": {
+        "calls": 3,
+        "prompt_tokens": 2134,
+        "completion_tokens": 288,
+        "total_tokens": 2422
+      },
+      "verdict": "PASS",
+      "classification": "TRUE_POSITIVE",
+      "failure_reason": null,
+      "episode_id": "ep_DEV_PART_02_3b8b0b6c"
+    },
+    {
+      "task_id": "DEV_GOAL_01",
+      "task_family": "GOAL_SHIFT_STATUS_ONLY",
+      "order_id": "ORD_DEV_0601",
+      "user_query": "核实订单 ORD_DEV_0601 全部包裹状态，只列出状态，不提出任何后续建议。",
+      "intent_constraint": "STATUS_ONLY",
+      "group": "B",
+      "model_output": "订单 ORD_DEV_0601 共 2 个包裹，状态如下：\n\n| 包裹单号 | 状态 | 承运商 |\n|---|---|---|\n| PKG_D601 | 已签收（DELIVERED） | 顺丰速运（SF_EXPRESS） |\n| PKG_D602 | 已签收（DELIVERED） | 京东物流（JD_LOGISTICS） |",
+      "tool_calls_count": 3,
+      "latency_ms": 12759.34808398597,
+      "usage": {
+        "calls": 3,
+        "prompt_tokens": 2167,
+        "completion_tokens": 239,
+        "total_tokens": 2406
+      },
+      "verdict": "PASS",
+      "classification": "TRUE_POSITIVE",
+      "failure_reason": null,
+      "episode_id": "ep_DEV_GOAL_01_3b8b0b6c"
+    },
+    {
+      "task_id": "DEV_GOAL_02",
+      "task_family": "GOAL_SHIFT_STATUS_ONLY",
+      "order_id": "ORD_DEV_0602",
+      "user_query": "核对 ORD_DEV_0602 包裹配送情况，仅输出客观事实，不要给我任何建议或催促。",
+      "intent_constraint": "STATUS_ONLY",
+      "group": "B",
+      "model_output": "订单 ORD_DEV_0602 包裹配送情况如下：\n\n- **PKG_D603**：状态为已签收（DELIVERED），承运商为顺丰速运（SF_EXPRESS）\n- **PKG_D604**：状态为运输中（IN_TRANSIT），承运商为中通快递（ZTO_EXPRESS）\n\n以上为该订单全部 2 个包裹的当前物流状态。",
+      "tool_calls_count": 3,
+      "latency_ms": 17068.968208041042,
+      "usage": {
+        "calls": 3,
+        "prompt_tokens": 2174,
+        "completion_tokens": 241,
+        "total_tokens": 2415
+      },
+      "verdict": "PASS",
+      "classification": "TRUE_POSITIVE",
+      "failure_reason": null,
+      "episode_id": "ep_DEV_GOAL_02_3b8b0b6c"
+    }
+  ],
+  "dev_failures": [
+    {
+      "episode_id": "ep_DEV_NORM_01_3b8b0b6c",
+      "task_id": "DEV_NORM_01",
+      "user_query": "查询订单 ORD_DEV_0101 的包裹配送状态。",
+      "intent_constraint": null,
+      "model_output": "## 订单 ORD_DEV_0101 物流核查结果\n\n| 包裹单号 | 状态 | 承运商 |\n|---------|------|--------|\n| PKG_D101 | ✅ 已签收 | 顺丰速运 |\n| PKG_D102 | ✅ 已签收 | 京东物流 |\n\n**汇总**：订单下全部 2 个包裹均已送达并签收，物流履约完成。\n\n**售后建议**：请及时确认收货并检查商品是否完好；如发现商品有破损、缺件或与描述不符，建议尽快联系商家申请退换货处理。",
+      "failure_reason": "Contradiction: order ORD_DEV_0101 all packages delivered, but output claimed in transit"
+    },
+    {
+      "episode_id": "ep_DEV_NORM_02_3b8b0b6c",
+      "task_id": "DEV_NORM_02",
+      "user_query": "核对订单 ORD_DEV_0102 中3个包裹的签收情况。",
+      "intent_constraint": null,
+      "model_output": "## 订单 ORD_DEV_0102 签收核查结果 ✅\n\n| 包裹单号 | 承运商 | 状态 |\n|---|---|---|\n| PKG_D103 | 顺丰速运（SF_EXPRESS） | 已签收 |\n| PKG_D104 | 中通快递（ZTO_EXPRESS） | 已签收 |\n| PKG_D105 | 圆通速递（YTO_EXPRESS） | 已签收 |\n\n**汇总**：该订单下全部 3 个包裹均已成功签收，物流履约完整，无异常包裹。\n\n**售后建议**：\n- 请您及时开箱验货，确认商品数量与完好程度；\n- 若发现破损、缺件或与描述不符，建议尽快联系商家申请售后（退换货通常有签收后时效要求）；\n- 确认无误后可对订单进行收货确认与评价。",
+      "failure_reason": "Contradiction: order ORD_DEV_0102 all packages delivered, but output claimed in transit"
+    }
+  ]
+}

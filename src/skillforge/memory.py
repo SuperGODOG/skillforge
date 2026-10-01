@@ -608,6 +608,8 @@ class ThreeTierMemoryManager:
         if not self.registry:
             raise ValueError("Cannot promote candidate without an active SkillRegistry")
 
+        self.candidate_store.save_validation_record(validation_record)
+
         return promote_candidate(
             candidate=candidate,
             validation_record=validation_record,

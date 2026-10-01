@@ -52,6 +52,8 @@ from .models import (
     EvalResult,
     RatchetVerdict,
     ToolCallProvenance,
+    RecoveryBudget,
+    TaskContext,
 )
 from .episode import EpisodeStore, CandidateStore
 from .registry import SkillRegistry
@@ -125,6 +127,312 @@ class RepairJob:
     latest_content_hash: Optional[str] = None
     stop_reason: Optional[str] = None
     release_id: Optional[str] = None
+    recovery_result: Optional[Any] = None
+    bounded_recovery_result: Optional[Any] = None
+
+    def save(self, conn: sqlite3.Connection) -> None:
+        """Persist this RepairJob to SQLite."""
+        _save_job(conn, self)
+
+    @classmethod
+    def load(cls, conn: sqlite3.Connection, fingerprint: str, candidate_store: CandidateStore) -> Optional[RepairJob]:
+        """Load RepairJob from SQLite by fingerprint."""
+        return _load_job(conn, fingerprint, candidate_store)
+
+    def run(
+        self,
+        episodes: list[Episode],
+        registry: SkillRegistry,
+        evaluator: SkillEvaluator,
+        eval_cases: list[dict],
+        candidate_store: CandidateStore,
+        llm: Any = None,
+        budget: Optional[RecoveryBudget] = None,
+        conn: Optional[sqlite3.Connection] = None,
+        error_feedback: str = "",
+        previous_hashes: Optional[set[str]] = None,
+    ) -> RepairAttemptRecord:
+        """Execute a single bounded repair attempt (RepairJob protocol execution)."""
+        return self.run_attempt(
+            episodes=episodes,
+            registry=registry,
+            evaluator=evaluator,
+            eval_cases=eval_cases,
+            candidate_store=candidate_store,
+            llm=llm,
+            budget=budget,
+            conn=conn,
+            error_feedback=error_feedback,
+            previous_hashes=previous_hashes,
+        )
+
+    def run_attempt(
+        self,
+        episodes: list[Episode],
+        registry: SkillRegistry,
+        evaluator: SkillEvaluator,
+        eval_cases: list[dict],
+        candidate_store: CandidateStore,
+        llm: Any = None,
+        budget: Optional[RecoveryBudget] = None,
+        conn: Optional[sqlite3.Connection] = None,
+        error_feedback: str = "",
+        previous_hashes: Optional[set[str]] = None,
+    ) -> RepairAttemptRecord:
+        """Execute a single bounded repair attempt on this RepairJob.
+
+        Integrates with shared RecoveryBudget, validates against unified gate,
+        detects duplicate candidate hashes, and updates SQLite repair_jobs table.
+        """
+        self.current_attempt += 1
+        att_num = self.current_attempt
+
+        if previous_hashes is None:
+            previous_hashes = set(a.candidate_hash for a in self.attempts if a.candidate_hash)
+
+        if not error_feedback and self.attempts:
+            error_feedback = self.attempts[-1].error_feedback
+
+        base_meta = registry.get_meta(self.skill_name)
+        base_body = registry.get_body(self.skill_name) if hasattr(registry, "get_body") else registry._bodies.get(self.skill_name, "")
+        target_patch_version = _bump_patch_version(self.baseline_version)
+
+        if llm is None:
+            cand_id = f"cand_repair_mock_{att_num}_{uuid.uuid4().hex[:8]}"
+            if "3. Collate delivery carrier details and report progress to user." in base_body:
+                patched_body = base_body.replace(
+                    "3. Collate delivery carrier details and report progress to user.",
+                    f"3. Collate carrier details and report progress to user (attempt {att_num}).",
+                )
+            else:
+                patched_body = f"{base_body.rstrip()}\n\n<!-- attempt {att_num} fix -->\n"
+            import copy
+            cand_meta = copy.deepcopy(base_meta)
+            cand_meta.version = target_patch_version
+            candidate = CandidateSkill(
+                candidate_id=cand_id,
+                skill_name=self.skill_name,
+                decision="revise",
+                source_episode_ids=[e.episode_id for e in episodes],
+                meta=cand_meta,
+                body=patched_body,
+                rationale=f"Mock repair attempt {att_num}",
+                status="DRAFT",
+            )
+            if budget is not None:
+                budget.consume(calls=1, tokens=None)
+        else:
+            prompt_lines = [
+                f"You are a Skill Patcher repairing '{self.skill_name}'.",
+                f"Current baseline version: {self.baseline_version}. Target patched version: {target_patch_version}.",
+                f"Attributed strategy: {self.diagnosis.strategy}. Root cause: {self.diagnosis.reason}.",
+                f"\n--- Current SKILL.md ---\n{registry.get_raw(self.skill_name) if hasattr(registry, 'get_raw') else base_body}",
+                "\n--- Observed Learning Failures ---",
+            ]
+            for ep in episodes:
+                prompt_lines.append(f"- Task: {ep.environment.get('query')}; Failure: {ep.outcome_reason}")
+
+            if error_feedback:
+                prompt_lines.append(f"\n--- Feedback from previous attempt ---\n{error_feedback}")
+
+            prompt_lines.append(
+                f"\nGenerate a revised SKILL.md for '{self.skill_name}' with version '{target_patch_version}'. "
+                "Output valid YAML frontmatter between --- and markdown body."
+            )
+            patcher_prompt = "\n".join(prompt_lines)
+
+            resp = llm.invoke(patcher_prompt)
+            toks = None
+            if hasattr(resp, "usage") and isinstance(resp.usage, dict) and "total_tokens" in resp.usage:
+                toks = resp.usage["total_tokens"]
+            if budget is not None:
+                budget.consume(calls=1, tokens=toks)
+
+            raw_output = getattr(resp, "content", str(resp)).strip()
+            if raw_output.startswith("```"):
+                raw_output = re.sub(r"^```(?:markdown)?\n|```$", "", raw_output, flags=re.MULTILINE).strip()
+
+            m = _FRONTMATTER_RE.match(raw_output)
+            if not m:
+                rec = RepairAttemptRecord(
+                    attempt_number=att_num,
+                    validation_decision="DECLINED",
+                    error_feedback="Malformed SKILL.md: lacks valid YAML frontmatter (--- ... ---)",
+                )
+                self.attempts.append(rec)
+                if self.current_attempt >= self.max_attempts:
+                    self.status = "EXHAUSTED"
+                    self.stop_reason = f"Budget exhausted ({self.max_attempts} attempts reached) after malformed outputs"
+                if conn is not None:
+                    _save_job(conn, self)
+                return rec
+
+            fm_text, cand_body = m.group(1), m.group(2).strip()
+            try:
+                cand_meta_dict = yaml.safe_load(fm_text) or {}
+                cand_meta = SkillMeta(**cand_meta_dict)
+            except Exception as e:
+                rec = RepairAttemptRecord(
+                    attempt_number=att_num,
+                    validation_decision="DECLINED",
+                    error_feedback=f"Invalid frontmatter structure: {e}",
+                )
+                self.attempts.append(rec)
+                if self.current_attempt >= self.max_attempts:
+                    self.status = "EXHAUSTED"
+                    self.stop_reason = f"Budget exhausted: {e}"
+                if conn is not None:
+                    _save_job(conn, self)
+                return rec
+
+            if cand_meta.name != self.skill_name:
+                rec = RepairAttemptRecord(
+                    attempt_number=att_num,
+                    validation_decision="DECLINED",
+                    error_feedback=f"Candidate name '{cand_meta.name}' does not match target '{self.skill_name}'",
+                )
+                self.attempts.append(rec)
+                if self.current_attempt >= self.max_attempts:
+                    self.status = "EXHAUSTED"
+                    self.stop_reason = "Budget exhausted: mismatched skill name"
+                if conn is not None:
+                    _save_job(conn, self)
+                return rec
+
+            baseline_md = f"---\n{yaml.dump(base_meta.model_dump(), sort_keys=False)}---\n\n{base_body}"
+            diff_res = compute_semantic_diff(baseline_md, raw_output, declared_level="L2")
+            if not diff_res.is_valid:
+                rec = RepairAttemptRecord(
+                    attempt_number=att_num,
+                    validation_decision="DECLINED",
+                    error_feedback=diff_res.invalid_reason or "Diff invalid",
+                )
+                self.attempts.append(rec)
+                if self.current_attempt >= self.max_attempts:
+                    self.status = "EXHAUSTED"
+                    self.stop_reason = diff_res.invalid_reason
+                if conn is not None:
+                    _save_job(conn, self)
+                return rec
+
+            cand_id = f"cand_repair_{uuid.uuid4().hex[:12]}"
+            candidate = CandidateSkill(
+                candidate_id=cand_id,
+                skill_name=self.skill_name,
+                decision="revise",
+                source_episode_ids=[e.episode_id for e in episodes],
+                meta=cand_meta,
+                body=cand_body,
+                rationale=f"Automated repair attempt {att_num} for {self.diagnosis.reason}",
+                status="DRAFT",
+            )
+
+        cand_hash = compute_candidate_hash(candidate)
+
+        # Duplicate patch hash detection: STOP immediately
+        if cand_hash in previous_hashes:
+            rec = RepairAttemptRecord(
+                attempt_number=att_num,
+                candidate_id=cand_id,
+                candidate_hash=cand_hash,
+                validation_decision="DECLINED",
+                error_feedback="Duplicate patch hash detected",
+            )
+            self.attempts.append(rec)
+            self.status = "DECLINED"
+            self.stop_reason = "Duplicate patch hash detected: identical candidate generated across attempts"
+            if conn is not None:
+                _save_job(conn, self)
+            return rec
+
+        previous_hashes.add(cand_hash)
+        candidate_store.save_candidate(candidate)
+        self.latest_candidate = candidate
+        self.latest_content_hash = cand_hash
+
+        # Sandbox regression evaluation
+        val_rec = validate_candidate(
+            candidate=candidate,
+            evaluator=evaluator,
+            registry=registry,
+            eval_cases=eval_cases,
+            candidate_store=candidate_store,
+        )
+
+        # Check for evaluator/infrastructure error (vs business evaluation decline)
+        is_infra_error = False
+        if val_rec.eval_result is not None and not val_rec.eval_result.valid:
+            reasons = val_rec.eval_result.invalid_reasons or ["Evaluator marked invalid"]
+            infra_keywords = (
+                "evaluator error", "judge timeout", "judge failure", "syntax error in test",
+                "test suite error", "invalid_judge_result", "no valid evaluation cases provided",
+                "no oracle", "infrastructure",
+            )
+            reasons_lower = " ".join(r.lower() for r in reasons)
+            if not eval_cases or any(k in reasons_lower for k in infra_keywords):
+                is_infra_error = True
+
+        if is_infra_error:
+            reasons = val_rec.eval_result.invalid_reasons or ["Evaluator marked invalid"]
+            rec = RepairAttemptRecord(
+                attempt_number=att_num,
+                candidate_id=cand_id,
+                candidate_hash=cand_hash,
+                validation_decision="BLOCKED",
+                eval_summary={"valid": False, "reasons": reasons},
+                error_feedback="; ".join(reasons),
+            )
+            self.attempts.append(rec)
+            self.status = "BLOCKED"
+            self.stop_reason = f"Evaluator infrastructure error: {'; '.join(reasons)}"
+            if conn is not None:
+                _save_job(conn, self)
+            return rec
+
+        verdict_dec = val_rec.ratchet_decision
+        if verdict_dec == "PASS":
+            rec = RepairAttemptRecord(
+                attempt_number=att_num,
+                candidate_id=cand_id,
+                candidate_hash=cand_hash,
+                validation_decision="PASS",
+                eval_summary={"ratchet": "PASS"},
+            )
+            self.attempts.append(rec)
+            self.status = "READY"
+            self.stop_reason = None
+        elif verdict_dec == "REVIEW":
+            reasons = val_rec.ratchet_verdict.reasons if val_rec.ratchet_verdict else ["Requires human review"]
+            rec = RepairAttemptRecord(
+                attempt_number=att_num,
+                candidate_id=cand_id,
+                candidate_hash=cand_hash,
+                validation_decision="REVIEW",
+                eval_summary={"ratchet": "REVIEW", "reasons": reasons},
+                error_feedback="; ".join(reasons),
+            )
+            self.attempts.append(rec)
+            self.status = "AWAITING_REVIEW"
+            self.stop_reason = "Ratchet verdict is REVIEW: requires human approval, automatic retry blocked"
+        else:  # DECLINED
+            reasons = val_rec.ratchet_verdict.reasons if val_rec.ratchet_verdict else ["Declined by ratchet gate"]
+            error_feedback = f"Declined by ratchet gate: {'; '.join(reasons)}"
+            rec = RepairAttemptRecord(
+                attempt_number=att_num,
+                candidate_id=cand_id,
+                candidate_hash=cand_hash,
+                validation_decision="DECLINED",
+                eval_summary={"ratchet": "DECLINED", "reasons": reasons},
+                error_feedback=error_feedback,
+            )
+            self.attempts.append(rec)
+            if self.current_attempt >= self.max_attempts:
+                self.status = "EXHAUSTED"
+                self.stop_reason = f"Budget exhausted ({self.max_attempts} attempts reached) with DECLINED verdict"
+
+        if conn is not None:
+            _save_job(conn, self)
+        return rec
 
 
 def _compute_repair_fingerprint(
@@ -452,6 +760,19 @@ def repair_skill_failure(
     max_attempts: int = 2,
     p0_ids: Optional[list[str]] = None,
     diagnostic_llm: Optional[Any] = None,
+    enable_shadow_recovery: bool = False,
+    task_context: Optional[TaskContext] = None,
+    shared_budget: Optional[RecoveryBudget] = None,
+    checkpointer: Optional[Any] = None,
+    thread_id: Optional[str] = None,
+    candidate: Optional[CandidateSkill] = None,
+    is_receipt_defect: bool = False,
+    user_cancelled: bool = False,
+    baseline_drift: bool = False,
+    metric_jump: Optional[float] = None,
+    resume_checkpoint: Optional[dict[str, Any]] = None,
+    interrupt_before: Optional[list[str]] = None,
+    interrupt_after: Optional[list[str]] = None,
 ) -> RepairJob:
     """Orchestrate bounded repair loop for failed skill episodes.
 
@@ -483,6 +804,17 @@ def repair_skill_failure(
     if not learning_episodes:
         raise ValueError("No valid learning episodes found for repair (A8 isolation)")
 
+    # D5 Purpose Isolation: regression evaluation in repair loop cannot contain locked heldout cases
+    for case in eval_cases:
+        layer = str(case.get("layer", case.get("partition_tier", "")))
+        is_heldout = bool(case.get("is_heldout", layer in ("experiment_holdout", "final_audit")))
+        if is_heldout or layer in ("experiment_holdout", "final_audit"):
+            raise ValueError(
+                f"Purpose isolation violation: case '{case.get('id')}' is from locked tier '{layer}' "
+                "and cannot be used in repair regression without explicit demotion"
+            )
+
+
     if skill_name not in registry.list_names():
         raise KeyError(f"Target skill '{skill_name}' not found in active registry")
 
@@ -498,6 +830,151 @@ def repair_skill_failure(
     if existing_job is not None:
         if existing_job.status in ("READY", "AWAITING_REVIEW", "DECLINED", "BLOCKED", "EXHAUSTED", "PROMOTED"):
             return existing_job
+
+    if candidate is not None:
+        from .bounded_recovery import recover_bloated_candidate
+        eff_budget = shared_budget or RecoveryBudget(max_attempts=max_attempts)
+        rec_res = recover_bloated_candidate(
+            candidate=candidate,
+            registry=registry,
+            evaluator=evaluator,
+            eval_cases=eval_cases,
+            candidate_store=candidate_store,
+            enable_shadow_recovery=enable_shadow_recovery,
+            llm=llm,
+            budget=eff_budget,
+            scope_hash=getattr(candidate, "task_spec_hash", None),
+        )
+        cand_status: JobStatus = (
+            "AWAITING_REVIEW"
+            if rec_res.status == "AWAITING_REVIEW"
+            else ("READY" if rec_res.status == "SUCCESS" else "BLOCKED")
+        )
+        cand_job = RepairJob(
+            job_id=f"job_{uuid.uuid4().hex[:12]}",
+            fingerprint=fp,
+            skill_name=skill_name,
+            baseline_version=baseline_version,
+            source_episode_ids=[e.episode_id for e in learning_episodes],
+            diagnosis=AttributionDiagnosis(
+                responsibility_layer="skill",
+                strategy="prompt",
+                reason="Prompt bloat candidate evaluation",
+                evidence_refs=[e.episode_id for e in learning_episodes],
+            ),
+            status=cand_status,
+            max_attempts=max_attempts,
+            current_attempt=0,
+            attempts=[],
+            latest_candidate=rec_res.candidate or candidate,
+            latest_content_hash=compute_candidate_hash(rec_res.candidate or candidate),
+            stop_reason=rec_res.reason_code,
+        )
+        cand_job.recovery_result = rec_res
+        cand_job.bounded_recovery_result = rec_res
+        _save_job(conn, cand_job)
+        return cand_job
+
+    if enable_shadow_recovery:
+        from .bounded_recovery import check_non_recoverable_blockers, run_bounded_recovery
+        blocked, reason_code, reason_detail = check_non_recoverable_blockers(
+            episodes=learning_episodes,
+            baseline_drift=baseline_drift,
+            user_cancelled=user_cancelled,
+            metric_jump=metric_jump,
+            is_receipt_defect=is_receipt_defect,
+        )
+        if blocked:
+            status: JobStatus = "AWAITING_REVIEW" if reason_code == "NON_RECOVERABLE_PERMISSION_DENIED" else "BLOCKED"
+            blocked_job = RepairJob(
+                job_id=f"job_{uuid.uuid4().hex[:12]}",
+                fingerprint=fp,
+                skill_name=skill_name,
+                baseline_version=baseline_version,
+                source_episode_ids=[e.episode_id for e in learning_episodes],
+                diagnosis=AttributionDiagnosis(
+                    responsibility_layer="policy" if "PERMISSION" in reason_code else ("tool" if "TOOL" in reason_code or "ENV" in reason_code else ("evaluator" if "EVAL" in reason_code else "unknown")),
+                    reason=reason_detail or reason_code,
+                    handoff_info=reason_detail,
+                    structured_signal_override=True,
+                ),
+                status=status,
+                max_attempts=max_attempts,
+                current_attempt=0,
+                attempts=[],
+                stop_reason=reason_code or reason_detail,
+            )
+            _save_job(conn, blocked_job)
+            return blocked_job
+
+        eff_budget = shared_budget or RecoveryBudget(max_attempts=max_attempts)
+        rec_res = run_bounded_recovery(
+            skill_name=skill_name,
+            episodes=learning_episodes,
+            registry=registry,
+            evaluator=evaluator,
+            eval_cases=eval_cases,
+            candidate_store=candidate_store,
+            episode_store=episode_store,
+            llm=llm,
+            task_context=task_context,
+            shared_budget=eff_budget,
+            enable_shadow_recovery=True,
+            candidate=candidate,
+            is_receipt_defect=is_receipt_defect,
+            user_cancelled=user_cancelled,
+            baseline_drift=baseline_drift,
+            metric_jump=metric_jump,
+            resume_checkpoint=resume_checkpoint,
+            checkpointer=checkpointer,
+            thread_id=thread_id,
+            conn=conn,
+            diagnostic_llm=diagnostic_llm,
+            interrupt_before=interrupt_before,
+            interrupt_after=interrupt_after,
+        )
+
+        job = rec_res.repair_job
+        if job is None:
+            job = existing_job or RepairJob(
+                job_id=f"job_{uuid.uuid4().hex[:12]}",
+                fingerprint=fp,
+                skill_name=skill_name,
+                baseline_version=baseline_version,
+                source_episode_ids=[e.episode_id for e in learning_episodes],
+                diagnosis=AttributionDiagnosis(
+                    responsibility_layer="skill",
+                    strategy="prompt",
+                    reason=f"Bounded shadow recovery for {skill_name}",
+                    evidence_refs=[e.episode_id for e in learning_episodes],
+                ),
+                status="IN_PROGRESS",
+                max_attempts=max_attempts,
+                current_attempt=eff_budget.consumed_attempts,
+                attempts=[],
+            )
+
+        if rec_res.status == "SUCCESS":
+            job.status = "READY"
+        elif rec_res.status == "AWAITING_REVIEW":
+            job.status = "AWAITING_REVIEW"
+        elif rec_res.status == "EXHAUSTED":
+            job.status = "EXHAUSTED"
+        elif rec_res.status == "DECLINED":
+            job.status = "DECLINED"
+        elif rec_res.status in ("BLOCKED", "STOPPED"):
+            job.status = "BLOCKED"
+
+        if rec_res.candidate:
+            job.latest_candidate = rec_res.candidate
+            job.latest_content_hash = compute_candidate_hash(rec_res.candidate)
+        if rec_res.reason_code:
+            job.stop_reason = rec_res.reason_code
+
+        job.recovery_result = rec_res
+        job.bounded_recovery_result = rec_res
+        _save_job(conn, job)
+        return job
 
     # Attribute failure
     diagnosis = attribute_failure(learning_episodes, skill_name, llm=diagnostic_llm)
@@ -545,197 +1022,27 @@ def repair_skill_failure(
 
     # Bounded repair loop
     while job.current_attempt < job.max_attempts:
-        job.current_attempt += 1
-        att_num = job.current_attempt
-
-        # Patcher prompt construction
-        # CRITICAL A8 CONSTRAINT: Heldout test inputs/sentinels are NEVER included here!
-        prompt_lines = [
-            f"You are a Skill Patcher repairing '{skill_name}'.",
-            f"Current baseline version: {baseline_version}. Target patched version: {target_patch_version}.",
-            f"Attributed strategy: {diagnosis.strategy}. Root cause: {diagnosis.reason}.",
-            f"\n--- Current SKILL.md ---\n{registry.get_raw(skill_name) if hasattr(registry, 'get_raw') else base_body}",
-            "\n--- Observed Learning Failures ---",
-        ]
-        for ep in learning_episodes:
-            prompt_lines.append(f"- Task: {ep.environment.get('query')}; Failure: {ep.outcome_reason}")
-
-        if error_feedback:
-            prompt_lines.append(f"\n--- Feedback from previous attempt ---\n{error_feedback}")
-
-        prompt_lines.append(
-            f"\nGenerate a revised SKILL.md for '{skill_name}' with version '{target_patch_version}'. "
-            "Output valid YAML frontmatter between --- and markdown body."
-        )
-        patcher_prompt = "\n".join(prompt_lines)
-
-        resp = llm.invoke(patcher_prompt)
-        raw_output = getattr(resp, "content", str(resp)).strip()
-        if raw_output.startswith("```"):
-            raw_output = re.sub(r"^```(?:markdown)?\n|```$", "", raw_output, flags=re.MULTILINE).strip()
-
-        # Parse SKILL.md
-        m = _FRONTMATTER_RE.match(raw_output)
-        if not m:
-            rec = RepairAttemptRecord(
-                attempt_number=att_num,
-                validation_decision="DECLINED",
-                error_feedback="Malformed SKILL.md: lacks valid YAML frontmatter (--- ... ---)",
-            )
-            job.attempts.append(rec)
-            error_feedback = rec.error_feedback
-            if job.current_attempt >= job.max_attempts:
-                job.status = "EXHAUSTED"
-                job.stop_reason = f"Budget exhausted ({job.max_attempts} attempts reached) after malformed outputs"
-            continue
-
-        fm_text, cand_body = m.group(1), m.group(2).strip()
-        try:
-            cand_meta_dict = yaml.safe_load(fm_text) or {}
-            cand_meta = SkillMeta(**cand_meta_dict)
-        except Exception as e:
-            rec = RepairAttemptRecord(
-                attempt_number=att_num,
-                validation_decision="DECLINED",
-                error_feedback=f"Invalid frontmatter structure: {e}",
-            )
-            job.attempts.append(rec)
-            error_feedback = rec.error_feedback
-            if job.current_attempt >= job.max_attempts:
-                job.status = "EXHAUSTED"
-                job.stop_reason = f"Budget exhausted: {e}"
-            continue
-
-        if cand_meta.name != skill_name:
-            rec = RepairAttemptRecord(
-                attempt_number=att_num,
-                validation_decision="DECLINED",
-                error_feedback=f"Candidate name '{cand_meta.name}' does not match target '{skill_name}'",
-            )
-            job.attempts.append(rec)
-            error_feedback = rec.error_feedback
-            if job.current_attempt >= job.max_attempts:
-                job.status = "EXHAUSTED"
-                job.stop_reason = "Budget exhausted: mismatched skill name"
-            continue
-
-        # Diff and risk classification
-        baseline_md = f"---\n{yaml.dump(base_meta.model_dump(), sort_keys=False)}---\n\n{base_body}"
-        diff_res = compute_semantic_diff(baseline_md, raw_output, declared_level="L2")
-        if not diff_res.is_valid:
-            rec = RepairAttemptRecord(
-                attempt_number=att_num,
-                validation_decision="DECLINED",
-                error_feedback=diff_res.invalid_reason or "Diff invalid",
-            )
-            job.attempts.append(rec)
-            error_feedback = rec.error_feedback
-            if job.current_attempt >= job.max_attempts:
-                job.status = "EXHAUSTED"
-                job.stop_reason = diff_res.invalid_reason
-            continue
-
-        cand_id = f"cand_repair_{uuid.uuid4().hex[:12]}"
-        candidate = CandidateSkill(
-            candidate_id=cand_id,
-            skill_name=skill_name,
-            decision="revise",
-            source_episode_ids=[e.episode_id for e in learning_episodes],
-            meta=cand_meta,
-            body=cand_body,
-            rationale=f"Automated repair attempt {att_num} for {diagnosis.reason}",
-            status="DRAFT",
-        )
-        cand_hash = compute_candidate_hash(candidate)
-
-        # Duplicate patch hash detection: STOP immediately
-        if cand_hash in previous_hashes:
-            rec = RepairAttemptRecord(
-                attempt_number=att_num,
-                candidate_id=cand_id,
-                candidate_hash=cand_hash,
-                validation_decision="DECLINED",
-                error_feedback="Duplicate patch hash detected",
-            )
-            job.attempts.append(rec)
-            job.status = "DECLINED"
-            job.stop_reason = "Duplicate patch hash detected: identical candidate generated across attempts"
-            break
-
-        previous_hashes.add(cand_hash)
-        candidate_store.save_candidate(candidate)
-        job.latest_candidate = candidate
-        job.latest_content_hash = cand_hash
-
-        # Sandbox regression evaluation
-        val_rec = validate_candidate(
-            candidate=candidate,
-            evaluator=evaluator,
+        rec = job.run_attempt(
+            episodes=learning_episodes,
             registry=registry,
+            evaluator=evaluator,
             eval_cases=eval_cases,
+            candidate_store=candidate_store,
+            llm=llm,
+            conn=conn,
+            error_feedback=error_feedback,
+            previous_hashes=previous_hashes,
         )
+        if rec.candidate_hash:
+            previous_hashes.add(rec.candidate_hash)
+        error_feedback = rec.error_feedback
 
-        # Check for evaluator/infrastructure error
-        if val_rec.eval_result is not None and not val_rec.eval_result.valid:
-            reasons = val_rec.eval_result.invalid_reasons or ["Evaluator marked invalid"]
-            rec = RepairAttemptRecord(
-                attempt_number=att_num,
-                candidate_id=cand_id,
-                candidate_hash=cand_hash,
-                validation_decision="BLOCKED",
-                eval_summary={"valid": False, "reasons": reasons},
-                error_feedback="; ".join(reasons),
-            )
-            job.attempts.append(rec)
-            job.status = "BLOCKED"
-            job.stop_reason = f"Evaluator infrastructure error: {'; '.join(reasons)}"
-            break
-
-        verdict_dec = val_rec.ratchet_decision
-        if verdict_dec == "PASS":
-            rec = RepairAttemptRecord(
-                attempt_number=att_num,
-                candidate_id=cand_id,
-                candidate_hash=cand_hash,
-                validation_decision="PASS",
-                eval_summary={"ratchet": "PASS"},
-            )
-            job.attempts.append(rec)
-            job.status = "READY"
-            job.stop_reason = None
-            break
-
-        elif verdict_dec == "REVIEW":
-            reasons = val_rec.ratchet_verdict.reasons if val_rec.ratchet_verdict else ["Requires human review"]
-            rec = RepairAttemptRecord(
-                attempt_number=att_num,
-                candidate_id=cand_id,
-                candidate_hash=cand_hash,
-                validation_decision="REVIEW",
-                eval_summary={"ratchet": "REVIEW", "reasons": reasons},
-                error_feedback="; ".join(reasons),
-            )
-            job.attempts.append(rec)
-            job.status = "AWAITING_REVIEW"
-            job.stop_reason = "Ratchet verdict is REVIEW: requires human approval, automatic retry blocked"
-            break
-
-        else:  # DECLINED
-            reasons = val_rec.ratchet_verdict.reasons if val_rec.ratchet_verdict else ["Declined by ratchet gate"]
-            error_feedback = f"Declined by ratchet gate: {'; '.join(reasons)}"
-            rec = RepairAttemptRecord(
-                attempt_number=att_num,
-                candidate_id=cand_id,
-                candidate_hash=cand_hash,
-                validation_decision="DECLINED",
-                eval_summary={"ratchet": "DECLINED", "reasons": reasons},
-                error_feedback=error_feedback,
-            )
-            job.attempts.append(rec)
-
+        if job.status in ("READY", "AWAITING_REVIEW", "BLOCKED", "DECLINED", "EXHAUSTED"):
+            if job.status == "DECLINED" and job.stop_reason and "Duplicate patch hash" in job.stop_reason:
+                break
+            if job.status in ("READY", "AWAITING_REVIEW", "BLOCKED"):
+                break
             if job.current_attempt >= job.max_attempts:
-                job.status = "EXHAUSTED"
-                job.stop_reason = f"Budget exhausted ({job.max_attempts} attempts reached) with DECLINED verdict"
                 break
 
     _save_job(conn, job)

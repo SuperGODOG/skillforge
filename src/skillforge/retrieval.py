@@ -348,11 +348,14 @@ class FutureMemoryRetriever:
                 if snap.meta and snap.meta.trigger and snap.meta.trigger.keywords:
                     for kw in snap.meta.trigger.keywords:
                         kw_lower = kw.lower()
+                        if kw_lower in q_lower:
+                            score += 4.0
+                            match_reasons.append(f"Trigger keyword query match: '{kw}'")
                         for t in terms:
                             if t == kw_lower:
                                 score += 4.0
                                 match_reasons.append(f"Trigger keyword exact match: '{kw}'")
-                            elif t in kw_lower:
+                            elif t in kw_lower or kw_lower in t:
                                 score += 2.0
                                 match_reasons.append(f"Trigger keyword partial match: '{kw}'")
 

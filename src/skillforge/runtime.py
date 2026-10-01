@@ -32,6 +32,7 @@ from hello_agents.tools import Tool, ToolParameter, ToolResponse
 from hello_agents.tools.response import ToolStatus
 
 from .models import (
+    CandidateSkill,
     Episode,
     FutureRetrievalResult,
     RetrievalContext,
@@ -655,6 +656,7 @@ class AgentRuntime:
         self._skill_required_tools: dict[str, set[str]] = {}
         self._run_retrieval_results: dict[str, FutureRetrievalResult] = {}
         self._run_artifact_validators: dict[str, Any] = {}
+        self._run_candidate_bodies: dict[str, str] = {}
 
     def register_artifact_validator(self, run_id: str, validator: Any) -> None:
         """Bind an authoritative validator to a run for end-to-end receipt verification."""
@@ -689,6 +691,7 @@ class AgentRuntime:
         retrieval_context: Optional[RetrievalContext] = None,
         memory_manager: Optional[Any] = None,
         require_reuse: bool = False,
+        candidate: Optional[CandidateSkill] = None,
     ) -> RunRecord:
         """Start or re-attach to an execution run.
 
@@ -703,7 +706,8 @@ class AgentRuntime:
             row = conn.execute(
                 """SELECT run_id, task_id, skill_name, skill_version, content_hash,
                           status, purpose, budget_max, budget_consumed, deadline_ts,
-                          error_type, error_message, created_at, updated_at, terminal_at
+                          error_type, error_message, created_at, updated_at, terminal_at,
+                          frozen_body, intent_revision, task_spec_hash, candidate_id
                    FROM runtime_runs WHERE run_id = ?""",
                 (run_id,),
             ).fetchone()
@@ -723,6 +727,8 @@ class AgentRuntime:
                         f"task_id={existing_task} vs {task_id}, skill={existing_skill} vs {skill_name}, "
                         f"purpose={existing_purpose} vs {purpose}"
                     )
+                if len(row) > 15 and row[15] is not None and run_id not in self._run_candidate_bodies:
+                    self._run_candidate_bodies[run_id] = row[15]
                 return RunRecord(
                     run_id=row[0],
                     task_id=row[1],
@@ -739,6 +745,10 @@ class AgentRuntime:
                     created_at=row[12],
                     updated_at=row[13],
                     terminal_at=row[14],
+                    frozen_body=row[15] if len(row) > 15 else None,
+                    intent_revision=int(row[16]) if len(row) > 16 and row[16] is not None else 1,
+                    task_spec_hash=row[17] if len(row) > 17 else None,
+                    candidate_id=row[18] if len(row) > 18 else None,
                 )
 
             # Resolve skill dependencies placeholder
@@ -821,8 +831,9 @@ class AgentRuntime:
                     """INSERT INTO runtime_runs (
                         run_id, task_id, skill_name, skill_version, content_hash,
                         status, purpose, budget_max, budget_consumed, deadline_ts,
-                        error_type, error_message, created_at, updated_at, terminal_at
-                    ) VALUES (?, ?, NULL, NULL, NULL, 'FAILED', ?, ?, 0, ?, ?, ?, ?, ?, ?)""",
+                        error_type, error_message, created_at, updated_at, terminal_at,
+                        frozen_body, intent_revision, task_spec_hash, candidate_id
+                    ) VALUES (?, ?, NULL, NULL, NULL, 'FAILED', ?, ?, 0, ?, ?, ?, ?, ?, ?, NULL, 1, NULL, NULL)""",
                     (
                         run_id,
                         task_id,
@@ -882,12 +893,28 @@ class AgentRuntime:
                     terminal_at=now_iso,
                 )
 
-            # Resolve skill version & hash via DeploymentManager or Registry
-            if skill_name:
+            # Resolve skill version & hash via candidate, DeploymentManager, or Registry
+            if candidate is not None:
+                if not skill_name:
+                    skill_name = candidate.skill_name
+                if not assigned_ver:
+                    assigned_ver = candidate.meta.version or "0.1.0-draft"
+                if not assigned_hash:
+                    assigned_hash = hashlib.sha256(candidate.body.encode("utf-8")).hexdigest()
+                self._run_candidate_bodies[run_id] = str(candidate.body)
+                if req_tools is None and candidate.meta and candidate.meta.dependencies:
+                    req_tools = set(candidate.meta.dependencies)
+            elif skill_name:
                 if self.deployment_manager:
                     assigned_ver, assigned_hash, _ = self.deployment_manager.route_version(
                         skill_name, run_id=run_id
                     )
+                    try:
+                        dep_body = self.deployment_manager.get_run_body(skill_name, run_id)
+                        if dep_body:
+                            self._run_candidate_bodies[run_id] = str(dep_body)
+                    except Exception:
+                        pass
                     if req_tools is None:
                         try:
                             snap = self.deployment_manager.get_version_snapshot(skill_name, assigned_ver)
@@ -900,10 +927,12 @@ class AgentRuntime:
                         meta = self.registry.get_meta(skill_name)
                         if not assigned_ver:
                             assigned_ver = meta.version
+                        body_text = self.registry.get_body(skill_name)
                         if not assigned_hash:
                             assigned_hash = hashlib.sha256(
-                                self.registry.get_body(skill_name).strip().encode("utf-8")
+                                body_text.strip().encode("utf-8")
                             ).hexdigest()
+                        self._run_candidate_bodies[run_id] = str(body_text)
                         if req_tools is None and getattr(meta, "dependencies", None):
                             req_tools = set(meta.dependencies)
                     except Exception:
@@ -913,12 +942,18 @@ class AgentRuntime:
             self._provenances[run_id] = []
 
             now_iso = datetime.now(timezone.utc).isoformat()
+            frozen_body_val = self._run_candidate_bodies.get(run_id)
+            intent_revision_val = getattr(candidate, "intent_revision", 1) if candidate else 1
+            task_spec_hash_val = candidate.task_spec_hash if candidate else None
+            candidate_id_val = candidate.candidate_id if candidate else None
+
             conn.execute(
                 """INSERT INTO runtime_runs (
                     run_id, task_id, skill_name, skill_version, content_hash,
                     status, purpose, budget_max, budget_consumed, deadline_ts,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, 'RUNNING', ?, ?, 0, ?, ?, ?)""",
+                    created_at, updated_at,
+                    frozen_body, intent_revision, task_spec_hash, candidate_id
+                ) VALUES (?, ?, ?, ?, ?, 'RUNNING', ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     run_id,
                     task_id,
@@ -930,6 +965,10 @@ class AgentRuntime:
                     deadline_ts,
                     now_iso,
                     now_iso,
+                    frozen_body_val,
+                    intent_revision_val,
+                    task_spec_hash_val,
+                    candidate_id_val,
                 ),
             )
             conn.commit()
@@ -937,6 +976,13 @@ class AgentRuntime:
             # Start ExperienceCollector if configured
             if self.collector:
                 env_info: dict[str, Any] = {"purpose": purpose}
+                if candidate is not None:
+                    env_info["candidate_id"] = candidate.candidate_id
+                    env_info["candidate_hash"] = assigned_hash
+                    if candidate.task_spec_hash:
+                        env_info["task_spec_hash"] = candidate.task_spec_hash
+                    if candidate.source_requirement:
+                        env_info["source_requirement"] = candidate.source_requirement
                 if self.tool_broker and getattr(self.tool_broker, "sandbox_backend", None):
                     env_info["backend"] = self.tool_broker.sandbox_backend.name
                     if getattr(self.tool_broker, "dependency_prober", None):
@@ -977,6 +1023,10 @@ class AgentRuntime:
                 deadline_ts=deadline_ts,
                 created_at=now_iso,
                 updated_at=now_iso,
+                frozen_body=frozen_body_val,
+                intent_revision=intent_revision_val,
+                task_spec_hash=task_spec_hash_val,
+                candidate_id=candidate_id_val,
             )
 
     def execute_tool(
@@ -1152,6 +1202,8 @@ class AgentRuntime:
 
         return call_rec
 
+    dispatch_tool = execute_tool
+
     def _persist_tool_call(self, record: ToolCallRecord) -> None:
         conn = self._get_conn()
         conn.execute(
@@ -1214,6 +1266,82 @@ class AgentRuntime:
                     )
 
         return self.get_run(run_id)  # type: ignore
+
+    def get_cancellation_report(self, run_id: str) -> dict[str, Any]:
+        """Audit tool side-effects and execution status for a cancelled or stopped run.
+
+        Honest accounting principle:
+        - Executed tool calls are tracked and declared irreversible (no synthetic rollback claims).
+        - Documents cancellation capability differences across asynchronous coroutines,
+          sandboxed OS subprocesses, and synchronous Python callbacks.
+        """
+        run = self.get_run(run_id)
+        if not run:
+            raise KeyError(f"Run '{run_id}' not found")
+
+        conn = self._get_conn()
+        rows = conn.execute(
+            """SELECT call_id, tool_name, status, input_params_json,
+                      output_text, error_type, error_message, latency_ms, created_at
+               FROM runtime_tool_calls
+               WHERE run_id = ?
+               ORDER BY created_at ASC""",
+            (run_id,),
+        ).fetchall()
+
+        calls = []
+        executed_count = 0
+        rejected_count = 0
+        cancelled_count = 0
+        for r in rows:
+            c_status = r[2]
+            if c_status == "EXECUTED":
+                executed_count += 1
+            elif c_status == "REJECTED":
+                rejected_count += 1
+            elif c_status in ("CANCELLED", "TIMED_OUT"):
+                cancelled_count += 1
+            calls.append(
+                {
+                    "call_id": r[0],
+                    "tool_name": r[1],
+                    "status": c_status,
+                    "error_type": r[5],
+                    "error_message": r[6],
+                    "latency_ms": r[7],
+                    "created_at": r[8],
+                }
+            )
+
+        return {
+            "run_id": run.run_id,
+            "task_id": run.task_id,
+            "run_status": run.status,
+            "total_tool_calls": len(calls),
+            "executed_tool_calls_count": executed_count,
+            "rejected_tool_calls_count": rejected_count,
+            "cancelled_tool_calls_count": cancelled_count,
+            "tool_calls": calls,
+            "side_effects_reversible": False,
+            "reversibility_statement": (
+                "Executed tool side effects are non-reversible; underlying system modifications "
+                "persist and cannot be rolled back via intent or version transitions."
+            ),
+            "channel_cancellation_capabilities": {
+                "async_coroutine": {
+                    "mechanism": "asyncio.wait_for / Task.cancel",
+                    "preemption": "Cooperative: halts execution at next await point or raises TimeoutError/CancelledError.",
+                },
+                "process_sandbox": {
+                    "mechanism": "POSIX SIGTERM -> SIGKILL escalation via SandboxBackend",
+                    "preemption": "Forcible: terminates process tree and isolates uncommitted workspace writes.",
+                },
+                "sync_python_callback": {
+                    "mechanism": "State check prior to dispatch (DISPATCH_AFTER_TERMINAL)",
+                    "preemption": "Non-preemptible mid-function; future tool dispatches are immediately rejected as CANCELLED.",
+                },
+            },
+        }
 
     def finalize_run(
         self,
@@ -1339,7 +1467,8 @@ class AgentRuntime:
         row = conn.execute(
             """SELECT run_id, task_id, skill_name, skill_version, content_hash,
                       status, purpose, budget_max, budget_consumed, deadline_ts,
-                      error_type, error_message, created_at, updated_at, terminal_at
+                      error_type, error_message, created_at, updated_at, terminal_at,
+                      frozen_body, intent_revision, task_spec_hash, candidate_id
                FROM runtime_runs WHERE run_id = ?""",
             (run_id,),
         ).fetchone()
@@ -1361,7 +1490,72 @@ class AgentRuntime:
             created_at=row[12],
             updated_at=row[13],
             terminal_at=row[14],
+            frozen_body=row[15] if len(row) > 15 else None,
+            intent_revision=int(row[16]) if len(row) > 16 and row[16] is not None else 1,
+            task_spec_hash=row[17] if len(row) > 17 else None,
+            candidate_id=row[18] if len(row) > 18 else None,
         )
+
+    def get_run_body(self, skill_name: Optional[str] = None, run_id: Optional[str] = None) -> str:
+        """Fetch frozen body text for an execution run.
+
+        Prioritizes frozen candidate snapshot in the current run, then falls back
+        to deployment_manager or registry.
+        """
+        eff_run_id = run_id or (skill_name if skill_name and skill_name.startswith("run_") else None)
+        with self._lock:
+            if eff_run_id and eff_run_id in self._run_candidate_bodies:
+                return self._run_candidate_bodies[eff_run_id]
+            if skill_name and skill_name in self._run_candidate_bodies:
+                return self._run_candidate_bodies[skill_name]
+
+        # If not in memory cache, attempt to restore from persistent SQLite runtime_runs
+        if eff_run_id:
+            conn = self._get_conn()
+            row = conn.execute(
+                "SELECT frozen_body, content_hash, skill_name, skill_version, candidate_id FROM runtime_runs WHERE run_id = ?",
+                (eff_run_id,),
+            ).fetchone()
+            if row:
+                f_body, c_hash, s_name, s_ver, cand_id = row
+                if f_body is not None:
+                    # Anti-tamper verification
+                    if c_hash:
+                        raw_hash = hashlib.sha256(f_body.encode("utf-8")).hexdigest()
+                        strip_hash = hashlib.sha256(f_body.strip().encode("utf-8")).hexdigest()
+                        valid_hashes = {raw_hash, strip_hash, raw_hash[:16], strip_hash[:16]}
+                        if c_hash not in valid_hashes:
+                            raise ValueError(
+                                f"Integrity check failed for run_id='{eff_run_id}': "
+                                f"persisted frozen_body hash mismatch (expected {c_hash}, got raw={raw_hash}, strip={strip_hash})"
+                            )
+                    with self._lock:
+                        self._run_candidate_bodies[eff_run_id] = f_body
+                    return f_body
+                else:
+                    # Legacy run without persisted frozen_body (is NULL)
+                    # For unpromoted drafts or unpersisted draft runs, fail closed with diagnostic
+                    target_skill = skill_name or s_name
+                    is_draft = cand_id is not None or (s_ver and "draft" in s_ver.lower())
+                    if is_draft or not self.registry or not target_skill or target_skill not in self.registry.list_names():
+                        raise KeyError(
+                            f"historical draft run body was not persisted in legacy DB for run_id='{eff_run_id}'; "
+                            "cannot reconstruct without verified snapshot"
+                        )
+                    # If formal promoted skill in registry, fall back to deployment or registry
+                    if self.deployment_manager:
+                        return self.deployment_manager.get_run_body(target_skill, eff_run_id)
+                    return self.registry.get_body(target_skill)
+
+        if not skill_name and eff_run_id:
+            run_rec = self.get_run(eff_run_id)
+            if run_rec and run_rec.skill_name:
+                skill_name = run_rec.skill_name
+        if self.deployment_manager and eff_run_id and skill_name:
+            return self.deployment_manager.get_run_body(skill_name, eff_run_id)
+        if self.registry and skill_name:
+            return self.registry.get_body(skill_name)
+        raise KeyError(f"No body found for run_id={eff_run_id or run_id}, skill_name={skill_name}")
 
     def list_tool_calls(self, run_id: str) -> list[ToolCallRecord]:
         """List all tool call records for a run in chronological order."""
@@ -1407,6 +1601,65 @@ class AgentRuntime:
             parameters=self.tool_broker.get_parameters(tool_name),
             tool_timeout=tool_timeout,
         )
+
+    def run_agent(
+        self,
+        run_id: str,
+        input_text: str,
+        llm: Any,
+        candidate: Optional[Any] = None,
+        tools: Optional[list[str]] = None,
+        system_prompt_header: str = "",
+        max_tool_iterations: int = 5,
+    ) -> str:
+        """Execute a SimpleAgent using frozen skill body snapshot and brokered tools.
+
+        Invariants:
+        - System prompt is built strictly from the runtime's frozen body snapshot (via get_run_body),
+          so subsequent candidate mutations in memory cannot alter execution.
+        - Tool dispatches are mediated by BrokeredTool, enforcing ToolBroker allowlists,
+          budget consumption, deadline checks, and ExperienceCollector logging.
+        """
+        skill_name = candidate.skill_name if candidate else None
+        if not skill_name:
+            run_rec = self.get_run(run_id)
+            if run_rec and run_rec.skill_name:
+                skill_name = run_rec.skill_name
+        body = self.get_run_body(skill_name=skill_name, run_id=run_id)
+        system_prompt = f"{system_prompt_header}\n{body}".strip() if system_prompt_header else body
+
+        from hello_agents import Config, SimpleAgent, ToolRegistry
+
+        tool_registry = ToolRegistry()
+        target_tools: list[str] = []
+        if tools is not None:
+            target_tools = list(tools)
+        elif candidate and getattr(candidate, "meta", None) and getattr(candidate.meta, "dependencies", None):
+            target_tools = list(candidate.meta.dependencies)
+        elif self.tool_broker:
+            target_tools = list(self.tool_broker._tools.keys())
+
+        for tname in target_tools:
+            brokered = self.create_brokered_tool(tname, run_id=run_id)
+            tool_registry.register_tool(brokered)
+
+        agent = SimpleAgent(
+            name=f"agent_{run_id}",
+            llm=llm,
+            system_prompt=system_prompt,
+            config=Config(
+                trace_enabled=False,
+                skills_enabled=False,
+                session_enabled=False,
+                subagent_enabled=False,
+                todowrite_enabled=False,
+                devlog_enabled=False,
+            ),
+            tool_registry=tool_registry,
+            enable_tool_calling=len(target_tools) > 0,
+            max_tool_iterations=max_tool_iterations,
+        )
+        return agent.run(input_text)
 
     def get_provenances(self, run_id: str) -> list[ToolCallProvenance]:
         """Fetch all provenances recorded for a run."""

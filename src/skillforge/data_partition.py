@@ -340,3 +340,111 @@ def validate_partition_invariants(
         )
 
     return errors
+
+
+def group_and_partition_cases(
+    cases: list[dict[str, Any]],
+    dev_ratio: float = 0.5,
+    seed: int = 42,
+) -> dict[str, list[dict[str, Any]]]:
+    """Partition cases into repair (dev) and experiment_holdout by family groups.
+
+    Guarantees Acceptance Criteria D3:
+    - Cases derived from the same source task, variant family, or intent revision
+      are strictly assigned to the SAME partition.
+    - Near-duplicates or variations can never cross into the heldout set,
+      preventing data leakage and evaluation pollution.
+    """
+    import random
+
+    if not cases:
+        return {"repair": [], "experiment_holdout": []}
+
+    family_groups: dict[tuple[str, int], list[dict[str, Any]]] = {}
+    for c in cases:
+        task_id = str(c.get("source_task_id") or c.get("task_id") or c.get("id") or "")
+        family = str(c.get("variant_family") or task_id.split("-")[0].split("_")[0])
+        intent_rev = int(c.get("intent_revision", 1))
+        key = (family, intent_rev)
+        family_groups.setdefault(key, []).append(c)
+
+    sorted_families = sorted(family_groups.keys())
+    rng = random.Random(seed)
+    rng.shuffle(sorted_families)
+
+    dev_count = max(1, int(len(sorted_families) * dev_ratio))
+    dev_families = set(sorted_families[:dev_count])
+
+    repair_cases: list[dict[str, Any]] = []
+    holdout_cases: list[dict[str, Any]] = []
+
+    for fam_key, group in family_groups.items():
+        tier = "repair" if fam_key in dev_families else "experiment_holdout"
+        for c in group:
+            c_copy = dict(c)
+            c_copy["partition_tier"] = tier
+            c_copy["variant_family"] = fam_key[0]
+            if tier == "repair":
+                repair_cases.append(c_copy)
+            else:
+                holdout_cases.append(c_copy)
+
+    return {
+        "repair": repair_cases,
+        "experiment_holdout": holdout_cases,
+    }
+
+
+def validate_repair_set_composition(
+    cases: list[dict[str, Any]],
+    max_auto_ratio: float = 0.50,
+) -> dict[str, Any]:
+    """Validate repair set auto-case ratio with anti-dilution duplicate detection (D3).
+
+    Reuses existing auto-case threshold rules, while guarding against dilution attacks
+    where identical or near-duplicate human cases are added to artificially inflate
+    the denominator and bypass the auto ratio cap.
+    """
+    import re
+
+    auto_cases: list[dict[str, Any]] = []
+    human_cases: list[dict[str, Any]] = []
+
+    for c in cases:
+        cid = str(c.get("id", ""))
+        is_auto = bool(c.get("is_auto", False)) or ("_auto_" in cid)
+        if is_auto:
+            auto_cases.append(c)
+        else:
+            human_cases.append(c)
+
+    distinct_human_queries: set[str] = set()
+    for c in human_cases:
+        query = str(c.get("query", "")).strip().lower()
+        query_norm = re.sub(r"[\s\-_/]+", " ", query)
+        distinct_human_queries.add(query_norm)
+
+    effective_human_count = len(distinct_human_queries)
+    auto_count = len(auto_cases)
+    total_effective = auto_count + effective_human_count
+
+    ratio = auto_count / total_effective if total_effective > 0 else 0.0
+
+    if ratio > max_auto_ratio:
+        duplicate_human_count = len(human_cases) - effective_human_count
+        msg = (
+            f"Repair auto case ratio {ratio:.1%} exceeds maximum allowed {max_auto_ratio:.1%}. "
+            f"Effective human count: {effective_human_count} (excluding {duplicate_human_count} duplicate human queries). "
+            "Dilution attempt rejected: 50% quota is not an independence guarantee."
+        )
+        raise ValueError(msg)
+
+    return {
+        "auto_count": auto_count,
+        "human_count": len(human_cases),
+        "effective_human_count": effective_human_count,
+        "duplicate_human_queries": len(human_cases) - effective_human_count,
+        "effective_auto_ratio": ratio,
+        "valid": True,
+    }
+

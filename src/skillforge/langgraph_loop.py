@@ -125,6 +125,17 @@ ALLOWED_MSGPACK_MODULES = [
     ('skillforge.evolver', 'Failure'),
     ('skillforge.evolver', 'RootCause'),
     ('skillforge.evolver', 'EvolveOutcome'),
+    ('skillforge.models', 'CandidateSkill'),
+    ('skillforge.models', 'ValidationRecord'),
+    ('skillforge.models', 'RecoveryBudget'),
+    ('skillforge.models', 'LineageBinding'),
+    ('skillforge.models', 'BoundedRecoveryResult'),
+    ('skillforge.models', 'TaskContext'),
+    ('skillforge.models', 'Release'),
+    ('skillforge.repair', 'RepairJob'),
+    ('skillforge.repair', 'RepairAttemptRecord'),
+    ('skillforge.repair', 'AttributionDiagnosis'),
+    ('skillforge.models', 'Episode'),
 ]
 
 

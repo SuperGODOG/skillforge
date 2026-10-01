@@ -39,6 +39,42 @@ class MockLLM:
         return SimpleNamespace(content=self.response_content)
 
 
+def _make_pass_record(generated: GeneratedSkill) -> Any:
+    import tempfile
+    from skillforge.evolution_loop import ValidationRecord
+    from skillforge.skill_generator import compute_generated_hash
+    from skillforge.episode import CandidateStore
+    from skillforge.models import CandidateSkill
+    tmp_db = Path(tempfile.mkdtemp()) / "store.db"
+    store = CandidateStore(tmp_db)
+    cand_id = f"cand_{generated.name}"
+    cand = CandidateSkill(
+        candidate_id=cand_id,
+        skill_name=generated.name,
+        decision="create",
+        source_episode_ids=[],
+        meta=generated.meta,
+        body=generated.body_raw or "",
+        rationale="Validation test pass",
+        status="APPROVED",
+        source_requirement="test",
+        source_type="requirement",
+    )
+    store.save_candidate(cand)
+    rec = ValidationRecord(
+        candidate_id=cand_id,
+        content_hash=compute_generated_hash(generated),
+        baseline_version="1.0.0",
+        ratchet_decision="PASS",
+        eval_result=None,
+        ratchet_verdict=None,
+        promoted=False,
+    )
+    store.save_validation_record(rec)
+    rec._candidate_store = store
+    return rec
+
+
 class SequenceLLM:
     def __init__(self, responses: list[Any]):
         self.responses = list(responses)
@@ -312,7 +348,13 @@ class TestSkillGeneratorUnit:
             meta=parsed_meta,
         )
         with pytest.raises(RegistrationError, match="router_negatives"):
-            register_skill(generated, repo_root=tmp_path, repair_set_path=repair_file)
+            register_skill(
+                generated,
+                repo_root=tmp_path,
+                repair_set_path=repair_file,
+                caller_confirmed=True,
+                validation_record=_make_pass_record(generated),
+            )
         assert not (skills_dir / parsed_meta.name).exists()
         assert json.loads(repair_file.read_text(encoding="utf-8"))["meta"]["total"] == 5
 
@@ -354,7 +396,14 @@ class TestSkillGeneratorUnit:
             meta=meta,
         )
         with pytest.raises(RegistrationError, match="占比"):
-            register_skill(ratio_generated, repo_root=tmp_path, repair_set_path=repair_file, router_negatives_path=router_file)
+            register_skill(
+                ratio_generated,
+                repo_root=tmp_path,
+                repair_set_path=repair_file,
+                router_negatives_path=router_file,
+                caller_confirmed=True,
+                validation_record=_make_pass_record(ratio_generated),
+            )
         assert not (skills_dir / meta.name).exists()
 
         collision_repair = json.loads(repair_file.read_text(encoding="utf-8"))
@@ -380,7 +429,14 @@ class TestSkillGeneratorUnit:
             meta=collision_meta,
         )
         with pytest.raises(RegistrationError, match="前缀"):
-            register_skill(collision_generated, repo_root=tmp_path, repair_set_path=repair_file, router_negatives_path=router_file)
+            register_skill(
+                collision_generated,
+                repo_root=tmp_path,
+                repair_set_path=repair_file,
+                router_negatives_path=router_file,
+                caller_confirmed=True,
+                validation_record=_make_pass_record(collision_generated),
+            )
         assert not (skills_dir / collision_meta.name).exists()
 
     def test_register_rejects_prefix_collision_in_holdout_before_writes(self, tmp_path: Path, valid_skill_md):
@@ -429,7 +485,14 @@ class TestSkillGeneratorUnit:
             meta=meta,
         )
         with pytest.raises(RegistrationError, match="全局 auto case 前缀"):
-            register_skill(generated, repo_root=tmp_path, repair_set_path=repair_file, router_negatives_path=router_file)
+            register_skill(
+                generated,
+                repo_root=tmp_path,
+                repair_set_path=repair_file,
+                router_negatives_path=router_file,
+                caller_confirmed=True,
+                validation_record=_make_pass_record(generated),
+            )
         assert not (skills_dir / meta.name).exists()
         assert json.loads(repair_file.read_text(encoding="utf-8"))["meta"]["total"] == 5
 
@@ -626,11 +689,32 @@ class TestSkillGeneratorUnit:
             )
         )
 
+        with pytest.raises(RegistrationError, match="直接向正式技能库落盘注册已受控"):
+            register_skill(
+                generated,
+                repo_root=tmp_path,
+                repair_set_path=repair_set_file,
+                router_negatives_path=router_file,
+                caller_confirmed=False,
+            )
+
+        with pytest.raises(RegistrationError, match="无法直接落盘：候选必须先通过共同门禁验证"):
+            register_skill(
+                generated,
+                repo_root=tmp_path,
+                repair_set_path=repair_set_file,
+                router_negatives_path=router_file,
+                caller_confirmed=True,
+                validation_record=None,
+            )
+
         skill_file = register_skill(
             generated,
             repo_root=tmp_path,
             repair_set_path=repair_set_file,
             router_negatives_path=router_file,
+            caller_confirmed=True,
+            validation_record=_make_pass_record(generated),
         )
         assert skill_file.exists()
         assert (skills_dir / "test_reg_skill" / "SKILL.md").exists()

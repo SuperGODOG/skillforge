@@ -76,6 +76,8 @@ class ClusterReport:
     complexity_steps: int = 0
     selection_basis: dict[str, str] = field(default_factory=dict)
     abstain_reasons: list[str] = field(default_factory=list)
+    scope_key: Optional[str] = None
+    embedder_used: str = "bow_fallback"
 
 
 @dataclass
@@ -90,6 +92,8 @@ class MiningBatchReport:
     candidates_created: list[CandidateSkill] = field(default_factory=list)
     candidates_revised: list[CandidateSkill] = field(default_factory=list)
     abstained_clusters: list[ClusterReport] = field(default_factory=list)
+    embedder_used: str = "bow_fallback"
+
 
 
 def normalize_task_text(text: str) -> str:
@@ -158,7 +162,31 @@ def _bow_embed(text: str, dim: int = 128) -> list[float]:
     return vec
 
 
-def _default_embed(texts: list[str]) -> list[list[float]]:
+def extract_scope_key(ep: Episode) -> tuple[str, int, tuple[str, ...]]:
+    """Extract business scope, intent revision, and tool contract tuple for scope-aware clustering (D4)."""
+    scope = ""
+    if isinstance(ep.environment, dict):
+        scope = ep.environment.get("business_scope") or ep.environment.get("domain") or ""
+    if not scope and isinstance(ep.acceptance_criteria, dict):
+        scope = ep.acceptance_criteria.get("business_scope") or ep.acceptance_criteria.get("domain") or ""
+    if not scope:
+        scope = "default"
+
+    intent_rev = 1
+    if isinstance(ep.environment, dict):
+        intent_rev = int(ep.environment.get("intent_revision", 1))
+
+    tools: set[str] = set()
+    if ep.provenances:
+        tools = {p.tool_name for p in ep.provenances if getattr(p, "tool_called", True)}
+    elif isinstance(ep.environment, dict):
+        tools = set(ep.environment.get("tools") or ep.environment.get("declared_tools") or [])
+    tool_key = tuple(sorted(tools))
+
+    return (scope, intent_rev, tool_key)
+
+
+def _default_embed_with_method(texts: list[str]) -> tuple[list[list[float]], str]:
     """Try to use repo's local EmbedLayer; fallback to deterministic hash embedder."""
     try:
         from .router.embed import EmbedLayer
@@ -166,10 +194,16 @@ def _default_embed(texts: list[str]) -> list[list[float]]:
         if layer.model_dir.exists():
             model = layer._get_model()
             vecs = model.encode(texts, normalize_embeddings=True)
-            return [v.tolist() for v in vecs]
+            return [v.tolist() for v in vecs], "embed_layer"
     except Exception:
         pass
-    return [_bow_embed(t) for t in texts]
+    return [_bow_embed(t) for t in texts], "bow_fallback"
+
+
+def _default_embed(texts: list[str]) -> list[list[float]]:
+    vecs, _ = _default_embed_with_method(texts)
+    return vecs
+
 
 
 def cluster_tasks(
@@ -288,8 +322,24 @@ def mine_pending(
             f"out of {len(runs)} total runs for task '{task_id}'"
         )
 
-    # 3. Semantic Grouping & Observable Pattern Analysis
-    task_clusters = cluster_tasks(deduped_tasks, embedder, cfg.similarity_threshold)
+    # 3. Scope-Aware Partitioning (D4): group FIRST by (scope, intent_revision, tool_contracts)
+    eff_embedder_name = "custom" if embedder is not None else "bow_fallback"
+    if embedder is None:
+        _, eff_embedder_name = _default_embed_with_method(
+            [t[1] for t in deduped_tasks[:1]] if deduped_tasks else ["test"]
+        )
+
+    scope_groups: dict[tuple[str, int, tuple[str, ...]], list[tuple[str, str, Episode]]] = {}
+    for item in deduped_tasks:
+        s_key = extract_scope_key(item[2])
+        scope_groups.setdefault(s_key, []).append(item)
+
+    task_clusters: list[tuple[str, list[tuple[str, str, Episode]]]] = []
+    for s_key, s_tasks in sorted(scope_groups.items(), key=lambda x: str(x[0])):
+        scope_str = f"{s_key[0]}:r{s_key[1]}:{'+'.join(s_key[2]) if s_key[2] else 'none'}"
+        sub_clusters = cluster_tasks(s_tasks, embedder, cfg.similarity_threshold)
+        for sub_c in sub_clusters:
+            task_clusters.append((scope_str, sub_c))
 
     conn = episode_store._get_conn()
     cluster_reports: list[ClusterReport] = []
@@ -297,7 +347,7 @@ def mine_pending(
     revised_candidates: list[CandidateSkill] = []
     abstained_reports: list[ClusterReport] = []
 
-    for c_idx, cluster in enumerate(task_clusters):
+    for c_idx, (scope_str, cluster) in enumerate(task_clusters):
         cluster_id = f"cluster_{c_idx + 1}"
         cluster_episodes = [t[2] for t in cluster]
         distinct_tasks = set(ep.task_id for ep in cluster_episodes)
@@ -326,10 +376,8 @@ def mine_pending(
         # Derive target skill name
         named_skills = [ep.skill_name for ep in cluster_episodes if ep.skill_name]
         if named_skills:
-            # Most common non-empty skill name
             target_skill_name = max(set(named_skills), key=named_skills.count)
         else:
-            # Fallback to normalized common keyword or cluster id
             first_word = normalize_task_text(expressions[0]).split()[0] if expressions else "task"
             target_skill_name = f"{first_word}_skill"
 
@@ -338,7 +386,6 @@ def mine_pending(
         decision_type: Literal["create", "revise"] = "revise" if is_existing else "create"
 
         # 4. Conservative Threshold Validation
-        # ponytail: keep minimal heuristic checks before calling expensive LLM synthesis
         abstain_reasons: list[str] = []
 
         if support_count < cfg.min_support:
@@ -361,6 +408,29 @@ def mine_pending(
             abstain_reasons.append(
                 f"Success rate too low: {success_rate:.2f} < {cfg.min_success_rate} ({success_count} success, {failure_count} failure)"
             )
+
+        # Sub-scenario failure check (D4: 正反例都参与范围分析，稳定子场景失败不能被多数成功掩盖)
+        sub_scenarios: dict[str, list[Episode]] = {}
+        for ep in cluster_episodes:
+            sub_key = "default"
+            if isinstance(ep.acceptance_criteria, dict) and "sub_intent" in ep.acceptance_criteria:
+                sub_key = str(ep.acceptance_criteria["sub_intent"])
+            elif isinstance(ep.environment, dict) and "sub_intent" in ep.environment:
+                sub_key = str(ep.environment["sub_intent"])
+            elif isinstance(ep.environment, dict) and "order_id" in ep.environment:
+                sub_key = str(ep.environment["order_id"])
+            elif ep.provenances:
+                sub_key = "+".join(sorted(p.tool_name for p in ep.provenances))
+            sub_scenarios.setdefault(sub_key, []).append(ep)
+
+        for sub_k, sub_eps in sub_scenarios.items():
+            sub_fails = sum(1 for e in sub_eps if e.outcome == "failure")
+            sub_succs = sum(1 for e in sub_eps if e.outcome == "success")
+            if sub_fails > 0 and sub_succs == 0:
+                abstain_reasons.append(
+                    f"Stable sub-scenario failure detected for '{sub_k}' ({sub_fails} failures, 0 successes); "
+                    "cannot mask with majority success"
+                )
 
         source_ids = [ep.episode_id for ep in cluster_episodes]
         cluster_selection_basis = {ep.task_id: selection_basis_map[ep.task_id] for ep in cluster_episodes}
@@ -385,6 +455,8 @@ def mine_pending(
                 complexity_steps=max_steps,
                 selection_basis=cluster_selection_basis,
                 abstain_reasons=abstain_reasons,
+                scope_key=scope_str,
+                embedder_used=eff_embedder_name,
             )
             cluster_reports.append(rep)
             abstained_reports.append(rep)
@@ -420,6 +492,8 @@ def mine_pending(
                 complexity_steps=max_steps,
                 selection_basis=cluster_selection_basis,
                 abstain_reasons=[cached_abs] if cached_abs else [],
+                scope_key=scope_str,
+                embedder_used=eff_embedder_name,
             )
             cluster_reports.append(rep)
             if existing_candidate:
@@ -490,6 +564,8 @@ def mine_pending(
             complexity_steps=max_steps,
             selection_basis=cluster_selection_basis,
             abstain_reasons=[mining_res.abandon_reason] if mining_res.abandon_reason else [],
+            scope_key=scope_str,
+            embedder_used=eff_embedder_name,
         )
         cluster_reports.append(rep)
 
@@ -510,4 +586,6 @@ def mine_pending(
         candidates_created=created_candidates,
         candidates_revised=revised_candidates,
         abstained_clusters=abstained_reports,
+        embedder_used=eff_embedder_name,
     )
+

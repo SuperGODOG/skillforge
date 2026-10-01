@@ -1,330 +1,174 @@
 <div align="center">
-
-<p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/skillforge-banner-dark.png">
-    <img alt="SkillForge - Agent 受控执行与技能演进框架" src="assets/skillforge-banner.png" width="100%">
+    <img alt="SkillForge — Agent 受控执行与技能演进框架" src="assets/skillforge-banner.png" width="100%">
   </picture>
-</p>
 
-# 🛠️ SkillForge｜Agent 受控执行与技能演进框架
+# SkillForge
 
-**记住一次经历和接受一项长期能力，是两个不同的决策**<br>
-*Controlled Agent Execution, Structured Validation Receipts, Three-Tier Memory & Cross-Task Skill Evolution*
+**记住一次经历，与接受一项长期能力，是两个不同的决策。**
 
-[![Python](https://img.shields.io/badge/Python-3.10%2B-3776ab?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/Tests-104%20Passed%20(14%20Suites)-10b981?style=flat-square&logo=pytest&logoColor=white)](tests/)
-[![Harness](https://img.shields.io/badge/Harness-AgentRuntime%20%2B%20SeatbeltSandbox-3b82f6?style=flat-square)](src/skillforge/runtime.py)
-[![Diagnostics](https://img.shields.io/badge/Diagnostics-ValidationReceipt%20(Structured)-06b6d4?style=flat-square)](src/skillforge/receipt.py)
-[![Memory](https://img.shields.io/badge/Memory-Three--Tier%20Memory%20Manager-8b5cf6?style=flat-square)](src/skillforge/memory.py)
-[![Evolution](https://img.shields.io/badge/Evolution-EpisodeStore%20%2B%20PatternMining-f59e0b?style=flat-square)](src/skillforge/pattern_mining.py)
-[![Governance](https://img.shields.io/badge/Governance-CAS%20DeploymentManager-ec4899?style=flat-square)](src/skillforge/deployments.py)
-[![License](https://img.shields.io/badge/License-MIT-gray?style=flat-square)](#license--致谢)
+Agent 受控执行、任务内草稿试用与跨任务技能演进的个人工程项目。
 
-<p>
-  <a href="#1-项目定位与核心哲学">🎯 核心哲学</a> •
-  <a href="#2-系统架构全景">🏛️ 架构全景</a> •
-  <a href="#3-四大核心技术模块深度解析">⚙️ 核心技术模块</a> •
-  <a href="#4-实验证据与工程验证数据">📊 实验与工程证据</a> •
-  <a href="#5-快速上手与复现">🚀 快速上手</a> •
-  <a href="#6-代码仓库索引与地图">🗺️ 代码地图</a>
-</p>
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776ab?logo=python&logoColor=white)](pyproject.toml)
+[![LangGraph](https://img.shields.io/badge/Recovery-LangGraph-3b82f6)](src/skillforge/bounded_recovery.py)
 
 </div>
 
----
+## 项目解决什么问题
 
-> [!NOTE]
-> **核心定位 (Abstract)**：SkillForge 是一个专注于 **Agent 运行经验沉淀与技能演进** 的受控执行框架。它关注的核心问题是：**Agent 完成一次任务之后，怎样让这次经历对后续任务产生确定性的复用价值？**<br>
-> 系统构建了两层正交闭环：
-> 1. **任务内可验证自修复闭环**：以结构化诊断凭据（`ValidationReceipt`）为中枢，按失败责任层驱动有限预算的有界局部修复，并在 `finalize` 终态强制基于当前产物执行权威重验，防旧 PASS 冒领与配置漂移；
-> 2. **跨任务技能演进闭环**：将执行轨迹、工具调用签名、恢复与证据沉淀为不可变经历（`Episode`），区分语义事实、单次经历与程序技能三层记忆；基于支持度与相似度提炼技能候选（`Candidate`），经隔离黄金基准集评测与防倒退棘轮门禁严格筛选后显式晋升，结合 CAS 版本治理实现受控复用。
+Agent 能完成一次任务，不代表它已经获得可长期复用的技能。SkillForge 把执行、经历、候选与正式技能分开管理：
 
----
+- **短需求先试用**：从需求或对话生成任务内 Draft，不需要先伪造 Episode，也不立即发布到正式库。
+- **执行留下证据**：Runtime 固定运行快照，Tool Broker 检查工具权限与参数，Collector 回收带来源、版本和工具轨迹的 Episode。
+- **修改经过门禁**：候选需要来源、结构、长度、依赖与行为验证；旧 PASS 不能在正文、基线、意图、配置或数据集漂移后继续使用。
+- **长期能力显式接受**：共同验证的权威记录与显式确认是晋升条件；一次任务成功、图恢复成功或模型自评成功都不能替代发布决策。
 
-## 1. 项目定位与核心哲学
+这是工程机制与实验项目，**不是生产就绪平台，也不保证模型会持续变好**。
 
-在传统的 Agent 系统中，运行轨迹通常直接被丢弃，或者直接作为 Prompt 上下文全量平铺，面临“注意力稀释、越权修改、模型自评自嗨、版本不可控”等严重工程隐患。SkillForge 坚持以下三项工程底线：
-
-1. **记住经历 ≠ 接受技能**：
-   * 单次任务的执行细节、参数和临时对策属于“经历（Episodic Memory）”，不可篡改且具有时效局限；
-   * 只有在多个不同任务中重复出现、模式稳定、结构完整且通过严格评测的策略，才有资格晋升为“长期技能（Procedural Skill）”。
-2. **诊断必须带责任层归因，修复必须有界**：
-   * 验证失败不是模型自由发挥的“无边界反思”借口。系统将失败显式归因至 `skill`（技能瑕疵）、`tool`（工具报错）、`policy`（权限拦截）、`evaluator`（测试不公）或 `unknown`；
-   * 只有归属于 `skill` 层的局部错误才允许修补，严格限制局部 JSON 有界修改，预算硬顶最多 2 轮，杜绝反复试错导致内容漂移。
-3. **执行环境必须物理受控，依赖必须 Fail-Closed**：
-   * 拒绝裸进程直接执行危险命令。运行时通过进程级沙箱（macOS Seatbelt）切断非授权的网络与文件写权限；
-   * 技能声明的工具与二进制依赖必须在隔离环境中完成动态探针检测，环境不可用时立即熔断（Fail-Closed），绝不假装成功。
-
----
-
-## 2. 系统架构全景
-
-> [!TIP]
-> 🎨 **交互式架构与时序图谱直览（Showcase Visualizations · 支持缩放/高亮/全屏交互）**：
-> - 📖 [**SkillForge 交互式知识索引主页**](docs/skillforge-knowledge-index.html)（包含内置图谱直览器与 30 题库答辩穿透）
-> - 🏛️ [**全景架构拓扑 (Architecture)**](docs/skillforge-architecture.html)：3-Tier 级联路由、沙箱受控执行、ValidationReceipt 局部自愈与三层分级存储
-> - ⚡ [**任务受控时序与自愈 (Sequence)**](docs/skillforge-task-sequence.html)：责任层分流、结构化 Receipt 诊断与 `is_valid_for` 交付双重指纹重验
-> - 🔄 [**经验沉淀工作流 (Workflow)**](docs/skillforge-evolution-workflow.html)：A8 用途隔离、5 维启发式指标、沙箱双轨对决与 ReflectionLoop 反思闭环
-> - 🧬 [**技能全生命周期流转 (Lifecycle)**](docs/skillforge-skill-lifecycle.html)：Candidate DRAFT -> Ratchet PASS -> Git 快照 -> CAS 乐观锁秒级部署与回滚
+## 核心链路
 
 ```mermaid
-flowchart TB
-    subgraph ExecutionLayer ["1. 受控执行 Harness (In-Task Runtime)"]
-        Task[新任务输入] --> Runtime["AgentRuntime<br/>(全局预算/超时/取消治理)"]
-        Runtime --> Broker["ToolBroker<br/>(权限白名单与参数校验)"]
-        Broker --> Sandbox["MacSeatbeltSandbox<br/>(进程沙箱 · deny network/write)"]
-        Broker --> Probe["DependencyProbe<br/>(动态探针 · Fail-Closed)"]
-    end
-
-    subgraph RepairLayer ["2. 任务内诊断与可验证自修复 (Validation & Narrow Repair)"]
-        Sandbox --> Artifact[中间产物 Output]
-        Artifact --> Validator{"权威验证器 Validator"}
-        Validator -->|"验证失败"| Receipt["ValidationReceipt<br/>(结构化凭据 · 责任层归因)"]
-        Receipt --> Filter{"责任层属于 skill?<br/>(policy/tool 拒绝修复)"}
-        Filter -->|"是"| Repairer["repair_artifact<br/>(有界局部 JSON 修复 · 上限 2 轮)"]
-        Repairer -->|"更新产物"| Validator
-        Filter -->|"否 (非技能缺陷)"| FailFast["熔断报错 / 阻止无效自嗨"]
-        Validator -->|"验证通过"| Finalize{"finalize_run<br/>(重新全量比对当前产物)"}
-        Finalize -->|"无漂移"| Deliver[交付安全产物]
-        Finalize -->|"内容漂移/配置变严"| Refuse[拒绝交付 / 旧 PASS 作废]
-    end
-
-    subgraph MemoryLayer ["3. 经验沉淀与分层记忆库 (Three-Tier Memory)"]
-        Deliver --> EpGen["Episode 构造器<br/>(ToolCallProvenance 签名)"]
-        EpGen --> EpStore[("EpisodeStore<br/>(不可变持久化 · 区分学习/评测用)")]
-        EpStore --> MemoryMgr["ThreeTierMemoryManager"]
-        MemoryMgr --> M1["Semantic 事实库 (知识/规范)"]
-        MemoryMgr --> M2["Episodic 经历库 (带版本/来源的轨迹)"]
-        MemoryMgr --> M3["Procedural 技能库 (可执行正式 Skill)"]
-    end
-
-    subgraph EvolutionLayer ["4. 模式挖掘与候选准入 (Pattern Mining & Ratchet Gate)"]
-        EpStore -->|"过滤 purpose == 'learning'"| Miner["PatternMining<br/>(min_support=3 · sim>=0.80)"]
-        Miner --> CandStore[("CandidateStore<br/>(提炼可复用技能候选)")]
-        CandStore --> Benchmark["分层黄金基准集<br/>(baseline_dev / baseline_hidden / baseline_p0)"]
-        Benchmark --> Judge["Pairwise Judge<br/>(A/B 双向盲测 · INVALID 判负)"]
-        Judge --> Ratchet{"防倒退棘轮门禁<br/>(5 项硬指标 · P0 一票否决)"}
-        Ratchet -->|"达标"| Promote["显式确认晋升 (Promotion)"]
-        Ratchet -->|"不达标"| RejectCand["拒绝合并 / 阻断退步"]
-    end
-
-    subgraph GovernanceLayer ["5. 检索复用与版本治理 (Retrieval & Versioning)"]
-        Promote --> DeployMgr["DeploymentManager<br/>(CAS 期望版本校验)"]
-        DeployMgr --> Canary["版本灰度 (Canary Routing)"]
-        DeployMgr --> Rollback["受控回滚 (Rollback)"]
-        DeployMgr --> ActiveSkills[("Active Skills 运行仓库")]
-        ActiveSkills -.->|"按权限/依赖/验证状态筛选"| Runtime
-    end
-
-    classDef run fill:#eff6ff,stroke:#2563eb,stroke-width:1px;
-    classDef rep fill:#fef2f2,stroke:#dc2626,stroke-width:1px;
-    classDef mem fill:#faf5ff,stroke:#7c3aed,stroke-width:1px;
-    classDef evo fill:#fffbeb,stroke:#d97706,stroke-width:1px;
-    classDef gov fill:#f0fdf4,stroke:#16a34a,stroke-width:1px;
-
-    class Runtime,Broker,Sandbox,Probe run;
-    class Receipt,Repairer,Finalize,Deliver,Refuse rep;
-    class EpStore,MemoryMgr,M1,M2,M3 mem;
-    class Miner,CandStore,Benchmark,Judge,Ratchet evo;
-    class DeployMgr,Canary,Rollback,ActiveSkills gov;
+flowchart LR
+    R["需求 / 对话"] --> D["任务内 Draft"]
+    D --> T["Runtime + Tool Broker"]
+    S["正式 Skill 检索与固定版本"] --> T
+    T --> E["Collector / Episode"]
+    E --> C["归因、提案或定向修补"]
+    D --> V["共同验证门禁"]
+    C --> V
+    V --> P["权威验证记录 + 显式确认"]
+    P --> S
 ```
 
----
+### 1. 快速生成、试用与用户变向
 
-## 3. 四大核心技术模块深度解析
+- 需求与 conversation 保留各自真实来源；对话草稿可记录会话和消息引用。
+- 同一任务内重复请求复用 Draft，不跨任务共享私有草稿。
+- 用户明确改变目标、禁止项或交付形式时，修订任务意图和草稿正文；同义改写不重复生成，模糊变向需要确认。
+- 旧运行使用启动时冻结的正文和版本；Runtime 重建后仍从持久化快照恢复，迟到结果不覆盖新意图。
+- 单会话变向不全局废除正式 Skill，也不把只读任务自动升级为写权限。
 
-### 3.1 跨任务技能演进与分层记忆（Evolution & Memory）
+### 2. 受控执行与验证
 
-> **解决痛点**：传统 Agent 将执行日志整段追加进 Prompt，导致“单次侥幸成功被当成永恒真理”、“上下文线性爆炸”、“经验无法沉淀为可被其他 Agent 复用的工程模块”。
+- Runtime 管理运行预算、超时与取消；Broker 统一工具准入、参数校验和调用记录。
+- 产物级 `ValidationReceipt` 驱动有限范围的局部修复，交付时基于当前产物重新验证。
+- 长期 Skill 的 `RepairJob` 根据失败责任层定向修补，不把权限拒绝、工具环境故障或无可靠 oracle 的结果当作业务技能缺陷。
+- 应用层 Broker 与真实 OS 沙箱是不同证据层；macOS Seatbelt 能力依赖平台与环境，FakeSandbox 或影子目录不代表 OS 隔离。
 
-* **不可变经验归档（[`EpisodeStore`](file:///Users/caoruixin/Desktop/project/skillforge/src/skillforge/episode.py)）**：
-  * 任务结束无论成败，均被结构化封装为 `Episode`：记录任务原始目标、执行时长、最终状态、各步骤工具调用与返回签名（`ToolCallProvenance`）、异常恢复记录及生成的诊断凭证；
-  * **用途物理隔离（Purpose Isolation）**：显式打标 `purpose: "learning"`（仅供挖掘与训练）或 `purpose: "evaluation"`（评测保留数据），严禁将独立评测集样本泄露进反思与挖掘流程。
-* **三层记忆解耦（[`ThreeTierMemoryManager`](file:///Users/caoruixin/Desktop/project/skillforge/src/skillforge/memory.py)）**：
-  * **Semantic 事实库**：存储跨任务通用的不变领域知识、系统常量与静态规范；
-  * **Episodic 经历库**：记录带具体时间、版本、执行上下文的成功/失败事件，不可作为全局指令生效；
-  * **Procedural 技能库**：经过工程评测验证的生产级 Skill。三者双向血缘追溯，单次执行观察严禁静默提升为事实，冲突显式暴露。
-* **确定性模式挖掘（[`PatternMiningConfig`](file:///Users/caoruixin/Desktop/project/skillforge/src/skillforge/pattern_mining.py#L46-L55)）**：
-  * 模式提炼并非依赖 LLM 自行发散，而是基于硬性算法四门槛：
-    1. **支持度门槛**：`min_support = 3`（必须在至少 3 个独立 Episode 中复现）；
-    2. **相似度门槛**：`similarity_threshold = 0.80`（基于工具序列的 LCS / Levenshtein 严格匹配）；
-    3. **表达式多样性**：`min_expressions = 2`（至少源自 2 种不同提法，防止单一样本过拟合）；
-    4. **步骤复杂度**：`min_steps = 2`（单步命令拒绝包装为技能，防止产生大量碎屑技能）。
-* **黄金基准集与防倒退棘轮（[`check_ratchet`](file:///Users/caoruixin/Desktop/project/skillforge/src/skillforge/evaluator/ratchet.py#L44)）**：
-  * 候选技能必须在分层黄金基准集（`baseline_dev` / `baseline_hidden` / `baseline_p0`）上与旧版本执行双盲对照（Pairwise Judge，打乱 A/B 顺序防位置偏见，输出格式崩溃直接 `INVALID` fail-closed）；
-  * **棘轮硬门禁（Ratchet）**：胜率必须 `win_rate >= 0.60`、净胜场 `net_wins >= 1`、质量分不倒退、Token 膨胀率 `token_ratio <= 1.25`，且 **P0 基线用例享受一票否决权**（`p0_fails == 0`）。通过后方可显式晋升（Promotion）。
+### 3. 经历、提案与用途隔离
 
----
+- Episode 按 ID 从规范 Store 读取；需求、文档和调用方伪造内容不能冒充学习经历。
+- 开发反馈与锁定评测分流；来源家族、派生血缘与近重复检查用于避免评测泄漏。
+- 从 trace 提取带工具快照和独立预期的可复现用例提案；缺少预期的样本保留待审或诊断状态。
+- 模式提炼先按业务范围、意图与工具契约兼容性分组，再复用既有相似度聚类；不凭相似措辞合并不同任务。
 
-### 3.2 任务内可验证自修复（In-Task Verifiable Self-Repair）
+### 4. 有界恢复与受控晋升
 
-> **解决痛点**：传统 Agent 面临输出格式不符合要求时，常采用“把错误报错塞回给模型自由重试”的黑盒反思，极易出现“把原本改对的字段又改坏”、“尝试无限死循环”以及“拿旧的通过凭据交付了被修改后的内容”。
+实际演进入口 `repair_skill_failure(enable_shadow_recovery=True)` 可调用 LangGraph 恢复节点和当前 RepairJob；普通小改不强制走图。
 
-* **结构化诊断凭据（[`ValidationReceipt`](file:///Users/caoruixin/Desktop/project/skillforge/src/skillforge/receipt.py#L53)）**：
-  * 验证器发现问题后，输出不可变的 JSON Receipt，明确包含：稳定规则代号（`rule_code`）、定位 JSON 路径（`subject`）、当前实际值 vs 校验预期值、允许的修复操作列表（`supported_fixes`），以及与**被校验产物 SHA-256 和验证器配置 SHA-256 的双重强绑定指纹**。
-* **五层责任归因与权限防线（[`ResponsibilityLayer`](file:///Users/caoruixin/Desktop/project/skillforge/src/skillforge/receipt.py#L21)）**：
-  * 故障自动分流到责任层：`skill`（技能参数或逻辑错误）、`tool`（工具自身内部异常）、`policy`（权限或安全策略拦截）、`evaluator`（校验器自身规则 Bug）或 `unknown`；
-  * **权限/环境拒绝不误修**：如果错误由 `policy`（如沙箱网络拦截）或 `tool` 抛出，系统直接 fail-closed 中断，严禁让模型误以为是业务技能问题而胡乱修改产物内容。
-* **窄域局部修复与防死循环（[`repair_artifact`](file:///Users/caoruixin/Desktop/project/skillforge/src/skillforge/runtime.py#L1469)）**：
-  * 修复器仅对 Receipt 中标记的局部 JSON 路径打补丁，不重写整段内容；
-  * **刚性预算上限**：代码硬编码 `min(max(1, configured_max), 2)`，最多重试 2 轮；
-  * **指纹防环检测**：维护 `seen_fingerprints` 集合，一旦发现局部修改后的产物指纹与之前某一轮完全一致（死循环），立即熔断终止。
-* **交付时权威重验（`finalize_run`）**：
-  * 在交付给调用方前，强制调用绑定的权威验证器重新跑一遍当前产物；
-  * 若产物内容在最后一次验证后被篡改，或验证器配置被外部热更新变严，旧的 PASS 凭据立即失效，拒绝交付，从根源上杜绝配置漂移和虚假放行。
+实现**复用既有 LangGraph SQLite 检查点与序列化基础设施，新建适配当前演进链的恢复节点**，未原样复用旧 Evolver 业务节点，避免两套预算、状态与注册路径冲突。
 
----
+- 图与内部修补共享尝试次数、调用、token 与原始截止期限，重启不重置账本。
+- 重复候选、无进展、预算耗尽或绑定漂移会停止恢复并保留诊断。
+- 已完成步骤可恢复；不确定的在途动作按 fail-closed 处理，不承诺跨系统 exactly-once 或外部副作用回滚。
+- 图只返回经过重验的候选，不自动晋升或部署。
+- 拆分器首期只给建议，不自动修改 Skill、路由或发布子技能；长而连贯的流程不因长度自动拆分。
 
-### 3.3 受控执行 Harness（Controlled Execution Harness）
+### 5. 当前长度护栏
 
-> **解决痛点**：生产环境中的 Agent 绝不能像本地玩具一样拥有不受控的主机操作权限、无限循环的运行时间以及随意发起的外部网络请求。
+有基线修改采用“比例 **AND** 绝对净增”规则：
 
-* **运行时预算、超时与取消（[`AgentRuntime`](file:///Users/caoruixin/Desktop/project/skillforge/src/skillforge/runtime.py#L678)）**：
-  * 统筹管理任务的完整生命周期，设置全局 Token 消耗硬帽、单步执行超时以及异步取消（Cancel）信号；
-  * 采用单进程非抢占协作边界：在 Python 回调返回处进行原子复核，强行丢弃超时的晚到补丁，防止并发污染。
-* **统一工具网关（[`ToolBroker`](file:///Users/caoruixin/Desktop/project/skillforge/src/skillforge/runtime.py#L982)）**：
-  * 所有工具调用必须经过 Broker 统一路由与准入拦截；
-  * 严格执行 Pydantic Schema 参数校验、工具调用并发控制与权限白名单检查。工具执行的每一次输入、输出、耗时和异常都被捕获并记录为轨迹。
-* **进程级沙箱隔离（[`MacSeatbeltSandbox`](file:///Users/caoruixin/Desktop/project/skillforge/src/skillforge/sandbox.py#L181)）**：
-  * 底层基于 macOS 内核级 `sandbox-exec` 机制，动态生成声明式 SBPL（Seatbelt Profile Language）规则文件；
-  * 严格实施 `(deny default)`、`(deny network*)`（阻断非授权外网请求）与 `(deny file-write*)`（只允许向任务专用的隔离临时目录写数据）；
-  * 结合 [`DependencyProbe`](file:///Users/caoruixin/Desktop/project/skillforge/src/skillforge/sandbox.py#L330) 在真实沙箱容器内探测依赖二进制是否存在。若依赖缺失，拒绝尝试并立即 Fail-Closed。
+| 检查范围 | 触发长度 REVIEW 的条件 |
+| --- | --- |
+| 单章节 | 增长 > 25%，且净增 > 1000 policy tokens |
+| 全文正文 | 大小 > 基线的 1.20 倍，且净增 > 1000 policy tokens |
+| 无基线新建 | 可配置的初始正文上限，默认 3000 字符 |
 
----
+恰好净增 1000 tokens 不触发上述增长门。计数采用固定 policy tokenizer（默认 `cl100k_base`），不是 GLM 原生 token 或供应商账单用量；计数不可用时保留 REVIEW。1000 是工程策略值，不是已实证的注意力过载临界点。通过长度检查也不等于通过其他验证或获得发布许可。
 
-### 3.4 检索复用与版本治理（Retrieval & Governance）
+## 验证到了哪一层
 
-> **解决痛点**：在多任务并发或持续迭代场景下，新发布的 Skill 可能包含潜在 Regression，或者任务在执行中途遭遇了底层代码更新，导致运行状态撕裂。
+截至 2026-10-01，三项收尾工程缺口——conversation 来源、跨 Runtime 的草稿快照与旧库迁移、实际 LangGraph → RepairJob 接入——已完成限定本地验收。
 
-* **多维条件检索（[`retrieve`](file:///Users/caoruixin/Desktop/project/skillforge/src/skillforge/retrieval.py#L60)）**：
-  * 任务启动时，系统不仅仅按语义相似度检索 Skill，而是综合考量 **权限校验（Permissions）、环境依赖就绪状态（Dependencies）、验证状态（Validated）与当前部署状态（Deployment Status）**，四位一体过滤可用技能；
-* **运行级版本固定（Run-Level Pinning）**：
-  * 一旦任务在 `start_run` 阶段锁定了某个版本的 Skill，该任务在其整个生命周期中固定读取当前版本的快照，不受后续外部并发更新、发布或回滚的影响；
-* **CAS 并发控制与原子回滚（[`DeploymentManager`](file:///Users/caoruixin/Desktop/project/skillforge/src/skillforge/deployments.py#L100)）**：
-  * 技能状态流转（`draft` ➔ `staged` ➔ `canary` ➔ `active` ➔ `rolled_back`）完全基于 CAS（Compare-And-Swap，校验 `expected_revision`），杜绝并发写入冲突；
-  * 支持基于确定性哈希的灰度发布（Canary Routing），一旦线上监控捕获到异常指标，支持秒级一键原子回滚至上一稳定修订版。
+| 证据 | 已有记录 | 不能据此推断 |
+| --- | --- | --- |
+| 收尾工程回归 | 下列 8 个测试文件本次复跑 **61 passed，exit 0**；包含恢复专项 11 项 | 全仓库测试全部通过、真实模型效果或生产 SLA |
+| 离线物流生命周期 | scripted / FakeLLM 下覆盖生成、试用、变向、修补、确认晋升与后续复用 | 同一条完整链已经全部由真实模型执行 |
+| 真实模型实验 | Ark `glm-5.3-flash`，synthetic 订单，实际 Runtime / Broker / Collector；分别有失败修补和变向后正式版复用记录 | 真实订单接入、生产部署或普遍效果提升 |
+| 历史小样本 A/B/C | 标为 LOCKED 的 6 项记录为 A 5/6、B 5/6、C 6/6 | 缺少修订前冻结与派生血缘证据，不能称为干净的独立家族 heldout |
+| OS 隔离 | 已有 macOS Seatbelt 越界写被拒的局部记录 | 所有实验都运行在真实 OS 沙箱 |
 
----
+**历史限制保留，不补造记录：** DEV A 组只有 2/6 汇总，缺少完整逐任务原始配对；早期 125 次调用只有 aggregate 记录；两条真实模型分支分别展示，不拼接成不存在的纵向轨迹。缺少实际 usage 或账单的 token / 费用字段保留 `null`，不声称精确单价、回本次数或统计显著收益。旧同构样本、事后重分与派生挑战属于探索性结果。
 
-## 4. 实验证据与工程验证数据
+详细验收、取舍与历史更正见 [交付进度与最终限定结论](docs/QUICK_GENERATION_EVOLUTION_PROGRESS.md)。本次上传没有重新调用真实模型。
 
-SkillForge 拒绝“自编测试跑通自嗨”的演示逻辑，坚持严苛的工程实测与诚实的统计边界：
-
-### 4.1 核心专项测试矩阵（14 套套件 · 104 Tests 全绿）
-
-经 pytest 全量自动化验证，覆盖核心闭环各个切面：
+## 安装与本地复现
 
 ```bash
-$ pytest tests/test_end_to_end_evolution_loop.py tests/test_receipt_and_narrow_repair.py tests/test_three_tier_memory.py tests/test_sandbox_execution.py -v
-============================= 104 passed in 20.37s =============================
-```
-
-| 专项验证套件 | 验证的核心机制与断言 | 结果 |
-|---|---|---|
-| `test_end_to_end_evolution_loop.py` | 经历提取 ➔ 模式挖掘 ➔ 候选门禁 ➔ 盲测评测 ➔ 显式晋升全链路闭环 | **PASS (100%)** |
-| `test_receipt_and_narrow_repair.py` | 凭据生成、双哈希校验、责任归因、最多 2 轮局部修补、`finalize_run` 漂移拦截 | **PASS (100%)** |
-| `test_three_tier_memory.py` | 事实/经历/技能物理分层、血缘追溯隔离、`purpose="learning"` 隔离筛选 | **PASS (100%)** |
-| `test_sandbox_execution.py` | macOS Seatbelt 真实沙箱拦截、网络阻断、临时目录写限制与依赖探针 | **PASS (100%)** |
-| `test_ratchet_gate.py` | 5 项硬性门禁对账、双向盲测打乱、P0 用例一票否决权验证 | **PASS (100%)** |
-| `test_deployment_cas.py` | 部署状态机、CAS 版本版本并发冲突拦截、灰度流量分配与原子回滚 | **PASS (100%)** |
-
-### 4.2 诚实工程边界声明（Honest Boundaries）
-
-1. **真实沙箱证据边界**：
-   * 进程沙箱限制在 macOS 环境下通过原生 `sandbox-exec` 实测验证生效（包括网络阻断与文件系统隔离）；在 Linux/Windows 等其他操作系统上，系统需适配 cgroups/seccomp 或容器运行时，当前代码暂未同等覆盖。
-2. **离线构造样本修复边界**：
-   * 任务内产物修复能力（0/8 ➔ 4/8）基于构造的典型缺陷样例进行了确定性验证；离线评测中的 Token 消耗与网络成本如实标记为 `null`，**不虚构宣称线上商业模型的真实 ROI 或省钱比例**。
-3. **统计学显著性诚实披露**：
-   * 在使用真实 DeepSeek 模型进行的 20 轮端到端跑批实验中，验证了发布门 DECLINED 从 3 降为 0 的收敛性；同时主动交代小样本（n=20）下 Welch's t-test p≈0.27 的客观局限，展现严谨工程态度。
-
----
-
-## 5. 快速上手与复现
-
-### 5.1 环境要求与初始化
-
-* Python 3.10+
-* macOS 推荐（可开启 Seatbelt 进程沙箱），Linux/WSL 支持基础运行
-
-```bash
-# 1. 克隆代码库
 git clone https://github.com/SuperGODOG/skillforge.git
 cd skillforge
-
-# 2. 创建并激活虚拟环境 (推荐 uv 或 venv)
+git switch linux
 python3 -m venv .venv
-source .venv/bin/activate
-
-# 3. 安装依赖与本地开发包
-pip install -e .
+.venv/bin/python -m pip install -e ".[dev]"
+.venv/bin/skillforge --help
 ```
 
-### 5.2 运行核心测试套件
+CLI 保留 `demo`、`route`、`evaluate`、`evolve` 入口。快速生成、用户变向与新恢复链主要通过 Python 接口及集成专项展示，不能把旧 CLI demo 当作全部生命周期验收。
+
+复现本次收尾回归（FakeLLM、本地临时数据库，不需要模型 API key）：
 
 ```bash
-# 运行 104 项端到端进化与受控自修复核心专项套件
-pytest tests/test_end_to_end_evolution_loop.py -v
+.venv/bin/pytest \
+  tests/test_p5_langgraph_repair_integration.py \
+  tests/test_p5_bounded_recovery_and_split.py \
+  tests/test_p2d_langgraph.py \
+  tests/test_source_snapshot_and_migration_closure.py \
+  tests/test_runtime_and_tool_broker.py \
+  tests/test_failure_attribution_and_patching.py \
+  tests/test_receipt_and_narrow_repair.py \
+  tests/test_p2_gate_and_lifecycle.py -q
 ```
 
-### 5.3 体验任务内 Receipt 诊断与局部修复
+本次结果：`61 passed, 19 warnings, exit 0`。Warning 来自 `hello_agents` 使用 Pydantic V2 已弃用的 `dict()`。这是指定回归集合，不是全仓测试总数；环境或平台变化可能影响结果。
 
-```python
-from skillforge.receipt import ValidationReceipt, create_receipt
-from skillforge.runtime import AgentRuntime, repair_artifact
+长度规则与物流记录可另行检查：
 
-# 初始化受控运行时
-runtime = AgentRuntime()
-
-# 模拟结构化产物生成与失败诊断 Receipt
-artifact = {"name": "report", "status": "incomplete", "code": 500}
-receipt = create_receipt(
-    rule_code="SCHEMA_INVALID",
-    subject="$.status",
-    actual="incomplete",
-    expected="success",
-    responsibility="skill",
-    supported_fixes=["update_status"]
-)
-
-# 驱动窄域局部有界修复 (最多 2 轮，自动检测重复指纹防死循环)
-repaired = repair_artifact(artifact, receipt, max_attempts=2)
-print("修复后产物:", repaired)
+```bash
+.venv/bin/pytest \
+  tests/test_p6_token_bloat_guard.py \
+  tests/test_p6_business_experiment_and_handoff.py -q
 ```
 
----
+`evaluate`、`evolve` 及真实实验脚本可能访问配置的模型服务；它们不是上述离线复现步骤。真实实验需要自行提供凭据、明确预算和供应商配置；不要提交 `.env`、密钥、运行数据库或真实用户数据。仓库中的 checkpoint JSON 是脱敏实验记录，不是可直接接管的生产运行状态。
 
-## 6. 代码仓库索引与地图
+## 代码索引
 
-```
-skillforge/
-├── src/skillforge/
-│   ├── runtime.py               # 受控执行 Harness：预算/超时/取消、ToolBroker、repair_artifact、finalize_run
-│   ├── sandbox.py               # macOS Seatbelt 沙箱配置文件生成、网络与文件隔离、DependencyProbe 依赖探针
-│   ├── receipt.py               # 结构化诊断凭据 ValidationReceipt、5 级责任层归因 (ResponsibilityLayer)
-│   ├── episode.py               # 不可变经历 Episode、工具调用签名 ToolCallProvenance、EpisodeStore
-│   ├── memory.py                # 三层记忆管理器 ThreeTierMemoryManager (Semantic / Episodic / Procedural)
-│   ├── pattern_mining.py        # 确定性模式挖掘 PatternMiningConfig (min_support, similarity, steps)
-│   ├── candidate.py             # 技能候选存储 CandidateStore 与准入状态流转
-│   ├── deployments.py           # 版本管理 DeploymentManager：CAS 并发控制、Canary 灰度与受控回滚
-│   ├── retrieval.py             # 任务入口检索：权限、依赖、验证状态与部署状态四维过滤
-│   └── evaluator/               # 评测与门禁引擎
-│       ├── judge.py             # PairwiseJudge 双向盲测配对打分 (INVALID fail-closed)
-│       ├── ratchet.py           # check_ratchet 5 项硬指标防倒退棘轮门禁
-│       └── p0_gate.py           # P0 关键防线用例加载与一票否决判定
-├── evaluation_sets/             # 分层黄金基准集 (baseline_dev / baseline_hidden / baseline_p0 物理隔离)
-├── tests/                       # 14 套核心闭环专项测试套件 (104 passed)
-└── docs/                        # 深度技术规范与架构设计指南
-    ├── ARCHITECTURE_V2_DEEP_DIVE.md       # V2 架构演进全量技术细节指南
-    ├── EPISODE_AND_CANDIDATE_GUIDE.md    # Episode 采集与候选提炼规范
-    └── NARROW_REPAIR_AND_RECEIPT_GUIDE.md # Receipt 凭证诊断与窄域局部修复指南
-```
+| 模块 | 作用 |
+| --- | --- |
+| [skill_generator.py](src/skillforge/skill_generator.py) / [task_context.py](src/skillforge/task_context.py) | 需求与对话生成、任务契约和意图修订 |
+| [runtime.py](src/skillforge/runtime.py) / [sandbox.py](src/skillforge/sandbox.py) | 运行快照、预算、Broker 与平台沙箱接口 |
+| [collector.py](src/skillforge/collector.py) / [episode.py](src/skillforge/episode.py) | 经历回收、EpisodeStore 与 CandidateStore |
+| [repair.py](src/skillforge/repair.py) / [bounded_recovery.py](src/skillforge/bounded_recovery.py) | 失败归因、RepairJob 与有界 LangGraph 恢复 |
+| [receipt.py](src/skillforge/receipt.py) | 产物级验证凭据与局部修复 |
+| [trace_purification.py](src/skillforge/trace_purification.py) / [data_partition.py](src/skillforge/data_partition.py) | 用例提案、数据用途与分区 |
+| [pattern_mining.py](src/skillforge/pattern_mining.py) / [skill_splitter.py](src/skillforge/skill_splitter.py) | 模式提炼与拆分建议 |
+| [evaluator/](src/skillforge/evaluator/) | 结构、长度、依赖、行为评测与棘轮门禁 |
+| [retrieval.py](src/skillforge/retrieval.py) / [registry.py](src/skillforge/registry.py) / [deployments.py](src/skillforge/deployments.py) | 正式技能检索、注册与版本部署 |
+| [scenarios/](src/skillforge/scenarios/) | synthetic 物流用例与实验驱动 |
 
----
+## 文档与实验记录
 
-## 7. License 与致谢
+- [原始重构交接计划](docs/SKILL_GENERATION_EVOLUTION_HANDOFF_PLAN.md)：推荐方案与验收编号，不代表全部能力均已获独立验证。
+- [交付进度与证据边界](docs/QUICK_GENERATION_EVOLUTION_PROGRESS.md)：阶段记录、历史更正与用户接受的复用取舍。
+- [Episode / Candidate 指南](docs/EPISODE_AND_CANDIDATE_GUIDE.md)：生成、经历、候选与晋升链。
+- [Receipt 与局部修复指南](docs/NARROW_REPAIR_AND_RECEIPT_GUIDE.md)：产物诊断、局部修复和交付重验。
+- [物流 A/B/C 原始记录](docs/p6_logistics_abc_raw_results.json) / [真实模型原始记录](docs/p6_real_model_abc_raw_results.json)：保留逐任务输出、工具轨迹及失败。
+- [调用账本](docs/p6_provider_call_ledger.json) / [补充行为评测](docs/p6_real_behavior_eval_summary.json)：记录已有用量与缺失字段。
+- [交互式知识索引与图谱](docs/skillforge-knowledge-index.html)：辅助理解；图示或早期话术与当前证据不一致时，以源码和最终交付记录为准。
 
-本项目采用 [MIT License](LICENSE) 开源。
+## 范围与暂不承诺
 
-* 感谢开源社区优秀项目的设计启示（Archify 结构化诊断机制、hello-agents 基础执行范式）；
-* 坚持工程真实与可信闭环：代码所有关键机制均由 `tests/` 下通过的单元测试与回归套件支撑。
+本轮不包含自动拆分发布、生产订单接入、新通用 Agent / Memory / 队列平台、签名系统或大规模真实模型实验。没有验证生产并发、故障 SLA、所有外部副作用的幂等性，也没有足够证据证明普遍泛化或经济收益。
+
+项目使用 [hello-agents](https://github.com/jjyaoao/HelloAgents) 与 LangGraph 等依赖。当前仓库未提供独立的 `LICENSE` 文件；使用与再分发前请确认项目及各依赖的许可条件。

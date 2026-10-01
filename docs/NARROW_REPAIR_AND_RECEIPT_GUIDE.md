@@ -196,3 +196,70 @@ print(f"Final Episode outcome={ep.outcome}, ep_id={ep.episode_id}")
 > **产物修复与技能演化职责边界**：
 > - **Artifact Repair（产物局部修复）**：作用域仅限当前单次 Run 的瞬态输出，不持久化任何技能逻辑变更。
 > - **Skill Evolution（技能自进化）**：依然严格依赖全链路中的 `Failure Attribution -> RepairJob -> Regression Test Gate -> Explicit Confirmation -> ReleaseStateMachine`，二者权限与代码链绝不混用。
+
+---
+
+## 六、业务故障修复收据与外部副作用不可逆性 (Business Repair Receipts & Side-Effect Irreversibility)
+
+在端到端业务闭环（如电商多包裹物流履约）中，修复机制不仅涵盖结构化 JSON 配置的瞬态纠错，还协同支撑长期 Skill 业务缺陷的受控修复与凭证固化：
+
+### 1. 业务修复凭据与多维绑定 (Business Repair Receipts & Validation Binding)
+- 当业务执行未通过独立业务 Oracle（如部分签收误报全送达、违反 `STATUS_ONLY` 意图添加建议、漏查包裹）时，`RepairJob` 触发受控修复；
+- 修复后产出的 Candidate 重新提交统一准入门禁（`validate_candidate`），必须经由独立业务 Oracle 给出真实检验凭证；
+- 验证通过后生成的 `ValidationRecord` 完整绑定 Candidate ID、内容哈希、基线版本、意图范围哈希、评测配置哈希与评测集版本，写入 SQLite 权威表；
+- 任何篡改候选正文、规则配置漂移或伪造验证标记的行为均被准入门禁（G6 Gate）直接阻断，杜绝无收据或篡改收据的静默发布。
+
+### 2. 外部副作用不可逆性治理 (Irreversible Side-Effect Accounting)
+现实物理系统中的外部工具调用（如支付退款、仓库发货、外部短信通知）具有**物理不可撤销性**：
+1. **真实审计不伪称回滚**：当任务被调用方显式取消（`runtime.cancel_run`）或因超时终态时，运行时在 `get_cancellation_report()` 中如实披露已执行的工具调用列表，并明确声明 `side_effects_reversible=False`，坚决不向调用方虚假承诺“已全量撤销/回滚”。
+2. **恢复状态继承与防重复触发**：在有界恢复编排（如 LangGraph Checkpointer）从断点恢复时，系统严格继承已记录的副作用集合（`executed_side_effects`）；对于已执行成功的不可撤销动作，Handler 调用次数严格保持为 1，严禁重试重复执行、重复发货或重复扣费。
+3. **顶层统一预算守卫**：外部编排图与内部 RepairJob 共享顶层调用预算、Token 预算与截止时间（Deadline），一旦预算耗尽或超时即刻硬退出，避免重试失控引发外部系统雪崩。
+
+### 3. 晚到提案与终态隔离 (Late Proposal & Terminal State Guard)
+- 当任务已由于用户取消、超时或致命故障进入终态后，迟到的工具执行回调或异步修复建议被安全拦截并丢弃；
+- 迟到的执行结果严格归属于发起时的旧意图版本，绝不作为新目标正例，亦不可覆盖已持久化的终态 Episode 记录。
+
+---
+
+## 七、生产演进入口与真实 StateGraph 影子恢复闭环 (Production Entry & StateGraph Recovery Loop)
+
+### 1. 实际生产演进入口调用链 (Actual Invocation Chain)
+在真实演进生产中，针对长期 Skill 执行失败的受控恢复流程已完全接入标准 5 节点状态图：
+```
+repair_skill_failure(enable_shadow_recovery=True)
+  │
+  ├── 1. check_non_recoverable_blockers (前置廉价门禁)
+  │      ├─ 权限/安全拒绝 (403) ──> AWAITING_REVIEW (REASON_PERMISSION_DENIED, 0次模型调用)
+  │      ├─ 缺少 Truth Oracle ───> BLOCKED (REASON_EVALUATOR_FAULT, 0次模型调用)
+  │      ├─ 环境/文件缺失 ────────> BLOCKED (REASON_ENV_MISSING, 0次模型调用)
+  │      └─ 用户手动取消 ──────────> BLOCKED (REASON_USER_CANCELLED, 0次模型调用)
+  │
+  ├── 2. 策略门禁判断 (enable_shadow_recovery)
+  │      └─ False ──> 维持 AWAITING_REVIEW (REASON_PROMPT_BLOAT_REVIEW, 0次图调用, 0次模型调用)
+  │
+  ├── 3. 影子 5 节点 StateGraph (LangGraph + SqliteCheckpointer)
+  │      ├─ failure_analysis (诊断根因并生成机器可读理由码)
+  │      ├─ candidate_generation (FakeLLM 生成候选补丁)
+  │      ├─ validation (调用统一 validate_candidate 沙箱共同验证)
+  │      ├─ defense_adjudication (棘轮裁判，验证单据绑定与防回退)
+  │      └─ rounds_state_machine (轮次状态机判定 PASS / RETRY / EXHAUSTED)
+  │
+  ├── 4. 权威 CandidateStore 存储
+  │      └─ 固化 READY 候选与权威 ValidationRecord (绑定 content_hash, config_hash)
+  │         正式库 SkillRegistry 保持不变 (版本保持 1.0.0)
+  │
+  └── 5. 显式确认受控晋升 (promote_repaired_skill)
+         ├─ caller_confirmed=False ──> 拒绝晋升 (抛出异常, 正式库保持 1.0.0)
+         ├─ 候选正文被篡改 ──────────> 拒绝晋升 (哈希校验失败)
+         └─ caller_confirmed=True ───> ReleaseStateMachine 发布为新版本 1.0.1 (PROMOTED)
+```
+
+### 2. 核心责任边界与事实声明
+1. **单一顶层预算 (Shared Budget)**：图编排与内部 RepairJob 共享顶层 `RecoveryBudget`，多轮内部重试扣减同一账本，严禁隐式预算翻倍；
+2. **断点恢复不归零与绝对时点守卫**：SqliteCheckpointer 新实例恢复继承 `consumed_attempts`, `consumed_calls`, `consumed_tokens`, `deadline_seconds` 以及 `start_time` 绝对开始时间；若推进时钟越过绝对期限，恢复直接终止为 `TIMEOUT`，模型调用严格为 0（不重新获得 100 秒窗口）；已完成步骤不重复执行；
+3. **血缘与权威数据集漂移阻断**：意图修订、基线哈希或由 `compute_cases_hash(eval_cases)` 提取的 `dataset_version` 漂移时，阻断恢复（`CHECKPOINT_INVALIDATED`）；
+4. **历史事实与测试声明**：全量测试采用受控 FakeLLM + 本地 SQLite，真实 Provider 消耗严格为 0；DEV A2/6 仅汇总不补造逐任务配对，LOCKED 小样本不可追证，早期 125 aggregate-only 成本记为 `null`，两真实分支物理独立保持现状；
+5. **LangGraph 模块实际复用界限**：复用既有 LangGraph 检查点与序列化基础设施，新建适配当前演进链的恢复节点；未原样复用旧 Evolver 业务节点，以避免预算、状态和注册路径冲突。
+
+
+

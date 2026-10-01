@@ -345,6 +345,47 @@
       border-color: var(--accent-cyan);
     }
 
+    .section-viewer-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      padding: 6px 14px;
+      border-radius: 6px;
+      background: rgba(56, 189, 248, 0.15);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      color: #38bdf8;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .section-viewer-btn:hover {
+      background: rgba(56, 189, 248, 0.25);
+      border-color: #38bdf8;
+      transform: translateY(-1px);
+    }
+    .bullet-diagram-tag {
+      margin-left: auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 10px;
+      border-radius: 6px;
+      background: rgba(56, 189, 248, 0.12);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      color: #38bdf8;
+      font-size: 11.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.18s ease;
+    }
+    .bullet-diagram-tag:hover {
+      background: rgba(56, 189, 248, 0.24);
+      border-color: #38bdf8;
+      transform: translateY(-1px);
+    }
+
+
     /* Blocks & Headings */
     .detail-block {
       margin-bottom: 26px;
@@ -954,6 +995,7 @@
           <div class="bullet-header">
             <span class="bullet-badge badge-core">业务核心</span>
             <span class="bullet-title">Bullet 1 · 跨任务技能演进与经验沉淀（共 8 题）</span>
+            <button onclick="focusDiagramInViewer('workflow', 'view=mine-and-filter')" class="bullet-diagram-tag" title="在上方画板联动查看演进工作流"><span>🔄 联动演进工作流</span></button>
           </div>
           <div class="bullet-quote">
             <strong>简历原文：</strong>将工具调用、执行结果、失败恢复与验证证据沉淀为带来源和版本的 Episode，从重复模式中提炼 Skill Candidate；区分 Semantic 事实、Episodic 经历与 Procedural 技能，根据重复性、稳定性和复杂度筛选可复用模式。隔离学习数据与独立评测数据，通过失败归因、定向修补、回归门禁和显式晋升控制长期 Skill 更新。
@@ -1042,6 +1084,7 @@
           <div class="bullet-header">
             <span class="bullet-badge badge-harness">任务容错</span>
             <span class="bullet-title">Bullet 2 · 任务内可验证自修复与交付重验（共 6 题）</span>
+            <button onclick="focusDiagramInViewer('sequence', 'view=diagnose-and-repair')" class="bullet-diagram-tag" title="在上方画板联动查看自愈时序"><span>⚡ 联动自愈时序</span></button>
           </div>
           <div class="bullet-quote">
             <strong>简历原文：</strong>将验证失败转为结构化 Receipt，根据失败责任层决定是否修补，结合有限尝试预算、回归测试和棘轮门禁验证修改。绑定产物内容与验证器配置，驱动有界 JSON 局部修复；在 finalize 阶段基于当前产物重新验证，防止旧 PASS、内容变化及配置漂移导致错误交付。
@@ -1112,6 +1155,7 @@
           <div class="bullet-header">
             <span class="bullet-badge badge-harness">安全基底</span>
             <span class="bullet-title">Bullet 3 · 受控执行 Harness 与沙箱隔离（共 8 题）</span>
+            <button onclick="focusDiagramInViewer('architecture', 'view=runtime-execution')" class="bullet-diagram-tag" title="在上方画板联动查看执行沙箱拓扑"><span>🏛️ 联动执行拓扑</span></button>
           </div>
           <div class="bullet-quote">
             <strong>简历原文：</strong>以 Runtime 管理预算、超时和取消，Tool Broker 统一工具准入与参数校验，并结合进程沙箱限制文件与网络访问；依赖在真实执行环境中验证，不可用时 Fail-Closed。
@@ -1200,6 +1244,7 @@
           <div class="bullet-header">
             <span class="bullet-badge badge-core">发布治理</span>
             <span class="bullet-title">Bullet 4 · 检索复用与版本治理（共 8 题）</span>
+            <button onclick="focusDiagramInViewer('lifecycle', 'view=promotion-rail')" class="bullet-diagram-tag" title="在上方画板联动查看生命周期流转"><span>🧬 联动生命周期</span></button>
           </div>
           <div class="bullet-quote">
             <strong>简历原文：</strong>按权限、依赖、验证状态和部署状态筛选正式 Skill，并接入真实任务入口；通过运行级版本固定、不可变快照、灰度路由和受控回滚保证复用与演进过程可追溯。
@@ -1293,7 +1338,14 @@
             </div>
             <h2 class="section-title">1. 任务受控执行与沙箱隔离 (Controlled Execution & Sandboxing)</h2>
           </div>
-          <a href="skillforge-architecture.html" class="section-link-diagram">返回架构拓扑图 ↗</a>
+          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <button onclick="focusDiagramInViewer('architecture', 'view=runtime-execution')" class="section-viewer-btn" title="在上方画板聚焦分级路由与受控自愈执行">
+              <span>🎯 在上方画板聚焦执行拓扑</span>
+            </button>
+            <a href="skillforge-architecture.html#view=runtime-execution" target="_blank" class="section-link-diagram">
+              <span>新窗口全屏打开 ↗</span>
+            </a>
+          </div>
         </div>
 
         <div class="detail-block" id="sandbox-problem">
@@ -1435,7 +1487,14 @@
             </div>
             <h2 class="section-title">2. 产物结构化诊断与局部自愈 (Validation Receipt & Narrow Local Repair)</h2>
           </div>
-          <a href="skillforge-task-sequence.html" class="section-link-diagram">返回时序时序图 ↗</a>
+          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <button onclick="focusDiagramInViewer('sequence', 'view=diagnose-and-repair')" class="section-viewer-btn" title="在上方画板聚焦 Receipt 诊断与局部自愈时序">
+              <span>🎯 在上方画板聚焦自愈时序</span>
+            </button>
+            <a href="skillforge-task-sequence.html#view=diagnose-and-repair" target="_blank" class="section-link-diagram">
+              <span>新窗口全屏打开 ↗</span>
+            </a>
+          </div>
         </div>
 
         <div class="detail-block" id="receipt-problem">
@@ -1524,7 +1583,14 @@
             </div>
             <h2 class="section-title">3. 跨任务经验沉淀与棘轮自演进 (Cross-Task Experience & Ratchet Evolution)</h2>
           </div>
-          <a href="skillforge-evolution-workflow.html" class="section-link-diagram">返回工作流图 ↗</a>
+          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <button onclick="focusDiagramInViewer('workflow', 'view=mine-and-filter')" class="section-viewer-btn" title="在上方画板聚焦 5 维提炼与棘轮进化工作流">
+              <span>🎯 在上方画板聚焦演进工作流</span>
+            </button>
+            <a href="skillforge-evolution-workflow.html#view=mine-and-filter" target="_blank" class="section-link-diagram">
+              <span>新窗口全屏打开 ↗</span>
+            </a>
+          </div>
         </div>
 
         <div class="detail-block" id="evolution-memory">
@@ -1628,7 +1694,14 @@ similarity_threshold: float = 0.80 <span class="code-comment"># 余弦相似度�
             </div>
             <h2 class="section-title">4. 候选隔离、金丝雀发布与受控回滚 (Candidate Isolation & Canary Rollback)</h2>
           </div>
-          <a href="skillforge-skill-lifecycle.html" class="section-link-diagram">返回生命周期图 ↗</a>
+          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <button onclick="focusDiagramInViewer('lifecycle', 'view=promotion-rail')" class="section-viewer-btn" title="在上方画板聚焦技能 5 状态机流转与回滚">
+              <span>🎯 在上方画板聚焦生命周期</span>
+            </button>
+            <a href="skillforge-skill-lifecycle.html#view=promotion-rail" target="_blank" class="section-link-diagram">
+              <span>新窗口全屏打开 ↗</span>
+            </a>
+          </div>
         </div>
 
         <div class="detail-block" id="lifecycle-isolation">
@@ -1822,23 +1895,46 @@ similarity_threshold: float = 0.80 <span class="code-comment"># 余弦相似度�
 
     let currentDiagramKey = 'architecture';
 
-    function switchDiagram(key, btn) {
+    function switchDiagram(key, btn, hash) {
       if (!diagramSources[key]) return;
       currentDiagramKey = key;
       document.querySelectorAll('.diagram-tab-btn').forEach(b => b.classList.remove('active'));
-      if (btn) {
-        btn.classList.add('active');
-      } else {
-        const targetBtn = document.querySelector(`.diagram-tab-btn[data-diag="${key}"]`);
-        if (targetBtn) targetBtn.classList.add('active');
-      }
+      const targetBtn = btn || document.querySelector(`.diagram-tab-btn[data-diag="${key}"]`);
+      if (targetBtn) targetBtn.classList.add('active');
       const item = diagramSources[key];
       const iframe = document.getElementById('diagram-viewer-iframe');
-      if (iframe) iframe.src = item.url;
+      let targetUrl = item.url;
+      if (hash) {
+        targetUrl = targetUrl + (hash.startsWith('#') ? hash : '#' + hash);
+      }
+      if (iframe) {
+        const curBase = iframe.src.split('#')[0].split('?')[0];
+        const newBase = item.url.split('#')[0].split('?')[0];
+        if (curBase === newBase && hash) {
+          iframe.src = targetUrl.replace('?embed=1', `?embed=1&t=${Date.now()}`);
+        } else {
+          iframe.src = targetUrl;
+        }
+      }
       const descEl = document.getElementById('diagram-active-desc');
       if (descEl) descEl.textContent = item.desc;
       const extLink = document.getElementById('diagram-ext-link');
-      if (extLink) extLink.href = item.url.replace('?embed=1', '');
+      if (extLink) extLink.href = item.url.replace('?embed=1', '') + (hash ? (hash.startsWith('#') ? hash : '#' + hash) : '');
+    }
+
+    function focusDiagramInViewer(key, hash) {
+      switchDiagram(key, null, hash);
+      const viewerSection = document.getElementById('diagram-viewer-section');
+      if (viewerSection) {
+        viewerSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        viewerSection.style.transition = 'box-shadow 0.4s ease, border-color 0.4s ease';
+        viewerSection.style.boxShadow = '0 0 35px rgba(56, 189, 248, 0.45)';
+        viewerSection.style.borderColor = 'rgba(56, 189, 248, 0.6)';
+        setTimeout(() => {
+          viewerSection.style.boxShadow = '';
+          viewerSection.style.borderColor = '';
+        }, 1600);
+      }
     }
 
     function reloadDiagram() {
