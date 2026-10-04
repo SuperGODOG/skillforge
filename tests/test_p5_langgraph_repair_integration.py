@@ -23,6 +23,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import re
 import sqlite3
 import time
 import subprocess
@@ -108,6 +109,26 @@ class FakeLLM:
             c = self.default_content
         else:
             c = "Order 101: 2 packages: Package 1 delivered, Package 2 in transit."
+        if messages and any("findings" in str(m.get("content", "")) for m in messages if isinstance(m, dict)):
+            if "findings" not in str(c):
+                user_msg = ""
+                for m in messages:
+                    if isinstance(m, dict) and m.get("role") == "user":
+                        user_msg = str(m.get("content", ""))
+                m_ans = re.search(r"<answer>\s*(.*?)\s*</answer>", user_msg, re.DOTALL)
+                ev_str = m_ans.group(1).strip() if m_ans else ""
+                if not ev_str or ev_str == "(空回答)":
+                    m_q = re.search(r"<query>\s*(.*?)\s*</query>", user_msg, re.DOTALL)
+                    ev_str = m_q.group(1).strip() if m_q else "query"
+                quote_ev = f'"{ev_str[:30]}"'
+                c = json.dumps({
+                    "findings": [
+                        {"rule_id": "TASK_GOAL_COMPLETE", "status": "PASS", "evidence": quote_ev, "reason": "satisfied"},
+                        {"rule_id": "TASK_CONSTRAINTS_FOLLOWED", "status": "PASS", "evidence": quote_ev, "reason": "satisfied"},
+                        {"rule_id": "ROBUST_EVIDENCE_FAITHFUL", "status": "PASS", "evidence": quote_ev, "reason": "satisfied"},
+                        {"rule_id": "ROBUST_FAILURE_HANDLING", "status": "PASS", "evidence": quote_ev, "reason": "satisfied"},
+                    ]
+                })
         return SimpleNamespace(content=c, usage={"total_tokens": 50})
 
 

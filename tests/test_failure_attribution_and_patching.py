@@ -26,6 +26,7 @@ Covers Supervisor Scenarios E1 - E8:
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -77,6 +78,29 @@ class FakeLLM:
             content = self.default_content
         else:
             content = "tied"
+        if messages and any("findings" in str(m.get("content", "")) for m in messages if isinstance(m, dict)):
+            if "findings" not in str(content):
+                st = "FAIL" if "A_better" in str(content) else "PASS"
+                user_msg = ""
+                for m in messages:
+                    if isinstance(m, dict) and m.get("role") == "user":
+                        user_msg = str(m.get("content", ""))
+                m_ans = re.search(r"<answer>\s*(.*?)\s*</answer>", user_msg, re.DOTALL)
+                ev_str = m_ans.group(1).strip() if m_ans else ""
+                if not ev_str or ev_str == "(空回答)":
+                    m_q = re.search(r"<query>\s*(.*?)\s*</query>", user_msg, re.DOTALL)
+                    ev_str = m_q.group(1).strip() if m_q else "query"
+                quote_ev = f'"{ev_str[:30]}"'
+                fail_ev = f'MISSING: "{ev_str[:30]}" ; scope=answer'
+                rule_ev = fail_ev if st == "FAIL" else quote_ev
+                content = json.dumps({
+                    "findings": [
+                        {"rule_id": "TASK_GOAL_COMPLETE", "status": st, "evidence": rule_ev, "reason": "test status"},
+                        {"rule_id": "TASK_CONSTRAINTS_FOLLOWED", "status": st, "evidence": rule_ev, "reason": "test status"},
+                        {"rule_id": "ROBUST_EVIDENCE_FAITHFUL", "status": "PASS", "evidence": quote_ev, "reason": "satisfied"},
+                        {"rule_id": "ROBUST_FAILURE_HANDLING", "status": "PASS", "evidence": quote_ev, "reason": "satisfied"},
+                    ]
+                })
         return SimpleNamespace(
             content=content,
             usage={"prompt_tokens": 60, "completion_tokens": 40, "total_tokens": self.usage_tokens},

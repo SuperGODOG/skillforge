@@ -10,6 +10,7 @@
 from __future__ import annotations
 import subprocess
 import json
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -43,6 +44,27 @@ class FakeLLM:
     def invoke(self, messages, **kwargs):
         self.calls.append(messages)
         content = self.contents.pop(0) if self.contents else "tied"
+        # Support criteria-v1 prompt protocol: return findings schema if criteria requested
+        if messages and any("findings" in str(m.get("content", "")) for m in messages if isinstance(m, dict)):
+            if "findings" not in str(content):
+                user_msg = ""
+                for m in messages:
+                    if isinstance(m, dict) and m.get("role") == "user":
+                        user_msg = str(m.get("content", ""))
+                m_ans = re.search(r"<answer>\s*(.*?)\s*</answer>", user_msg, re.DOTALL)
+                ev_str = m_ans.group(1).strip() if m_ans else ""
+                if not ev_str or ev_str == "(空回答)":
+                    m_q = re.search(r"<query>\s*(.*?)\s*</query>", user_msg, re.DOTALL)
+                    ev_str = m_q.group(1).strip() if m_q else "query"
+                quote_ev = f'"{ev_str[:30]}"'
+                content = json.dumps({
+                    "findings": [
+                        {"rule_id": "TASK_GOAL_COMPLETE", "status": "PASS", "evidence": quote_ev, "reason": "satisfied"},
+                        {"rule_id": "TASK_CONSTRAINTS_FOLLOWED", "status": "PASS", "evidence": quote_ev, "reason": "satisfied"},
+                        {"rule_id": "ROBUST_EVIDENCE_FAITHFUL", "status": "PASS", "evidence": quote_ev, "reason": "satisfied"},
+                        {"rule_id": "ROBUST_FAILURE_HANDLING", "status": "PASS", "evidence": quote_ev, "reason": "satisfied"},
+                    ]
+                })
         return SimpleNamespace(
             content=content,
             usage={"prompt_tokens": 60, "completion_tokens": 40, "total_tokens": self.usage_tokens},

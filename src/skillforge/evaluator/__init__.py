@@ -12,15 +12,27 @@ flow（evaluate_skill）：
 from __future__ import annotations
 import hashlib
 import time
+import re
 from pathlib import Path
 from statistics import mean
 from typing import Any, Optional, Literal
 
 from hello_agents.tools import Tool, ToolParameter
 
-from ..models import EvalResult, RatchetVerdict, RouteResult
+from ..models import EvalResult, RatchetVerdict, RouteResult, ToolCallProvenance
 from .structure import score_structure, structure_total
 from .judge import PairwiseJudge, invert_verdict, skill_is_presented_as_a
+from .criteria import (
+    CRITERIA_POLICY_VERSION,
+    CRITERIA_PROMPT_VERSION,
+    DEFAULT_RUBRIC_V1,
+    RuleDefinition,
+    RuleFinding,
+    compute_case_scores,
+    derive_pairwise_verdict,
+    evaluate_semantic_criteria,
+    validate_rubric,
+)
 from .metrics import collect_objective_metrics
 from .ratchet import check_ratchet as _check_ratchet
 from .p0_gate import (
@@ -149,6 +161,8 @@ class SkillEvaluator(Tool):
         output_cache: Optional[EvaluatorOutputCache] = None,
         ledger=None,
         router=None,
+        scoring_policy: str = "criteria_v1",
+        rubric: Optional[dict[str, RuleDefinition]] = None,
     ):
         """
         Args:
@@ -158,12 +172,21 @@ class SkillEvaluator(Tool):
             output_cache: 可选，缓存 bare/current 输出以消除随机漂移
             ledger: 可选，挂载统一 LLM ledger
             router: 可选，IntentRouter 实例；不传时若 registry 具备 list_names 则自动构造
+            scoring_policy: 评分策略，默认 "criteria_v1"（独立规则判定与确定性计分）
+            rubric: 自定义评测规则字典（默认使用 DEFAULT_RUBRIC_V1）
         """
         super().__init__(
             name="skill_evaluator",
             description="八维评估器：结构分 40 + 效果分 60 + 客观指标 + 棘轮门槛",
         )
         self.registry = registry
+        self.scoring_policy = scoring_policy
+        if scoring_policy == "criteria_v1":
+            self.rubric = rubric if rubric is not None else dict(DEFAULT_RUBRIC_V1)
+            validate_rubric(self.rubric)
+        else:
+            self.rubric = rubric or {}
+
         if ledger is not None:
             from .llm_factory import wrap_with_ledger
 
@@ -197,8 +220,16 @@ class SkillEvaluator(Tool):
         """Return configuration fingerprint including execution and Judge settings."""
         from .llm_factory import compute_evaluator_fingerprint
 
-        judge_llm = getattr(getattr(self, "judge", None), "llm", None)
-        return compute_evaluator_fingerprint(self.llm, judge_llm)
+        judge_llm = getattr(getattr(self, "judge", None), "llm", None) or getattr(self, "judge_llm", None)
+        return compute_evaluator_fingerprint(
+            self.llm,
+            judge_llm,
+            scoring_policy=self.scoring_policy,
+            rubric=self.rubric,
+        )
+
+    def get_config_hash(self) -> str:
+        return self.get_config_fingerprint()
 
     def get_parameters(self) -> list[ToolParameter]:
         return [
@@ -346,6 +377,10 @@ class SkillEvaluator(Tool):
                     routing_notes="用例集为空，未执行路由评估",
                     route_result=None,
                     route_error="ROUTER_NOT_RUN: empty evaluation case set",
+                    scoring_policy=self.scoring_policy,
+                    criteria_findings=[],
+                    critical_fail=False,
+                    critical_reasons=[],
                 )
                 evidence = {
                     "independent_pass": None,
@@ -376,8 +411,7 @@ class SkillEvaluator(Tool):
             dependencies = list(getattr(meta, "dependencies", []) or [])
             all_provenances: list[Any] = []
 
-            # 2. 效果分（3 维 Judge 配对 + 1 维客观效率）
-            verdicts = {"task_completion": [], "robustness": [], "readability": []}
+            # 2. 效果分
             base_metrics_list = []
             skill_metrics_list = []
             p0_pass = True
@@ -386,108 +420,275 @@ class SkillEvaluator(Tool):
 
             case_verdicts: list[dict] = []  # Phase 4 元 Agent 输入
             case_outputs: list[dict] = []
+            all_criteria_findings: list[dict] = []
+            has_critical_fail = False
+            all_critical_reasons: list[str] = []
 
-            for i, case in enumerate(cases):
-                query = case["query"]
-                ref = case.get("reference")
-                case_id = case["id"]
+            if self.scoring_policy == "criteria_v1":
+                task_scores = []
+                robust_scores = []
+                readability_verdicts = []
 
-                if verbose:
-                    print(f"  [{i + 1}/{len(cases)}] {case_id}: {query[:40]}...")
+                for i, case in enumerate(cases):
+                    query = case["query"]
+                    ref = case.get("reference")
+                    case_id = case["id"]
 
-                base_out, base_m = self._run_bare(query)
-                skill_out, skill_m = self._run_with_skill(
-                    query,
-                    body,
-                    dependencies=dependencies,
-                    skill_name=skill_name,
-                    runtime=runtime,
-                    tool_broker=tool_broker,
-                    run_id=effective_run_id,
-                )
-                case_provs = list(getattr(self, "_last_skill_provenances", []) or [])
-                all_provenances.extend(case_provs)
-                if collector is not None and (runtime is None or getattr(runtime, "collector", None) is not collector):
-                    for prov in case_provs:
-                        collector.record_tool_call(
-                            run_id=effective_run_id,
-                            provenance=prov,
-                            action_summary=f"Case {case_id} tool execution",
+                    if verbose:
+                        print(f"  [{i + 1}/{len(cases)}] {case_id}: {query[:40]}...")
+
+                    base_out, base_m = self._run_bare(query)
+                    skill_out, skill_m = self._run_with_skill(
+                        query,
+                        body,
+                        dependencies=dependencies,
+                        skill_name=skill_name,
+                        runtime=runtime,
+                        tool_broker=tool_broker,
+                        run_id=effective_run_id,
+                    )
+                    case_provs = list(getattr(self, "_last_skill_provenances", []) or [])
+                    all_provenances.extend(case_provs)
+                    if collector is not None and (runtime is None or getattr(runtime, "collector", None) is not collector):
+                        for prov in case_provs:
+                            collector.record_tool_call(
+                                run_id=effective_run_id,
+                                provenance=prov,
+                                action_summary=f"Case {case_id} tool execution",
+                            )
+                    base_metrics_list.append(base_m)
+                    skill_metrics_list.append(skill_m)
+
+                    case_rubric = case.get("rubric") or self.rubric
+
+                    # Step A: Evaluate Skill and Baseline against criteria
+                    skill_findings, skill_invals = self._evaluate_case_criteria(
+                        query=query,
+                        answer=skill_out,
+                        reference=ref,
+                        rubric=case_rubric,
+                        provenances=case_provs,
+                        case=case,
+                        target="skill",
+                        run_id=effective_run_id,
+                    )
+                    base_findings, base_invals = self._evaluate_case_criteria(
+                        query=query,
+                        answer=base_out,
+                        reference=ref,
+                        rubric=case_rubric,
+                        provenances=[],
+                        case=case,
+                        target="baseline",
+                        run_id=effective_run_id,
+                    )
+
+                    for inv in skill_invals:
+                        invalid_reasons.append(f"{case_id}/skill: {inv}")
+                    for inv in base_invals:
+                        invalid_reasons.append(f"{case_id}/baseline: {inv}")
+
+                    # Step B: Compute deterministic scores & check critical fail
+                    c_task, c_robust, c_valid, c_crit, c_reasons = compute_case_scores(skill_findings, case_rubric)
+                    task_scores.append(c_task)
+                    robust_scores.append(c_robust)
+                    if not c_valid:
+                        invalid_reasons.append(f"{case_id}/skill: UNKNOWN_CRITERIA_RULE")
+                    if c_crit:
+                        has_critical_fail = True
+                        all_critical_reasons.extend(c_reasons)
+
+                    b_task, b_robust, b_valid, _, _ = compute_case_scores(base_findings, case_rubric)
+                    if not b_valid:
+                        invalid_reasons.append(f"{case_id}/baseline: UNKNOWN_CRITERIA_RULE")
+
+                    # Step C: Readability dimension - preserves balanced PairwiseJudge
+                    read_skill_as_a = skill_is_presented_as_a(i, 2, ordering_run_id)
+                    if read_skill_as_a:
+                        judged_read = self.judge.compare_detailed(
+                            query, skill_out, base_out, "readability", reference=ref,
+                            tool_evidence_a=case_provs, tool_evidence_b=None,
                         )
-                base_metrics_list.append(base_m)
-                skill_metrics_list.append(skill_m)
-
-                per_case = {"case_id": case_id, "query": query}
-                for dim_index, dim in enumerate(verdicts):
-                    skill_as_a = skill_is_presented_as_a(i, dim_index, ordering_run_id)
-                    if skill_as_a:
-                        judged = self.judge.compare_detailed(
-                            query,
-                            skill_out,
-                            base_out,
-                            dim,
-                            reference=ref,
-                            tool_evidence_a=case_provs,
-                            tool_evidence_b=None,
-                        )
-                        v = judged.verdict
-                        presented_order = {"A": "skill", "B": "baseline"}
+                        read_verdict = judged_read.verdict
+                        read_order = {"A": "skill", "B": "baseline"}
                     else:
-                        judged = self.judge.compare_detailed(
-                            query,
-                            base_out,
-                            skill_out,
-                            dim,
-                            reference=ref,
-                            tool_evidence_a=None,
-                            tool_evidence_b=case_provs,
+                        judged_read = self.judge.compare_detailed(
+                            query, base_out, skill_out, "readability", reference=ref,
+                            tool_evidence_a=None, tool_evidence_b=case_provs,
                         )
-                        v = invert_verdict(judged.verdict)
-                        presented_order = {"A": "baseline", "B": "skill"}
-                    verdicts[dim].append((case_id, v))
-                    per_case[dim] = v
-                    per_case.setdefault("judge_audit", {})[dim] = {
-                        "presented_order": presented_order,
-                        "raw_verdict": judged.verdict,
-                        "canonical_verdict": v,
-                        "reason_codes": list(judged.reason_codes),
-                        "evidence_summary": judged.evidence_summary,
-                        "source": judged.source,
-                        "raw_response": judged.raw_response,
-                        "ordering_run_id": ordering_run_id,
-                    }
-                    if v == "INVALID":
-                        invalid_reasons.append(
-                            f"{case_id}/{dim}: "
-                            + (",".join(judged.reason_codes) or "INVALID_JUDGE_RESULT")
-                        )
-                    # P0 语义：task 维度上 skill 版被判 B_better（不如 baseline） → P0 fail
-                    if (
-                        case_id in p0_ids
-                        and dim == "task_completion"
-                        and v in {"B_better", "INVALID"}
-                    ):
-                        p0_pass = False
-                case_verdicts.append(per_case)
-                case_outputs.append({
-                    "case_id": case_id,
-                    "query": query,
-                    "reference": ref,
-                    "output_skill": skill_out,
-                    "output_baseline": base_out,
-                    "provenances": [
-                        p.to_dict() if hasattr(p, "to_dict") else vars(p)
-                        for p in case_provs
-                    ],
-                })
+                        read_verdict = invert_verdict(judged_read.verdict)
+                        read_order = {"A": "baseline", "B": "skill"}
 
-            # 效果分：胜=1 平=0.5 负=0 加权
-            effect = {
-                "task": self._dim_score_or_zero(verdicts["task_completion"], max_score=25.0),
-                "robust": self._dim_score_or_zero(verdicts["robustness"], max_score=15.0),
-                "readability": self._dim_score_or_zero(verdicts["readability"], max_score=10.0),
-                "efficiency": self._efficiency_score(base_metrics_list, skill_metrics_list),
-            }
+                    readability_verdicts.append((case_id, read_verdict))
+                    if read_verdict == "INVALID":
+                        invalid_reasons.append(
+                            f"{case_id}/readability: "
+                            + (",".join(judged_read.reason_codes) or "INVALID_JUDGE_RESULT")
+                        )
+
+                    # Step D: Derive pairwise verdicts for backward compatibility & RepairJob
+                    derived_task = derive_pairwise_verdict(skill_findings, base_findings, "task_completion")
+                    derived_robust = derive_pairwise_verdict(skill_findings, base_findings, "robustness")
+
+                    per_case = {
+                        "case_id": case_id,
+                        "query": query,
+                        "task_completion": derived_task,
+                        "robustness": derived_robust,
+                        "readability": read_verdict,
+                        "skill_score": {"task": c_task, "robust": c_robust},
+                        "baseline_score": {"task": b_task, "robust": b_robust},
+                        "skill_findings": {k: f.to_dict() for k, f in skill_findings.items()},
+                        "baseline_findings": {k: f.to_dict() for k, f in base_findings.items()},
+                        "critical_fail": c_crit,
+                        "critical_reasons": c_reasons,
+                        "judge_audit": {
+                            "readability": {
+                                "presented_order": read_order,
+                                "raw_verdict": judged_read.verdict,
+                                "canonical_verdict": read_verdict,
+                                "reason_codes": list(judged_read.reason_codes),
+                                "evidence_summary": judged_read.evidence_summary,
+                                "source": judged_read.source,
+                            }
+                        },
+                    }
+                    case_verdicts.append(per_case)
+
+                    for f in skill_findings.values():
+                        all_criteria_findings.append({**f.to_dict(), "case_id": case_id, "target": "skill"})
+                    for f in base_findings.values():
+                        all_criteria_findings.append({**f.to_dict(), "case_id": case_id, "target": "baseline"})
+
+                    case_outputs.append({
+                        "case_id": case_id,
+                        "query": query,
+                        "reference": ref,
+                        "output_skill": skill_out,
+                        "output_baseline": base_out,
+                        "provenances": [
+                            p.to_dict() if hasattr(p, "to_dict") else vars(p)
+                            for p in case_provs
+                        ],
+                    })
+
+                    # P0 check: critical fail, low score, or regression breaks P0
+                    if case_id in p0_ids:
+                        if c_crit or c_task < 15.0 or derived_task in ("B_better", "INVALID"):
+                            p0_pass = False
+
+                if has_critical_fail:
+                    p0_pass = False
+
+                effect = {
+                    "task": round(mean(task_scores) if task_scores else 0.0, 2),
+                    "robust": round(mean(robust_scores) if robust_scores else 0.0, 2),
+                    "readability": self._dim_score_or_zero(readability_verdicts, max_score=10.0),
+                    "efficiency": self._efficiency_score(base_metrics_list, skill_metrics_list),
+                }
+            else:
+                verdicts = {"task_completion": [], "robustness": [], "readability": []}
+                for i, case in enumerate(cases):
+                    query = case["query"]
+                    ref = case.get("reference")
+                    case_id = case["id"]
+
+                    if verbose:
+                        print(f"  [{i + 1}/{len(cases)}] {case_id}: {query[:40]}...")
+
+                    base_out, base_m = self._run_bare(query)
+                    skill_out, skill_m = self._run_with_skill(
+                        query,
+                        body,
+                        dependencies=dependencies,
+                        skill_name=skill_name,
+                        runtime=runtime,
+                        tool_broker=tool_broker,
+                        run_id=effective_run_id,
+                    )
+                    case_provs = list(getattr(self, "_last_skill_provenances", []) or [])
+                    all_provenances.extend(case_provs)
+                    if collector is not None and (runtime is None or getattr(runtime, "collector", None) is not collector):
+                        for prov in case_provs:
+                            collector.record_tool_call(
+                                run_id=effective_run_id,
+                                provenance=prov,
+                                action_summary=f"Case {case_id} tool execution",
+                            )
+                    base_metrics_list.append(base_m)
+                    skill_metrics_list.append(skill_m)
+
+                    per_case = {"case_id": case_id, "query": query}
+                    for dim_index, dim in enumerate(verdicts):
+                        skill_as_a = skill_is_presented_as_a(i, dim_index, ordering_run_id)
+                        if skill_as_a:
+                            judged = self.judge.compare_detailed(
+                                query,
+                                skill_out,
+                                base_out,
+                                dim,
+                                reference=ref,
+                                tool_evidence_a=case_provs,
+                                tool_evidence_b=None,
+                            )
+                            v = judged.verdict
+                            presented_order = {"A": "skill", "B": "baseline"}
+                        else:
+                            judged = self.judge.compare_detailed(
+                                query,
+                                base_out,
+                                skill_out,
+                                dim,
+                                reference=ref,
+                                tool_evidence_a=None,
+                                tool_evidence_b=case_provs,
+                            )
+                            v = invert_verdict(judged.verdict)
+                            presented_order = {"A": "baseline", "B": "skill"}
+                        verdicts[dim].append((case_id, v))
+                        per_case[dim] = v
+                        per_case.setdefault("judge_audit", {})[dim] = {
+                            "presented_order": presented_order,
+                            "raw_verdict": judged.verdict,
+                            "canonical_verdict": v,
+                            "reason_codes": list(judged.reason_codes),
+                            "evidence_summary": judged.evidence_summary,
+                            "source": judged.source,
+                            "raw_response": judged.raw_response,
+                            "ordering_run_id": ordering_run_id,
+                        }
+                        if v == "INVALID":
+                            invalid_reasons.append(
+                                f"{case_id}/{dim}: "
+                                + (",".join(judged.reason_codes) or "INVALID_JUDGE_RESULT")
+                            )
+                        # P0 语义：task 维度上 skill 版被判 B_better（不如 baseline） → P0 fail
+                        if (
+                            case_id in p0_ids
+                            and dim == "task_completion"
+                            and v in {"B_better", "INVALID"}
+                        ):
+                            p0_pass = False
+                    case_verdicts.append(per_case)
+                    case_outputs.append({
+                        "case_id": case_id,
+                        "query": query,
+                        "reference": ref,
+                        "output_skill": skill_out,
+                        "output_baseline": base_out,
+                        "provenances": [
+                            p.to_dict() if hasattr(p, "to_dict") else vars(p)
+                            for p in case_provs
+                        ],
+                    })
+
+                # 效果分：胜=1 平=0.5 负=0 加权
+                effect = {
+                    "task": self._dim_score_or_zero(verdicts["task_completion"], max_score=25.0),
+                    "robust": self._dim_score_or_zero(verdicts["robustness"], max_score=15.0),
+                    "readability": self._dim_score_or_zero(verdicts["readability"], max_score=10.0),
+                    "efficiency": self._efficiency_score(base_metrics_list, skill_metrics_list),
+                }
 
             # 3. 客观指标平均
             obj = {
@@ -562,6 +763,10 @@ class SkillEvaluator(Tool):
                 routing_notes=routing_notes,
                 route_result=route_result,
                 route_error=route_error,
+                scoring_policy=self.scoring_policy,
+                criteria_findings=all_criteria_findings,
+                critical_fail=has_critical_fail,
+                critical_reasons=all_critical_reasons,
             )
 
             if runtime is not None or collector is not None:
@@ -817,6 +1022,191 @@ class SkillEvaluator(Tool):
                 dependencies=dependencies,
             )
         return res
+
+    def _evaluate_case_criteria(
+        self,
+        query: str,
+        answer: str,
+        reference: Optional[str],
+        rubric: dict[str, RuleDefinition],
+        provenances: list[Any],
+        case: dict,
+        target: str,
+        run_id: str,
+    ) -> tuple[dict[str, RuleFinding], list[str]]:
+        """Evaluate a single agent response against the rubric.
+
+        Executes deterministic code checks (logistics oracle, empty answer, truth sentinel)
+        before falling back to the Judge LLM for semantic criteria.
+        """
+        findings: dict[str, RuleFinding] = {}
+        invalid_codes: list[str] = []
+
+        # Check 1: Logistics Oracle (Code Oracle)
+        oracle_name = str(case.get("oracle") or case.get("trusted_oracle") or case.get("scenario") or "")
+        is_logistics = (
+            "logistics" in oracle_name.lower()
+            or "ORD_" in query
+            or case.get("order_id") is not None
+        )
+        if is_logistics:
+            from ..scenarios.logistics import verify_logistics_fulfillment_as_findings
+            from ..models import ToolCallRecord
+
+            order_id = case.get("order_id")
+            if not order_id:
+                m = re.search(r"ORD_\d{4}_\d{4}", query)
+                order_id = m.group(0) if m else "ORD_2026_0901"
+
+            records: list[ToolCallRecord] = []
+            for p in provenances:
+                if isinstance(p, ToolCallRecord):
+                    records.append(p)
+                elif hasattr(p, "tool_name"):
+                    records.append(
+                        ToolCallRecord(
+                            call_id=f"call_{getattr(p, 'call_index', 0)}",
+                            run_id=run_id,
+                            tool_name=getattr(p, "tool_name", ""),
+                            status="EXECUTED" if getattr(p, "tool_success", True) else "ERROR",
+                            input_params=getattr(p, "input_params", {}),
+                            output_text=getattr(p, "output_summary", ""),
+                            provenance=p if isinstance(p, ToolCallProvenance) else None,
+                        )
+                    )
+
+            oracle_findings = verify_logistics_fulfillment_as_findings(
+                model_output=answer,
+                order_id=order_id,
+                tool_records=records,
+                intent_constraint=case.get("intent_constraint"),
+                expected_permission_denial=bool(case.get("expected_permission_denial", False)),
+                expect_tool_failure=bool(case.get("expect_tool_failure", False)),
+                failing_package_ids=case.get("failing_package_ids"),
+                infra_error=case.get("infra_error"),
+                expected_packages=case.get("expected_packages"),
+            )
+            # Reconcile with rubric
+            for rid, rule in rubric.items():
+                if not rule.applicable:
+                    continue
+                if rid in oracle_findings:
+                    f = oracle_findings[rid]
+                    findings[rid] = RuleFinding(
+                        rule_id=rid,
+                        dimension=rule.dimension,
+                        status=f.status,
+                        weight=rule.weight,
+                        critical=bool(rule.critical or getattr(f, "critical", False)),
+                        evidence=f.evidence,
+                        reason=f.reason,
+                        source="code_oracle",
+                        deduction=0.0 if f.status == "PASS" else float(rule.weight),
+                    )
+                else:
+                    findings[rid] = RuleFinding(
+                        rule_id=rid,
+                        dimension=rule.dimension,
+                        status="UNKNOWN",
+                        weight=rule.weight,
+                        critical=rule.critical,
+                        evidence="",
+                        reason=f"Code oracle did not cover rule '{rid}'",
+                        source="infrastructure",
+                        deduction=float(rule.weight),
+                    )
+            return findings, invalid_codes
+
+        # Check 2: Deterministic checks for non-logistics cases
+        # 2a: Empty answer
+        if not answer.strip() or answer.strip() == "(空回答)":
+            has_failure_context = bool(
+                case.get("expect_tool_failure")
+                or case.get("expected_permission_denial")
+                or case.get("infra_error")
+            )
+            for rid, rule in rubric.items():
+                if not rule.applicable:
+                    continue
+                if rule.dimension == "task_completion":
+                    findings[rid] = RuleFinding(
+                        rule_id=rid,
+                        dimension=rule.dimension,
+                        status="FAIL",
+                        weight=rule.weight,
+                        critical=rule.critical,
+                        evidence="(空回答)",
+                        reason="候选回答为空，未完成任何任务目标或约束",
+                        source="deterministic_gate",
+                        deduction=float(rule.weight),
+                    )
+                else:
+                    if rid == "ROBUST_FAILURE_HANDLING" and has_failure_context:
+                        findings[rid] = RuleFinding(
+                            rule_id=rid,
+                            dimension=rule.dimension,
+                            status="FAIL",
+                            weight=rule.weight,
+                            critical=True,
+                            evidence="(空回答)",
+                            reason="故障上下文下候选回答为空，未进行降级说明或故障处理",
+                            source="deterministic_gate",
+                            deduction=float(rule.weight),
+                        )
+                    else:
+                        findings[rid] = RuleFinding(
+                            rule_id=rid,
+                            dimension=rule.dimension,
+                            status="PASS",
+                            weight=rule.weight,
+                            critical=rule.critical,
+                            evidence="(空回答)",
+                            reason="空回答未编造未验证事实且无未处理故障",
+                            source="deterministic_gate",
+                            deduction=0.0,
+                        )
+            return findings, invalid_codes
+
+        # 2b: Truth Sentinel for unverified facts
+        from .judge import has_unverified_realtime_numeric_claim
+        has_unverified = has_unverified_realtime_numeric_claim(
+            query,
+            answer,
+            reference=reference,
+            has_tool_evidence=provenances,
+        )
+        if has_unverified and "ROBUST_EVIDENCE_FAITHFUL" in rubric:
+            rf = rubric["ROBUST_EVIDENCE_FAITHFUL"]
+            findings["ROBUST_EVIDENCE_FAITHFUL"] = RuleFinding(
+                rule_id="ROBUST_EVIDENCE_FAITHFUL",
+                dimension="robustness",
+                status="FAIL",
+                weight=rf.weight,
+                critical=rf.critical,
+                evidence="包含实时或数值断言但缺乏经过核验的工具快照凭据",
+                reason="UNVERIFIED_EXTERNAL_FACT: 给出实时数值但没有工具 provenance",
+                source="truth_sentinel",
+                deduction=float(rf.weight),
+            )
+
+        # 2c: Evaluate remaining rules via batched judge LLM call
+        remaining_rubric = {
+            rid: r for rid, r in rubric.items()
+            if r.applicable and rid not in findings
+        }
+        if remaining_rubric:
+            llm_findings, invals = evaluate_semantic_criteria(
+                judge_llm=self.judge_llm,
+                query=query,
+                answer=answer,
+                reference=reference,
+                rubric=remaining_rubric,
+                tool_provenances=provenances,
+            )
+            findings.update(llm_findings)
+            invalid_codes.extend(invals)
+
+        return findings, invalid_codes
 
     @staticmethod
     def _extract_usage(resp) -> dict:

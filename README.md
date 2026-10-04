@@ -165,14 +165,17 @@ flowchart TB
 - 三层记忆区分 Semantic 事实、Episodic 经历与 Procedural 技能；需求 / 文档不冒充 Episode。
 - `PatternMining` 先按业务范围、意图与工具契约分组，再按相似度与独立任务支持度提炼；成功样本帮助描述适用范围，失败样本暴露边界。
 - trace 提纯为带工具快照和独立预期的开发 / 回归用例提案；开发反馈与锁定评测按来源、派生家族及近重复关系隔离。
-- 共同门禁串起来源、结构、长度、依赖与行为验证；行为评测复用棘轮与关键用例检查，检查 Badcase 改善，也检查正常任务退化。
-- 权威验证记录绑定候选正文、规范基线、意图、验证配置及数据集；任何绑定漂移都不能沿用旧 PASS。
+- 共同门禁串起来源、结构、长度、依赖与行为验证；`criteria_v1` 用评测前冻结的 Rubric 分别判断 Baseline 与 Skill，模型只返回规则状态与证据，分数和关键性由代码决定。任务完成度与鲁棒性优先使用代码 Oracle；可读性保留顺序平衡的 Pairwise，效率依据执行日志。
+- 关键规则确证 `FAIL` 时，即使冷启动或总分高也拒绝晋升；`UNKNOWN` / 解析异常使评测无效并 fail-closed，但不当作确认的业务缺陷。评分策略或 Rubric 变化会使旧验证／缓存失效，旧、新策略不直接比较。
+- 权威验证记录绑定候选正文、规范基线、意图、验证配置（含评分策略与 Rubric 指纹）及数据集；任何绑定漂移都不能沿用旧 PASS。
 
 **为何这样设计：** 来源回答“改进依据是什么”，独立 oracle 回答“业务是否正确”，正常回归提供“没有修坏原能力”的反证。用途隔离旨在避免把看过的评测答案重新当作能力证据；门禁仍取决于用例质量，不等于证明普遍泛化。
 
+**Judge 校准证据（2026-10-03）：** `glm-5.3-flash` 在 16 个合成答案、64 项主规则上的总体匹配率为 **52/64（81.25%）**；排除 3 条无法解析主评记录后的子集为 **51/52（98.08%）**，不能当总体准确率。当前夹具的关键违规捕获 **5/5**、确证违规虚警 **0/25**，但合规关键判定仍有 **5/25 UNKNOWN**；仅完成的 2 组重测状态向量一致 **0/2**、门禁一致 **1/2**。这是独立 Judge 校准，不是业务 Agent 全链路或 Skill 收益实验，不能据此声称全域零误判或稳定性已验证。详见 [原始结果](docs/judge_criteria_real_calibration_results.json)。
+
 **长度护栏的取舍：** 单章节增长 >25% **且** 净增 >1000 policy tokens，或全文 >1.20 倍 **且** 净增 >1000 tokens，才触发长度 REVIEW。这样允许短草稿从几十 tokens 合理扩展，同时关注较大的绝对增量。无基线新建另设默认 3000 字符上限。1000 是可配置工程策略，`cl100k_base` 用于一致计数，不代表 GLM 原生 token 或已验证的注意力临界点。
 
-🔎 [经历与候选 Store](src/skillforge/episode.py) · [模式提炼](src/skillforge/pattern_mining.py) · [用例提案](src/skillforge/trace_purification.py) · [评测门禁](src/skillforge/evaluator/) · [数据用途专项](tests/test_p4_trace_purification_and_mining.py)
+🔎 [经历与候选 Store](src/skillforge/episode.py) · [模式提炼](src/skillforge/pattern_mining.py) · [用例提案](src/skillforge/trace_purification.py) · [评测门禁](src/skillforge/evaluator/) · [Criteria 评测指南](docs/JUDGE_CRITERIA_GUIDE.md) · [数据用途专项](tests/test_p4_trace_purification_and_mining.py)
 
 ### 3.4 有界恢复与版本复用｜让演进能继续，也能停下来
 

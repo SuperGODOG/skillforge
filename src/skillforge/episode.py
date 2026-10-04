@@ -897,6 +897,10 @@ class CandidateStore:
                     p0_pass=eval_data.get("p0_pass", True),
                     valid=eval_data.get("valid", True),
                     invalid_reasons=eval_data.get("invalid_reasons", []),
+                    scoring_policy=eval_data.get("scoring_policy", "legacy_pairwise_v1"),
+                    criteria_findings=eval_data.get("criteria_findings", []),
+                    critical_fail=eval_data.get("critical_fail", False),
+                    critical_reasons=eval_data.get("critical_reasons", []),
                 )
             except Exception:
                 eval_result = None

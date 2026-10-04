@@ -2883,12 +2883,16 @@ def _validate_patch(
                         judge_llm=judge_llm,
                         output_cache=cache_obj,
                         router=route_obj,
+                        scoring_policy=getattr(evaluator, "scoring_policy", "criteria_v1"),
+                        rubric=getattr(evaluator, "rubric", None),
                     )
                 except TypeError:
                     temp_eval = SkillEvaluator(
                         registry=temp_reg,
                         llm=getattr(evaluator, "llm", None),
                         judge_llm=judge_llm,
+                        scoring_policy=getattr(evaluator, "scoring_policy", "criteria_v1"),
+                        rubric=getattr(evaluator, "rubric", None),
                     )
                     if hasattr(temp_eval, "output_cache"):
                         temp_eval.output_cache = cache_obj
@@ -2989,12 +2993,16 @@ def _validate_patch(
                             llm=getattr(evaluator, "llm", None),
                             judge_llm=judge_llm,
                             output_cache=cache_obj,
+                            scoring_policy=getattr(evaluator, "scoring_policy", "criteria_v1"),
+                            rubric=getattr(evaluator, "rubric", None),
                         )
                     except TypeError:
                         temp_eval = SkillEvaluator(
                             registry=temp_reg,
                             llm=getattr(evaluator, "llm", None),
                             judge_llm=judge_llm,
+                            scoring_policy=getattr(evaluator, "scoring_policy", "criteria_v1"),
+                            rubric=getattr(evaluator, "rubric", None),
                         )
                         if hasattr(temp_eval, "output_cache"):
                             temp_eval.output_cache = cache_obj

@@ -1,5 +1,17 @@
 # SkillForge Evolution Loop - Milestone 1: Episode & Candidate Storage Guide
 
+> **2026-10-04 Judge 协议同步**：以下 M1–P6 记录保留原时间与验收批次，不作为本次 Judge 更新的新验收。当前默认评分策略为 `criteria_v1`，详见 [Rubric 指南](JUDGE_CRITERIA_GUIDE.md) 和 [真实校准结果](judge_criteria_real_calibration_results.json)。
+
+## 当前候选评测协议补充（Criteria-v1）
+
+- Baseline 与 Skill 使用同一套评测前冻结的 Rubric，分别输出规则状态与证据，不再由 Pairwise 胜负直接决定任务完成度和鲁棒性；可读性保留顺序平衡 Pairwise，效率来自执行日志。
+- 代码 Oracle 优先；语义 Judge 不能修改规则权重、分数或关键性。适用规则按 PASS 权重占比折算维度分。
+- 确认的关键 `FAIL` 设置 `critical_fail=True` 并阻断，包括冷启动或基线也失败的情况。任何 `UNKNOWN`、漏项或异常令评测 `valid=False` 并拒绝晋升，但这不是确认的业务失败，不能直接把不确定反馈当 Badcase 修 Skill。
+- 原评分可显式使用 `legacy_pairwise_v1`，旧记录按兼容策略解包；不同评分策略不直接棘轮比较。Rubric／策略进入验证与缓存指纹，变更后不能复用旧 PASS。
+- 2026-10-03 的真实 Judge 校准复用提示词、解析和计分代码，但未启动业务 Agent 或 `evaluate_skill` 全链路。总体 52/64 匹配；子集 51/52 不等于总体效果。两组完成重测仅状态一致 0/2、门禁一致 1/2，尚未证明稳定性或 Skill 收益。
+
+`RuleFinding` 是规则级评测结果，不替代 Episode outcome；模型或解析器的 UNKNOWN、业务确证 FAIL 与运行基础设施故障应保留各自来源。
+
 ## 1. 概述 (Overview)
 Milestone 1 (M1) 建立了经验（Episode）与候选技能（Candidate Skill）的受控数据契约与持久化存储：
 - **运行凭据绑定**：将运行过程中的工具调用记录（`ToolCallProvenance`）、运行环境指纹、独立验收标准与结构化验证证据固化为 `Episode`。
@@ -1972,7 +1984,6 @@ Phase 6（P6）在真实电商业务高频场景——**多包裹物流履约状
    - **复用边界声明**：复用既有 LangGraph 检查点与序列化基础设施，新建适配当前演进链的恢复节点；未原样复用旧 Evolver 业务节点，以避免预算、状态和注册路径冲突。
    - **实际复用底座**：直接复用 `langgraph_loop.py` 的持久化底座（`SqliteCheckpointer`、`create_default_checkpointer` 与已包含领域对象的 `ALLOWED_MSGPACK_MODULES` / `JsonPlusSerializer`）；
    - **节点与影子目录解耦**：旧 `langgraph_loop.py` 中的节点函数与 `_prepare_shadow_root` 强绑定 `SkillEvolver`、`EvolveContext`、`EvolveBudget` 与旧 `Patch`（要求 `evolver.repo_root` 并在旧节点内部管理独立预算和直接发布）。为保证统一 `RecoveryBudget` 与 `RepairJob` 职责单一性，避免预算双计与违背 L5 门禁，系统沿用 5 节点拓扑名称，针对 `RecoveryLoopState` 与 `RepairJob` 编写独立节点函数与 `ShadowDirectoryContext`。
-
 
 
 
