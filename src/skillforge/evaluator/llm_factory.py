@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from ..models import BudgetExceededError, EvolveBudget
+from .criteria import DEFAULT_RUBRIC_V1
 
 
 def extract_tokens(resp: Any) -> tuple[int, int, int]:
@@ -330,7 +331,12 @@ def wrap_with_ledger(llm: Any, ledger: Optional[LLMLedger], role: str = "llm") -
     return TrackedLLM(llm, ledger, role=role)
 
 
-def compute_evaluator_fingerprint(execution_llm: Any = None, judge_llm: Any = None) -> str:
+def compute_evaluator_fingerprint(
+    execution_llm: Any = None,
+    judge_llm: Any = None,
+    scoring_policy: str = "criteria_v1",
+    rubric: Optional[dict] = None,
+) -> str:
     """Compute a deterministic 16-character SHA-256 fingerprint of execution & judge configurations."""
     from .judge import JUDGE_PROMPT_VERSION, judge_prompt_sha256, judge_semantic_digest
 
@@ -397,6 +403,11 @@ def compute_evaluator_fingerprint(execution_llm: Any = None, judge_llm: Any = No
         "judge_prompt_version": JUDGE_PROMPT_VERSION,
         "judge_prompt_sha256": judge_prompt_sha256(),
         "judge_semantic_digest": judge_semantic_digest(),
+        "scoring_policy": str(scoring_policy),
+        "rubric": {
+            k: (v.to_dict() if hasattr(v, "to_dict") else dict(v))
+            for k, v in (rubric if rubric is not None else DEFAULT_RUBRIC_V1).items()
+        },
     }
     raw = json.dumps(payload, sort_keys=True)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]

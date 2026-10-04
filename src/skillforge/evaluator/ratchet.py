@@ -43,6 +43,13 @@ def _rel_change(old_v: float, new_v: float) -> float:
 
 def check_ratchet(old: Optional[EvalResult], new: EvalResult) -> RatchetVerdict:
     """棘轮判定，返回 DECLINED / REVIEW / PASS"""
+    # 关键规则硬门禁（J6）：命中 critical FAIL 无论首次评估还是基线状态，立即绝对阻断
+    if getattr(new, "critical_fail", False):
+        reasons = ["命中 critical 关键规则失败，禁止发布"]
+        if getattr(new, "critical_reasons", None):
+            reasons.extend(new.critical_reasons)
+        return RatchetVerdict(decision="DECLINED", reasons=reasons)
+
     if old is not None and not old.valid:
         reasons = ["历史基线评估无效，不能用于棘轮比较"]
         reasons.extend(old.invalid_reasons)
@@ -51,7 +58,20 @@ def check_ratchet(old: Optional[EvalResult], new: EvalResult) -> RatchetVerdict:
         reasons = ["评估无效，按 fail-closed 拒绝"]
         reasons.extend(new.invalid_reasons)
         return RatchetVerdict(decision="DECLINED", reasons=reasons)
-    # 首次评估：无基线，默认放行
+
+    # 评分策略迁移防绕过（J7/J8）：新旧 scoring_policy 不一致不能直接过棘轮
+    if old is not None:
+        old_policy = getattr(old, "scoring_policy", "legacy_pairwise_v1")
+        new_policy = getattr(new, "scoring_policy", "criteria_v1")
+        if old_policy != new_policy:
+            return RatchetVerdict(
+                decision="DECLINED",
+                reasons=[
+                    f"评分策略不一致不能直接比较：旧策略 '{old_policy}' vs 新策略 '{new_policy}'，旧成绩不可直接复用"
+                ],
+            )
+
+    # 首次评估：无基线且已通过 critical 检查，默认放行
     if old is None:
         return RatchetVerdict(decision="PASS", reasons=["首次评估，无历史基线"])
 

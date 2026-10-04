@@ -11,6 +11,12 @@ from pathlib import Path
 from typing import Any, Literal, Optional
 
 from ..models import BudgetExceededError, ToolCallProvenance
+from .criteria import (
+    CRITERIA_POLICY_VERSION,
+    CRITERIA_PROMPT_TEMPLATE,
+    CRITERIA_PROMPT_VERSION,
+    DEFAULT_RUBRIC_V1,
+)
 
 
 Verdict = Literal["A_better", "tied", "B_better", "INVALID"]
@@ -43,7 +49,8 @@ reason_codes 必须使用大写 ASCII snake-case（例如 EVIDENCE_SUFFICIENT）
 """
 
 _REALTIME_MARKERS = re.compile(
-    r"今天|今日|明天|后天|现在|当前|实时|最新|这周|本周|周末|这几天|未来\s*\d+\s*天",
+    r"今天|今日|明天|后天|现在|当前|实时|最新|这周|本周|周末|这几天|未来\s*\d+\s*天"
+    r"|\b(?:today|tomorrow|now|current|latest|real-?time|timestamp|update|this\s+week)\b",
     re.IGNORECASE,
 )
 _NUMERIC_FACT = re.compile(
@@ -65,7 +72,7 @@ _GENERIC_LIVE_FACT = re.compile(
     r"(?:当前|现在|最新)\D{0,8}(?:是|为|达到|报|:|：)?\s*[-+]?\d[\d,.]*",
     re.IGNORECASE,
 )
-_NUMERIC_TRANSFORM_REQUEST = re.compile(r"换算|转换|计算|折算|convert|calculate", re.IGNORECASE)
+_NUMERIC_TRANSFORM_REQUEST = re.compile(r"换算|转换|计算|折算|convert|calculate|transform|math", re.IGNORECASE)
 _NUMERIC_QUERY_DIGIT_GATE = re.compile(r"\d")
 
 JUDGE_REASON_CODE_PATTERN = r"[A-Z][A-Z0-9_:-]*"
@@ -195,6 +202,19 @@ def judge_semantic_digest() -> str:
             "gating_rules": TRUTH_SENTINEL_GATING_RULES,
             "provenance_signature_fields": list(PROVENANCE_SIGNATURE_FIELDS),
             "provenance_validation_rules": PROVENANCE_VALIDATION_RULES,
+        },
+        "criteria_protocol": {
+            "policy_version": CRITERIA_POLICY_VERSION,
+            "prompt_version": CRITERIA_PROMPT_VERSION,
+            "prompt_template_sha256": hashlib.sha256(
+                CRITERIA_PROMPT_TEMPLATE.encode("utf-8")
+            ).hexdigest(),
+            "default_rubric": {
+                rid: r.to_dict() for rid, r in DEFAULT_RUBRIC_V1.items()
+            },
+            "criteria_code_sha256": hashlib.sha256(
+                (Path(__file__).resolve().parent / "criteria.py").read_bytes()
+            ).hexdigest() if (Path(__file__).resolve().parent / "criteria.py").exists() else "",
         },
         # A conservative source-level anchor prevents future executable Judge
         # changes from silently reusing cached decisions even if a new rule is

@@ -409,6 +409,8 @@ def validate_candidate(
                 judge_llm=getattr(evaluator, "judge_llm", None) or getattr(getattr(evaluator, "judge", None), "llm", None),
                 output_cache=evaluator.output_cache,
                 ledger=getattr(evaluator, "ledger", None),
+                scoring_policy=getattr(evaluator, "scoring_policy", "criteria_v1"),
+                rubric=getattr(evaluator, "rubric", None),
             )
             candidate_eval_result = sandbox_evaluator.evaluate_skill(
                 candidate.skill_name,
@@ -522,6 +524,13 @@ def promote_candidate(
             "Only PASS verdict may be promoted."
         )
 
+    # J6 Hard Invariant: critical_fail=True can NEVER be promoted even if ratchet verdict was PASS
+    if validation_record.eval_result and getattr(validation_record.eval_result, "critical_fail", False):
+        raise ValueError(
+            f"Promotion rejected: validation record has critical_fail=True in eval_result "
+            f"({getattr(validation_record.eval_result, 'critical_reasons', [])})"
+        )
+
     # Authoritative CandidateStore verification (V4 & P1 G6)
     stored_record = candidate_store.get_validation_record(candidate.candidate_id)
     if stored_record is None:
@@ -537,6 +546,13 @@ def promote_candidate(
         raise ValueError(
             f"Cannot promote candidate with ratchet decision '{stored_record.ratchet_decision}'. "
             "Only PASS verdict may be promoted."
+        )
+
+    # J6 Hard Invariant: stored critical_fail=True can NEVER be promoted (prevents forged Store pass)
+    if stored_record.eval_result and getattr(stored_record.eval_result, "critical_fail", False):
+        raise ValueError(
+            f"Promotion rejected: stored record has critical_fail=True in eval_result "
+            f"({getattr(stored_record.eval_result, 'critical_reasons', [])})"
         )
     if current_hash != stored_record.content_hash:
         raise ValueError(

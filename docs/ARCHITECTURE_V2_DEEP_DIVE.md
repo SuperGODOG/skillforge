@@ -1,5 +1,7 @@
 # SkillForge 2.0：面向生产级 Agent 的动态技能网关与自适应自进化治理架构设计白皮书
 
+> **2026-10-04 Judge 更新说明**：本文保留历史架构讨论，不据此扩张当前验收范围。当前业务 Judge 使用 [Criteria-v1 冻结 Rubric 与确定性计分](JUDGE_CRITERIA_GUIDE.md)，Pairwise 保留给可读性；关键 FAIL 与评测无效分别阻断发布，旧、新策略不直接比较。最新 [真实 Judge 校准](judge_criteria_real_calibration_results.json) 是合成回答级实验，不是生产保障、端到端业务收益或本文历史性能数字的新证明。
+
 - **系统定位**：企业级 Agent 技能调度服务网关（Service Mesh）与离线自进化治理底座（AgentOps Platform）
 - **核心作者**：SuperGODOG
 - **文档类型**：系统技术白皮书 / 架构演进全景深度剖析

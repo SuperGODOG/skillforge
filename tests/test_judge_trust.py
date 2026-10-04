@@ -329,7 +329,7 @@ test
 def test_invalid_judge_result_invalidates_evaluation_and_first_ratchet(minimal_registry):
     execution = ScriptedLLM(["bare", "skill"])
     judge = ScriptedLLM(["", _judge_json("B_better"), _judge_json("A_better")])
-    evaluator = SkillEvaluator(minimal_registry, execution, judge)
+    evaluator = SkillEvaluator(minimal_registry, execution, judge, scoring_policy="legacy_pairwise_v1")
     result = evaluator.evaluate_skill(
         "test_skill",
         cases=[{"id": "c1", "query": "q", "reference": "r"}],

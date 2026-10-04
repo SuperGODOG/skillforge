@@ -793,8 +793,29 @@ def test_l1_metadata_patch_shares_output_cache(tmp_path: Path):
         def __init__(self):
             self.model = "judge-m"
         def invoke(self, messages, **kw):
+            content = '{"verdict":"tied","reason_codes":["EVIDENCE_SUFFICIENT"],"evidence_summary":"ok"}'
+            if messages and any("findings" in str(m.get("content", "")) for m in messages if isinstance(m, dict)):
+                import json, re
+                user_msg = ""
+                for m in messages:
+                    if isinstance(m, dict) and m.get("role") == "user":
+                        user_msg = str(m.get("content", ""))
+                m_ans = re.search(r"<answer>\s*(.*?)\s*</answer>", user_msg, re.DOTALL)
+                ev_str = m_ans.group(1).strip() if m_ans else ""
+                if not ev_str or ev_str == "(空回答)":
+                    m_q = re.search(r"<query>\s*(.*?)\s*</query>", user_msg, re.DOTALL)
+                    ev_str = m_q.group(1).strip() if m_q else "query"
+                quote_ev = f'"{ev_str[:30]}"'
+                content = json.dumps({
+                    "findings": [
+                        {"rule_id": "TASK_GOAL_COMPLETE", "status": "PASS", "evidence": quote_ev, "reason": "ok"},
+                        {"rule_id": "TASK_CONSTRAINTS_FOLLOWED", "status": "PASS", "evidence": quote_ev, "reason": "ok"},
+                        {"rule_id": "ROBUST_EVIDENCE_FAITHFUL", "status": "PASS", "evidence": quote_ev, "reason": "ok"},
+                        {"rule_id": "ROBUST_FAILURE_HANDLING", "status": "PASS", "evidence": quote_ev, "reason": "ok"},
+                    ]
+                })
             return SimpleNamespace(
-                content='{"verdict":"tied","reason_codes":["EVIDENCE_SUFFICIENT"],"evidence_summary":"ok"}',
+                content=content,
                 usage={"total_tokens": 10},
             )
 

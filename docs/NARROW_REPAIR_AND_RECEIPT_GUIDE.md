@@ -1,5 +1,7 @@
 # SkillForge 可操作诊断与窄域局部修复指南 (Narrow Local Repair & Validation Receipt)
 
+> **2026-10-04 评测协议同步**：跨任务 Skill 的共同验证改用 [Criteria-v1](JUDGE_CRITERIA_GUIDE.md)，任务完成与鲁棒性按冻结 Rubric 独立判定、代码计分，关键 FAIL／评测无效阻断晋升。`UNKNOWN` 不直接当确认缺陷修补；Rubric 和策略进入验证指纹，变更后旧 PASS 失效。本指南的任务内 JSON `ValidationReceipt`／两轮局部修复不因此变成 LLM Judge，也不等同于规则评测 `RuleFinding`。独立 [Judge 校准](judge_criteria_real_calibration_results.json) 不代表本指南产物修复或业务恢复全链路已用真实模型重验。
+
 ## 一、背景与设计原则 (Archify-Inspired Pattern)
 
 在 Agent 系统运行中，工具常产出 JSON 配置或结构化数据产物。传统报错往往只返回非结构化字符串（如 `"Validation failed"` 或 `"Schema error"`），导致上层修复器只能盲目重试或全量重跑。
@@ -260,6 +262,5 @@ repair_skill_failure(enable_shadow_recovery=True)
 3. **血缘与权威数据集漂移阻断**：意图修订、基线哈希或由 `compute_cases_hash(eval_cases)` 提取的 `dataset_version` 漂移时，阻断恢复（`CHECKPOINT_INVALIDATED`）；
 4. **历史事实与测试声明**：全量测试采用受控 FakeLLM + 本地 SQLite，真实 Provider 消耗严格为 0；DEV A2/6 仅汇总不补造逐任务配对，LOCKED 小样本不可追证，早期 125 aggregate-only 成本记为 `null`，两真实分支物理独立保持现状；
 5. **LangGraph 模块实际复用界限**：复用既有 LangGraph 检查点与序列化基础设施，新建适配当前演进链的恢复节点；未原样复用旧 Evolver 业务节点，以避免预算、状态和注册路径冲突。
-
 
 

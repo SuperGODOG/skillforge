@@ -95,6 +95,11 @@ class EvalResult:
     routing_notes: Optional[str] = None
     route_result: Optional[RouteResult] = None
     route_error: Optional[str] = None
+    # Criteria-v1 fields: explicit rule findings, deterministic scoring & critical gate
+    scoring_policy: str = "criteria_v1"
+    criteria_findings: list[dict] = field(default_factory=list)
+    critical_fail: bool = False
+    critical_reasons: list[str] = field(default_factory=list)
 
 
 @dataclass
