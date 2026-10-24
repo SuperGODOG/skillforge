@@ -892,7 +892,7 @@ Step 2: calculate result * multiplier
         contents=[_judge_json("A_better"), _judge_json("A_better"), _judge_json("A_better")],
         default_content=_judge_json("A_better"),
     )
-    evaluator = SkillEvaluator(reg, llm=agent_llm, judge_llm=judge_llm)
+    evaluator = SkillEvaluator(reg, llm=agent_llm, judge_llm=judge_llm, scoring_policy="legacy")
 
     cases = [
         {

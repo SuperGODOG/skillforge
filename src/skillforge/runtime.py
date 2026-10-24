@@ -222,6 +222,39 @@ class ToolBroker:
                 )
             self._tools[spec.name] = spec
 
+    def register_mcp_client(
+        self,
+        client: Any,
+        auto_allow: bool = True,
+    ) -> list[str]:
+        """Discover and register tools from an McpStdioClient into the broker."""
+        from .mcp_client import McpTool
+
+        tool_defs = client.list_tools()
+        registered: list[str] = []
+        for t_def in tool_defs:
+            tool_instance = McpTool(client, t_def)
+            self.register_tool(tool_instance)
+            if auto_allow:
+                self.application_allowlist.add(tool_instance.name)
+            registered.append(tool_instance.name)
+        return registered
+
+    def register_mcp_server(
+        self,
+        command: Sequence[str],
+        cwd: Optional[Union[str, Path]] = None,
+        env: Optional[dict[str, str]] = None,
+        auto_allow: bool = True,
+    ) -> tuple[Any, list[str]]:
+        """Spawn a local stdio MCP server subprocess and register all its exported tools."""
+        from .mcp_client import McpStdioClient
+
+        client = McpStdioClient(command=command, cwd=cwd, env=env)
+        client.start()
+        registered_names = self.register_mcp_client(client, auto_allow=auto_allow)
+        return client, registered_names
+
     def get_tool(self, name: str) -> Optional[Any]:
         """Fetch registered tool object or descriptor."""
         with self._lock:
@@ -472,9 +505,51 @@ class ToolBroker:
             else:
                 target_fn = tool_obj
 
+            # Statically determine calling arguments before invocation
+            # to guarantee target_fn is executed exactly once (avoiding double-invocation on internal TypeError)
+            call_args: tuple = (parameters,)
+            call_kwargs: dict = {}
+            if isinstance(parameters, dict):
+                try:
+                    sig = inspect.signature(target_fn)
+                    can_bind_single = False
+                    try:
+                        sig.bind(parameters)
+                        can_bind_single = True
+                    except TypeError:
+                        can_bind_single = False
+
+                    can_bind_kwargs = False
+                    try:
+                        sig.bind(**parameters)
+                        can_bind_kwargs = True
+                    except TypeError:
+                        can_bind_kwargs = False
+
+                    if isinstance(tool_obj, Tool):
+                        call_args = (parameters,)
+                        call_kwargs = {}
+                    elif can_bind_kwargs and not can_bind_single:
+                        call_args = ()
+                        call_kwargs = parameters
+                    elif can_bind_single and not can_bind_kwargs:
+                        call_args = (parameters,)
+                        call_kwargs = {}
+                    elif can_bind_kwargs and can_bind_single:
+                        p0 = list(sig.parameters.keys())[0]
+                        if p0 in ("parameters", "params", "input", "data", "payload") or p0 not in parameters:
+                            call_args = (parameters,)
+                            call_kwargs = {}
+                        else:
+                            call_args = ()
+                            call_kwargs = parameters
+                except (ValueError, TypeError):
+                    call_args = (parameters,)
+                    call_kwargs = {}
+
             # Check if coroutine function (cooperative async)
             if inspect.iscoroutinefunction(target_fn):
-                coro = target_fn(parameters)
+                coro = target_fn(*call_args, **call_kwargs)
                 if timeout is not None and timeout > 0:
                     try:
                         # Use running event loop or new one
@@ -496,7 +571,7 @@ class ToolBroker:
                 else:
                     res = asyncio.run(coro)
             else:
-                res = target_fn(parameters)
+                res = target_fn(*call_args, **call_kwargs)
 
             if handler_status != "TIMED_OUT":
                 if isinstance(res, ToolResponse):
@@ -1029,6 +1104,70 @@ class AgentRuntime:
                 candidate_id=candidate_id_val,
             )
 
+    def resume_run(
+        self,
+        run_id: str,
+        budget_max: Optional[int] = None,
+        deadline_ts: Optional[float] = None,
+        task_description: Optional[str] = None,
+        intent_revision: Optional[int] = None,
+    ) -> RunRecord:
+        """Resume an existing paused or checkpointed run with updated budget/deadline."""
+        conn = self._get_conn()
+        with self._lock:
+            run = self.get_run(run_id)
+            if not run:
+                raise KeyError(f"Run '{run_id}' not found")
+
+            now_iso = datetime.now(timezone.utc).isoformat()
+            new_budget = budget_max if budget_max is not None else run.budget_max
+            new_deadline = deadline_ts if deadline_ts is not None else run.deadline_ts
+            new_intent_rev = intent_revision if intent_revision is not None else run.intent_revision
+
+            conn.execute(
+                """UPDATE runtime_runs
+                   SET status = 'RUNNING',
+                       budget_max = ?,
+                       deadline_ts = ?,
+                       error_type = NULL,
+                       error_message = NULL,
+                       terminal_at = NULL,
+                       intent_revision = ?,
+                       updated_at = ?
+                   WHERE run_id = ?""",
+                (new_budget, new_deadline, new_intent_rev, now_iso, run_id),
+            )
+            conn.commit()
+
+            # Ensure ExperienceCollector has active run context
+            if self.collector:
+                from .collector import RunContext
+                existing_ctx = self.collector._runs.get(run_id)
+                prev_provs = list(existing_ctx.provenances) if existing_ctx else list(self._provenances.get(run_id, []))
+                prev_sums = list(existing_ctx.action_summaries) if existing_ctx else []
+                env = dict(existing_ctx.environment) if existing_ctx else {"purpose": run.purpose}
+                if task_description:
+                    env["task_description"] = task_description
+                ctx = RunContext(
+                    run_id=run_id,
+                    task_id=run.task_id,
+                    skill_name=run.skill_name or "",
+                    skill_version=run.skill_version or "",
+                    environment=env,
+                    provenances=prev_provs,
+                    action_summaries=prev_sums,
+                    completed=False,
+                )
+                self.collector._runs[run_id] = ctx
+
+            # If an episode was written for this run_id during a previous segment, remove it so the final episode can be saved
+            if self.episode_store and self.episode_store.has_episode(f"ep_{run_id}"):
+                ep_conn = self.episode_store._get_conn()
+                ep_conn.execute("DELETE FROM episodes WHERE episode_id = ?", (f"ep_{run_id}",))
+                ep_conn.commit()
+
+            return self.get_run(run_id)  # type: ignore
+
     def execute_tool(
         self,
         run_id: str,
@@ -1370,7 +1509,7 @@ class AgentRuntime:
                 "CANCELLED",
                 "TIMED_OUT",
                 "BUDGET_EXHAUSTED",
-            ):
+            ) and run.terminal_at is not None:
                 ep = (
                     self.episode_store.get_episode(f"ep_{run_id}")
                     if self.episode_store

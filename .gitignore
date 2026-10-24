@@ -49,3 +49,4 @@ runs/eval_traces/
 scratch/
 面试阐述/
 docs/面试阐述/
+.tiktoken_cache/

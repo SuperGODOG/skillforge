@@ -21,6 +21,14 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Literal, Optional
+import os
+from pathlib import Path
+
+# Ensure offline tiktoken cache is found if present in repo root
+if "TIKTOKEN_CACHE_DIR" not in os.environ:
+    _repo_root_cache = Path(__file__).resolve().parent.parent.parent.parent / ".tiktoken_cache"
+    if _repo_root_cache.exists():
+        os.environ["TIKTOKEN_CACHE_DIR"] = str(_repo_root_cache)
 
 import tiktoken
 

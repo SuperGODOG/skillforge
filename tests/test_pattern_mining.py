@@ -624,7 +624,12 @@ def test_scenario_d8_e2e_m3a_collector_to_m3b_mining(tmp_path: Path):
         json.dumps({"verdict": "A_better", "reason_codes": ["OK"], "evidence_summary": "good"}),
     ])
 
-    evaluator = SkillEvaluator(registry=reg, llm=execution_llm, judge_llm=judge_llm)
+    evaluator = SkillEvaluator(
+        registry=reg,
+        llm=execution_llm,
+        judge_llm=judge_llm,
+        scoring_policy="legacy",
+    )
     evaluator._injected_provenances = [
         _make_provenance("etl_extract", 0),
         _make_provenance("etl_load", 1),
