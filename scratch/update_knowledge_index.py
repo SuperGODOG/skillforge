@@ -1,512 +1,372 @@
 import re
 
-html_path = 'docs/skillforge-knowledge-index.html'
-with open(html_path, 'r', encoding='utf-8') as f:
-    content = f.read()
+with open('docs/skillforge-knowledge-index.html', 'r', encoding='utf-8') as f:
+    html = f.read()
 
-# 1. Add CSS
-css_to_add = """
-    /* Resume & Question Bank Matrix Styles */
-    .resume-matrix-card {
-      background: var(--bg-card);
-      border: 1px solid var(--border-accent);
-      border-radius: 12px;
-      padding: 24px;
-      margin-top: 24px;
-      margin-bottom: 32px;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
-    }
-    .filter-tabs-row {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      margin: 16px 0 20px 0;
-    }
-    .filter-tab-btn {
-      padding: 6px 14px;
-      border-radius: 999px;
-      border: 1px solid var(--border-color);
-      background: var(--bg-tertiary);
-      color: var(--text-secondary);
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.2s ease;
-    }
-    .filter-tab-btn:hover {
-      color: var(--text-primary);
-      border-color: var(--border-accent);
-    }
-    .filter-tab-btn.active {
-      background: rgba(56, 189, 248, 0.2);
-      color: var(--accent-cyan);
-      border-color: var(--accent-cyan);
-    }
-    .bullet-block {
-      background: rgba(15, 23, 42, 0.4);
-      border: 1px solid var(--border-color);
-      border-radius: 8px;
-      padding: 18px;
-      margin-bottom: 24px;
-      transition: all 0.3s ease;
-    }
-    .bullet-header {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 12px;
-    }
-    .bullet-badge {
-      padding: 3px 8px;
-      border-radius: 4px;
-      font-size: 11px;
-      font-weight: 700;
-      font-family: var(--font-mono);
-      white-space: nowrap;
-    }
-    .badge-core { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); }
-    .badge-harness { background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); }
-    .bullet-title {
-      font-size: 15px;
-      font-weight: 700;
-      color: var(--text-primary);
-    }
-    .bullet-quote {
-      font-size: 13px;
-      color: var(--text-secondary);
-      line-height: 1.55;
-      background: rgba(255,255,255,0.03);
-      padding: 8px 12px;
-      border-radius: 6px;
-      border-left: 3px solid var(--accent-cyan);
-      margin-bottom: 10px;
-    }
-    .hook-tip {
-      font-size: 12px;
-      color: var(--accent-amber);
-      background: rgba(245, 158, 11, 0.08);
-      border: 1px solid rgba(245, 158, 11, 0.2);
-      padding: 6px 12px;
-      border-radius: 6px;
-      margin-bottom: 16px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .q-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-      gap: 14px;
-    }
-    .q-card {
-      background: var(--bg-secondary);
-      border: 1px solid var(--border-color);
-      border-radius: 8px;
-      padding: 14px;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-      transition: all 0.2s ease;
-    }
-    .q-card:hover {
-      border-color: var(--border-accent);
-      transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    }
-    .q-card-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 8px;
-    }
-    .q-id {
-      font-family: var(--font-mono);
-      font-weight: 700;
-      font-size: 12px;
-      color: var(--accent-cyan);
-      background: rgba(56, 189, 248, 0.12);
-      padding: 2px 6px;
-      border-radius: 4px;
-    }
-    .q-depth {
-      font-size: 11px;
-      color: var(--text-muted);
-      font-family: var(--font-mono);
-    }
-    .q-title {
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--text-primary);
-      margin-bottom: 6px;
-      line-height: 1.45;
-    }
-    .q-trigger {
-      font-size: 11.5px;
-      color: var(--accent-amber);
-      margin-bottom: 8px;
-      line-height: 1.4;
-    }
-    .q-answer-snip {
-      font-size: 12px;
-      color: var(--text-secondary);
-      line-height: 1.5;
-      margin-bottom: 10px;
-      background: rgba(0,0,0,0.18);
-      padding: 8px 10px;
-      border-radius: 4px;
-      border-left: 2px solid var(--accent-blue);
-    }
-    .q-footer {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      border-top: 1px dashed var(--border-color);
-      padding-top: 8px;
-      font-size: 11px;
-    }
-    .q-code-link {
-      font-family: var(--font-mono);
-      color: var(--accent-cyan);
-      text-decoration: none;
-    }
-    .q-code-link:hover {
-      text-decoration: underline;
-    }
-"""
+# 1. Update Site Header: add nav button for 验收结论与事实边界
+header_needle = '<a href="skillforge-knowledge-index.html" class="nav-item active">📖 知识索引主页</a>'
+header_replacement = '<a href="skillforge-knowledge-index.html" class="nav-item active">📖 知识索引主页</a>\n        <a href="#project-milestone-evidence" class="nav-item" style="color: #10b981; border-color: rgba(16, 185, 129, 0.4); background: rgba(16, 185, 129, 0.1);">⚖️ 验收结论与事实边界</a>'
+if header_needle in html:
+    html = html.replace(header_needle, header_replacement, 1)
+    print("Site header nav item added.")
+else:
+    print("WARNING: header_needle not found!")
 
-if '/* Resume & Question Bank Matrix Styles */' not in content:
-    content = content.replace('/* Footer */', css_to_add + '\n    /* Footer */')
+# 2. Update Sidebar TOC
+toc_needle = '<li class="toc-item"><a href="#overview">🌟 全景概述与两层闭环</a></li>'
+toc_replacement = '''<li class="toc-item"><a href="#overview">🌟 全景概述与两层闭环</a></li>
+        <li class="toc-item"><a href="#project-milestone-evidence" style="color: var(--accent-green); font-weight: 600;">⚖️ P0~P6 验收结论与事实边界</a></li>
+        <li class="toc-item nested"><a href="#milestone-completed">0.1 P0~P6 阶段完成度与 61 项回归</a></li>
+        <li class="toc-item nested"><a href="#milestone-adjustments">0.2 经批准的两项核心架构调整</a></li>
+        <li class="toc-item nested"><a href="#milestone-evidence-bounds">0.3 真实模型运行与证据边界</a></li>
+        <li class="toc-item nested"><a href="#milestone-non-goals">0.4 本期不打算做与待定工作</a></li>'''
+if toc_needle in html:
+    html = html.replace(toc_needle, toc_replacement, 1)
+    print("Sidebar TOC items added.")
+else:
+    print("WARNING: toc_needle not found!")
 
-# 2. Update Top Nav Links
-old_nav = '<a href="skillforge-skill-lifecycle.html" class="nav-item">🧬 候选隔离与版本生命周期</a>'
-new_nav = '<a href="skillforge-skill-lifecycle.html" class="nav-item">🧬 候选隔离与版本生命周期</a>\n      <a href="#resume-qa-matrix" class="nav-item" style="color: #fbbf24; border-color: rgba(245, 158, 11, 0.4); background: rgba(245, 158, 11, 0.1);">📋 简历与21题库</a>'
-if '📋 简历与21题库' not in content:
-    content = content.replace(old_nav, new_nav)
-
-# 3. Update Sidebar TOC
-old_toc = '<li class="toc-item"><a href="#overview">🌟 全景概述与两层闭环</a></li>'
-new_toc = '<li class="toc-item"><a href="#overview">🌟 全景概述与两层闭环</a></li>\n        <li class="toc-item"><a href="#resume-qa-matrix" style="color: #fbbf24; font-weight: 600;">📋 简历与21题库穿透索引</a></li>'
-if 'href="#resume-qa-matrix"' not in content:
-    content = content.replace(old_toc, new_toc)
-
-# 4. Add the resume-qa-matrix section HTML
-section_html = """
-      <!-- Section: Resume & Routed Question Bank Matrix -->
-      <section class="resume-matrix-card" id="resume-qa-matrix">
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; margin-bottom: 12px;">
+# 3. Insert Section: Milestone & Truthful Evidence Boundaries
+milestone_section_html = '''
+      <!-- Section: Milestone & Truthful Evidence Boundaries -->
+      <section class="module-section" id="project-milestone-evidence" style="border-left: 3px solid var(--accent-green); background: linear-gradient(180deg, rgba(16, 185, 129, 0.04) 0%, rgba(15, 23, 42, 0) 100%);">
+        <div class="section-header">
           <div>
-            <div class="section-badge-group" style="margin-bottom: 8px;">
-              <span class="section-badge" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4);">INTERVIEW MATRIX</span>
-              <span class="section-type">简历 4 Bullet & 口头设伏 ↔ 21 道大厂真题穿透</span>
+            <div class="section-badge-group">
+              <span class="section-badge green">P0~P6 ACCEPTED</span>
+              <span class="section-badge">61 PASS / EXIT 0</span>
+              <span class="section-badge amber">EVIDENCE BOUNDARIES</span>
             </div>
-            <h2 class="section-title" style="margin-bottom: 4px;">📋 简历精简描述 & 口头设伏与 21 道大厂题库穿透索引</h2>
+            <h2 class="section-title">⚖️ P0~P6 限定工程验收结论与事实证据边界 (Milestone Verification & Factual Bounds)</h2>
           </div>
-          <a href="../面试阐述/05_简历逐字拆解与口头引导题库串联备战表.md" target="_blank" style="padding: 6px 14px; border-radius: 6px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; text-decoration: none; border: 1px solid rgba(56, 189, 248, 0.35); font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s;">
-            <span>📖 打开 05_备战表源文档 →</span>
-          </a>
+          <div style="font-size: 12px; color: var(--text-muted); font-family: var(--font-mono);">
+            依据 AGY 回归测试报告与交付记录 (docs/QUICK_GENERATION_EVOLUTION_PROGRESS.md:822)
+          </div>
         </div>
-        <p style="font-size: 13.5px; color: var(--text-secondary); margin-bottom: 16px;">
-          直接对接最新 4 条精简简历 Bullet 与口头介绍剧本（<em>“哪些轨迹值得留下，又凭什么从‘经历’升级成‘技能’”</em>），将刚刚路由出的 21 道大厂高频面试真题与源码落地无缝打通。点击下方标签可快速筛选切换：
+
+        <p style="font-size: 14px; color: var(--text-secondary); margin-bottom: 20px;">
+          <strong>权威结论</strong>：按原计划及两项批准调整，<strong>限定工程已全面验收；真实模型实验已经运行，但效果论证仍有未验证部分和历史证据缺失</strong>。本框架严守<em>“准确而不是装懂、证据而不是猜测、清晰责任边界”</em>的工程原则，以下为代码实现、测试记录与交付证据的真实审计清单。
         </p>
 
-        <!-- Filter Tabs -->
-        <div class="filter-tabs-row">
-          <button class="filter-tab-btn active" onclick="filterBullet('all', this)">全部 21 题全景</button>
-          <button class="filter-tab-btn" onclick="filterBullet('b1', this)">🌟 口头核心 & Bullet 1: 跨任务演进与记忆 (8题)</button>
-          <button class="filter-tab-btn" onclick="filterBullet('b2', this)">🛡️ Bullet 2: 任务内自修复与交付重验 (3题)</button>
-          <button class="filter-tab-btn" onclick="filterBullet('b3', this)">🛡️ Bullet 3: 受控执行 Harness 与沙箱 (5题)</button>
-          <button class="filter-tab-btn" onclick="filterBullet('b4', this)">🧭 Bullet 4: 检索复用与版本治理 (5题)</button>
-        </div>
+        <!-- Block 1: Completed P0-P6 & 61 Tests -->
+        <div class="detail-block" id="milestone-completed">
+          <h3 class="detail-heading">0.1 P0~P6 限定工程已完成阶段与验收证据</h3>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 140px;">阶段编号</th>
+                  <th style="width: 200px;">阶段名称</th>
+                  <th>核心工程落地与验收证据</th>
+                  <th style="width: 120px;">验收状态</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="highlight"><strong>P0</strong></td>
+                  <td><strong>入口与兼容契约</strong></td>
+                  <td>入口及旁路盘点、统一业务契约、新建正文上界约束（冷启动 3000 字符限制）、字段平滑迁移；旧库升级兼容已补全回归测试。</td>
+                  <td><span class="section-badge green">PASS 已验收</span></td>
+                </tr>
+                <tr>
+                  <td class="highlight"><strong>P1</strong></td>
+                  <td><strong>快速生成与试用</strong></td>
+                  <td>短需求与自然会话快速生成 Draft 并保留真实 Provenance 来源；任务内快照执行、草稿与正式库物理隔离、请求去重与权限拦截；旧注册入口受共同门禁约束。</td>
+                  <td><span class="section-badge green">PASS 已验收</span></td>
+                </tr>
+                <tr>
+                  <td class="highlight"><strong>P2</strong></td>
+                  <td><strong>统一准入治理</strong></td>
+                  <td>学习数据与评测数据严格用途隔离；规范 Episode 防伪与防篡改签名；各修改入口实施严格膨胀检查；验证记录绑定与工具依赖预检，分阶段控制检查成本。</td>
+                  <td><span class="section-badge green">PASS 已验收</span></td>
+                </tr>
+                <tr>
+                  <td class="highlight"><strong>P3</strong></td>
+                  <td><strong>用户变向机制</strong></td>
+                  <td>支持以新目标修订草稿并用于后续运行；旧结果安全隔离，同义措辞不重复建档，模糊意图变化触发确认；具备取消与副作用边界防护，快照可跨 Runtime 重建恢复。</td>
+                  <td><span class="section-badge green">PASS 已验收</span></td>
+                </tr>
+                <tr>
+                  <td class="highlight"><strong>P4</strong></td>
+                  <td><strong>反馈提纯与挖掘</strong></td>
+                  <td>带独立预期的测试用例提案；样本用途分流与任务族/近重复隔离；先按范围（Scope）和工具契约分组，再启动聚类挖掘，消除模式杂音。</td>
+                  <td><span class="section-badge green">PASS 已验收</span></td>
+                </tr>
+                <tr>
+                  <td class="highlight"><strong>P5</strong></td>
+                  <td><strong>LangGraph 有界恢复</strong></td>
+                  <td>实际演进入口接通 LangGraph → RepairJob → 共同验证流水线；全局共享预算、原绝对期限保持（start_time 跨检查点不重置）、评测集漂移阻断（CHECKPOINT_INVALIDATED）、重复执行防护与显式晋升确认；拆分仅提供建议（SplitProposal advisory）。</td>
+                  <td><span class="section-badge green">PASS 已验收</span></td>
+                </tr>
+                <tr>
+                  <td class="highlight"><strong>P6</strong></td>
+                  <td><strong>业务演示与交接</strong></td>
+                  <td>离线完整生命周期证据闭环；真实模型小样本 A/B/C 试运行；真实失败修补与变向复用两条独立分支验证；正式 Skill 未来检索执行及新 Episode 增量回收；架构图谱与面试文档全量同步。</td>
+                  <td><span class="section-badge green">PASS 已验收</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
 
-        <!-- Bullet 1 Block -->
-        <div class="bullet-block" id="bullet-block-b1" data-bullet="b1">
-          <div class="bullet-header">
-            <span class="bullet-badge badge-core">业务核心</span>
-            <span class="bullet-title">Bullet 1 · 跨任务技能演进与经验沉淀（共 8 题）</span>
-          </div>
-          <div class="bullet-quote">
-            <strong>简历原文：</strong>将工具调用、执行结果、失败恢复与验证证据沉淀为带来源和版本的 Episode，从重复模式中提炼 Skill Candidate；区分 Semantic 事实、Episodic 经历与 Procedural 技能，根据重复性、稳定性和复杂度筛选可复用模式。隔离学习数据与独立评测数据，通过失败归因、定向修补、回归门禁和显式晋升控制长期 Skill 更新。
-          </div>
-          <div class="hook-tip">
-            <span>🎯 <strong>口头设伏对齐：</strong><em>“我最想展开的是中间这一步：哪些轨迹值得留下，又凭什么从‘经历’升级成‘技能’。”</em></span>
-          </div>
-          <div class="q-grid">
-            <div class="q-card">
-              <div>
-                <div class="q-card-head"><span class="q-id">L19</span><span class="q-depth">深度 L3</span></div>
-                <div class="q-title">长短期记忆模块实现方案与状态持久化</div>
-                <div class="q-trigger">🔍 面试切入：“区分 Semantic / Episodic / Procedural，三者底层怎么存？”</div>
-                <div class="q-answer-snip">三处异构存储：SQLite 存发布状态（短期指针）、Git 存内容全历史（长期记忆）、JSONL 存审计流水，release_id 幂等串联。</div>
-              </div>
-              <div class="q-footer"><span class="q-code-link">src/skillforge/storage/db.py:12</span><span>持久化状态机</span></div>
+          <div class="evidence-box" style="margin-top: 14px; background: rgba(16, 185, 129, 0.08); border-color: rgba(16, 185, 129, 0.3);">
+            <div class="evidence-title" style="color: var(--accent-green);">收尾批次回归测试通过证据 (Exit Code: 0)</div>
+            <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">
+              最新全量收尾回归批次：<strong>61 项测试全部通过，其中包含 11 项 P5 恢复专项测试，exit 0</strong>。
+            </p>
+            <div style="font-size: 12px; font-family: var(--font-mono); color: var(--accent-cyan); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+              61 passed in 4.28s | P5 Special: 11 passed (LangGraph checkpoint restore, deadline non-reset, dataset drift abort, shadow isolation) | Exit: 0
             </div>
-            <div class="q-card">
-              <div>
-                <div class="q-card-head"><span class="q-id">L213</span><span class="q-depth">深度 L4</span></div>
-                <div class="q-title">存储数据库选型标准与不可变事实源</div>
-                <div class="q-trigger">🔍 面试切入：“为什么不用向量数据库全量存储所有经历？”</div>
-                <div class="q-answer-snip">按数据形态与一致性选型：关系型管状态事务、Git 管版本 diff、日志型管只读追加，小规模向量用内存点积，避免重型 DB 运维。</div>
-              </div>
-              <div class="q-footer"><span class="q-code-link">src/skillforge/storage/git_ops.py:25</span><span>不可变存证</span></div>
-            </div>
-            <div class="q-card">
-              <div>
-                <div class="q-card-head"><span class="q-id">L43</span><span class="q-depth">深度 L3</span></div>
-                <div class="q-title">缺乏用户反馈下的自动化抽检与评估机制</div>
-                <div class="q-trigger">🔍 面试切入：“哪些轨迹才‘值得留下’并提炼为技能？”</div>
-                <div class="q-answer-snip">三道硬指标：重复性 support >= 3、意图表达 >= 2 种、步骤数 >= 2 排除单步平凡工具；对比失败反例提炼边界。</div>
-              </div>
-              <div class="q-footer"><span class="q-code-link">src/skillforge/pattern_mining.py:50</span><span>模式挖掘</span></div>
-            </div>
-            <div class="q-card">
-              <div>
-                <div class="q-card-head"><span class="q-id">L49</span><span class="q-depth">深度 L5</span></div>
-                <div class="q-title">Prompt 瓶颈后的性能提升路径（归因与调参）</div>
-                <div class="q-trigger">🔍 面试切入：“遇到报错为什么不直接调大模型做 SFT 微调？”</div>
-                <div class="q-answer-snip">不盲目 SFT。先走评估驱动调参（硬负例阈值 62%→98%）+ 数据飞轮沉淀 runs/failures/，构建偏好对后再考虑微调。</div>
-              </div>
-              <div class="q-footer"><span class="q-code-link">src/skillforge/router/cascade.py:32</span><span>评估驱动调参</span></div>
-            </div>
-            <div class="q-card">
-              <div>
-                <div class="q-card-head"><span class="q-id">L30</span><span class="q-depth">深度 L3</span></div>
-                <div class="q-title">技能生成中的负向边界（`[Not For]`）提炼与改写</div>
-                <div class="q-trigger">🔍 面试切入：“如何防止新提炼技能在未来任务中跨领域误触？”</div>
-                <div class="q-answer-snip">失败案例对比生成结构化卡片 [Capability][Use When][Examples][Not For]，在向量空间主动推开硬负例（如周报 vs 会议纪要）。</div>
-              </div>
-              <div class="q-footer"><span class="q-code-link">skills/weather_query/SKILL.md:6</span><span>负向排斥</span></div>
-            </div>
-            <div class="q-card">
-              <div>
-                <div class="q-card-head"><span class="q-id">L39</span><span class="q-depth">深度 L3</span></div>
-                <div class="q-title">Agent 效果评估体系（八维评估与基准集分层）</div>
-                <div class="q-trigger">🔍 面试切入：“怎么证明评测集没有被‘训练集泄露’？”</div>
-                <div class="q-answer-snip">八维评估（静态4维+效果4维），数据集物理分立：baseline_dev（开发集）、baseline_hidden（防过拟合）、p0_cases（核心门禁）。</div>
-              </div>
-              <div class="q-footer"><span class="q-code-link">src/skillforge/evaluator/__init__.py:153</span><span>基准集分层</span></div>
-            </div>
-            <div class="q-card">
-              <div>
-                <div class="q-card-head"><span class="q-id">L6</span><span class="q-depth">深度 L1</span></div>
-                <div class="q-title">Agent 工作流范式对比与“单调不减”棘轮门禁</div>
-                <div class="q-trigger">🔍 面试切入：“ReAct 与 Plan-and-Execute 怎么结合？凭什么升级成技能？”</div>
-                <div class="q-answer-snip">执行层用 ReAct 显式 use_skill，演进层用 Plan-and-Execute 六步 pipeline；棘轮 5 重硬门禁 + P0 一票否决保证单调不减。</div>
-              </div>
-              <div class="q-footer"><span class="q-code-link">src/skillforge/evaluator/ratchet.py:60</span><span>棘轮硬门禁</span></div>
-            </div>
-            <div class="q-card">
-              <div>
-                <div class="q-card-head"><span class="q-id">L93</span><span class="q-depth">深度 L3</span></div>
-                <div class="q-title">多步任务拆解、步骤规划与元 Agent 沙箱验证</div>
-                <div class="q-trigger">🔍 面试切入：“候选技能如何进行低成本有效规划与打擂台？”</div>
-                <div class="q-answer-snip">元 Agent 四根因标签驱动 L1/L2/L3 分级 patch 生成，临时 candidate 目录动态挂载打擂台，等价低成本 Beam-Search。</div>
-              </div>
-              <div class="q-footer"><span class="q-code-link">src/skillforge/evolver.py:398</span><span>沙箱打擂台</span></div>
-            </div>
+            <p style="font-size: 11.5px; color: var(--text-muted); margin-top: 6px;">
+              * 注：此为 P0~P6 收尾验收的一组强相关回归批次，非历史全量累计测试累加。
+            </p>
           </div>
         </div>
 
-        <!-- Bullet 2 Block -->
-        <div class="bullet-block" id="bullet-block-b2" data-bullet="b2">
-          <div class="bullet-header">
-            <span class="bullet-badge badge-harness">Harness 核心</span>
-            <span class="bullet-title">Bullet 2 · 任务内可验证自修复与交付重验（共 3 题）</span>
-          </div>
-          <div class="bullet-quote">
-            <strong>简历原文：</strong>将验证失败转为结构化 Receipt，根据失败责任层决定是否修补，结合有限尝试预算、回归测试和棘轮门禁验证修改。绑定产物内容与验证器配置，驱动有界 JSON 局部修复；在 finalize 阶段基于当前产物重新验证，防止旧 PASS、内容变化及配置漂移导致错误交付。
-          </div>
-          <div class="hook-tip">
-            <span>🎯 <strong>口头设伏对齐：</strong><em>“对于结构化产物，还提供 Receipt 驱动的有限修复和交付重验。”</em></span>
-          </div>
-          <div class="q-grid">
-            <div class="q-card">
-              <div>
-                <div class="q-card-head"><span class="q-id">L34</span><span class="q-depth">深度 L3</span></div>
-                <div class="q-title">基于 Harness 自动评估、自修复与降低人工成本</div>
-                <div class="q-trigger">🔍 面试切入：“为什么把自修复上限卡死在 2 轮？为什么不让模型多反思几次？”</div>
-                <div class="q-answer-snip">结构化 Receipt 精确锁定 JSONPath 局部打补丁；min(max(1, limit), 2) 硬卡 2 轮上限，指纹环路熔断，防止发散反思与修改扩散。</div>
+        <!-- Block 2: Approved Adjustments -->
+        <div class="detail-block" id="milestone-adjustments">
+          <h3 class="detail-heading">0.2 经批准的两项核心架构调整落地事实</h3>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-top: 12px;">
+            <div style="background: var(--bg-tertiary); border: 1px solid var(--border-accent); border-radius: 8px; padding: 16px;">
+              <div style="font-size: 14px; font-weight: 700; color: var(--accent-cyan); margin-bottom: 8px;">
+                📏 调整一：膨胀防线规则升级 (Inflation Check Rule)
               </div>
-              <div class="q-footer"><span class="q-code-link">src/skillforge/runtime.py:1546</span><span>2轮收敛自修复</span></div>
+              <p style="font-size: 13px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 8px;">
+                由初期的单纯比例阈值升级为「<strong>比例 AND 净增超过 1000 token</strong>」复合阻断判定；同时在冷启动阶段设立<strong>正文上界约束在 3000 字符以内</strong>。
+              </p>
+              <div style="font-size: 12px; color: var(--text-muted); background: rgba(0,0,0,0.25); padding: 8px; border-radius: 4px; font-family: var(--font-mono);">
+                if (new_tokens / old_tokens > ratio_limit) and (new_tokens - old_tokens > 1000):<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;raise ContentInflationError("Prompt膨胀超标，拒绝晋升")
+              </div>
+              <div style="font-size: 11.5px; color: var(--accent-amber); margin-top: 8px;">
+                💡 收益：彻底解决短小修改因比例过高而误报的问题，同时杜绝恶意注入或失控自愈导致的正文无节制膨胀。
+              </div>
             </div>
-            <div class="q-card">
-              <div>
-                <div class="q-card-head"><span class="q-id">L319</span><span class="q-depth">深度 L1</span></div>
-                <div class="q-title">分层责任归属（tool/policy/infra）与降级语义</div>
-                <div class="q-trigger">🔍 面试切入：“如果沙箱无权写磁盘或网络断了，修复器会去打补丁吗？”</div>
-                <div class="q-answer-snip">分层责任分流（tool/policy/infra）。policy 与 infra 拒绝严禁打补丁掩盖故障，直接中断报警；LLM 失败快速拒绝不阻塞。</div>
+
+            <div style="background: var(--bg-tertiary); border: 1px solid rgba(168, 85, 247, 0.4); border-radius: 8px; padding: 16px;">
+              <div style="font-size: 14px; font-weight: 700; color: var(--accent-purple); margin-bottom: 8px;">
+                ⚙️ 调整二：LangGraph 演进执行引擎架构集成
               </div>
-              <div class="q-footer"><span class="q-code-link">src/skillforge/receipt.py:21</span><span>责任层归因</span></div>
-            </div>
-            <div class="q-card">
-              <div>
-                <div class="q-card-head"><span class="q-id">L5</span><span class="q-depth">深度 L4</span></div>
-                <div class="q-title">交付时（Finalize）权威重验与防 TOCTOU 篡改</div>
-                <div class="q-trigger">🔍 面试切入：“前面验证都已经 PASS 了，交付时为什么还要再跑一次全量校验？”</div>
-                <div class="q-answer-snip">防 TOCTOU 内存二次篡改、防验证器规则动态漂移、防 Agent 谎报；强校验最终产物 SHA-256 与 validator_config_hash。</div>
+              <p style="font-size: 13px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 8px;">
+                <strong>复用成熟基础设施，解耦业务状态机</strong>：复用既有的 <code>SqliteCheckpointer</code>、<code>ALLOWED_MSGPACK_MODULES</code> 与 <code>JsonPlusSerializer</code> 检查点与反序列化基础设施；独立定制适配当前演进链的专用状态机业务节点（<code>RecoveryLoopState</code>, <code>RepairJob</code>）。
+              </p>
+              <div style="font-size: 12px; color: var(--text-muted); background: rgba(0,0,0,0.25); padding: 8px; border-radius: 4px; font-family: var(--font-mono);">
+                ShadowDirectoryContext -> Dedicated RecoveryLoopState -> SqliteCheckpointer
               </div>
-              <div class="q-footer"><span class="q-code-link">src/skillforge/runtime.py:1218</span><span>交付时权威重验</span></div>
+              <div style="font-size: 11.5px; color: var(--accent-purple); margin-top: 8px;">
+                💡 收益：有界恢复在临时 Shadow 目录执行，不与旧 Evolver 节点杂糅，杜绝预算重复计算与权限逃逸。
+              </div>
             </div>
           </div>
         </div>
 
-        <!-- Bullet 3 Block -->
-        <div class="bullet-block" id="bullet-block-b3" data-bullet="b3">
-          <div class="bullet-header">
-            <span class="bullet-badge badge-harness">Harness 核心</span>
-            <span class="bullet-title">Bullet 3 · 受控执行 Harness 与沙箱底座（共 5 题）</span>
-          </div>
-          <div class="bullet-quote">
-            <strong>简历原文：</strong>以 Runtime 管理预算、超时和取消，Tool Broker 统一工具准入与参数校验，并结合进程沙箱限制文件与网络访问；依赖在真实执行环境中验证，不可用时 Fail-Closed。
-          </div>
-          <div class="hook-tip">
-            <span>🎯 <strong>口头设伏对齐：</strong><em>“执行侧则有 Runtime、工具权限和沙箱控制。”</em></span>
-          </div>
-          <div class="q-grid">
-            <div class="q-card">
-              <div>
-                <div class="q-card-head"><span class="q-id">L80</span><span class="q-depth">深度 L1</span></div>
-                <div class="q-title">确定性工作流 vs 自主智能体权衡与生命周期</div>
-                <div class="q-trigger">🔍 面试切入：“外部 Agent 如果陷入死循环，Runtime 怎么掌控生命周期？”</div>
-                <div class="q-answer-snip">确定性归代码、不确定性交模型。start_new_session=True 独立进程组，超时 os.killpg 强杀整棵进程树，保守拒绝兜底。</div>
+        <!-- Block 3: Factual Evidence Bounds -->
+        <div class="detail-block" id="milestone-evidence-bounds">
+          <h3 class="detail-heading">0.3 已实现，但尚未在更高证据等级验证（技术清醒度与证据边界）</h3>
+          <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 12px;">
+            在技术面试和架构评审中，<strong>清晰说出系统未验证的边界，比吹嘘“完美无缺”更能赢得高职级资深架构师的尊重</strong>：
+          </p>
+          
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px;">
+            <div style="background: rgba(244, 63, 94, 0.06); border: 1px solid rgba(244, 63, 94, 0.3); border-radius: 8px; padding: 14px;">
+              <div style="font-weight: 700; color: var(--accent-rose); font-size: 13.5px; margin-bottom: 6px;">
+                🔬 1. 测试套件基于 FakeLLM
               </div>
-              <div class="q-footer"><span class="q-code-link">src/skillforge/runtime.py:624</span><span>Runtime 生命周期</span></div>
+              <div style="font-size: 12.5px; color: var(--text-secondary); line-height: 1.55;">
+                收尾 61 项自动化回归测试全部在本地 FakeLLM 环境下运行（0 真实外部 API 消耗）。其验证的是<strong>状态机契约、预算兜底、超时中断与序列化安全</strong>，而非商业大模型的理解与推理表现。
+              </div>
             </div>
-            <div class="q-card">
-              <div>
-                <div class="q-card-head"><span class="q-id">L150</span><span class="q-depth">深度 L1</span></div>
-                <div class="q-title">Prompt 注入与越狱防范，macOS 内核沙箱隔离</div>
-                <div class="q-trigger">🔍 面试切入：“如果 Agent 执行了 os.system('rm -rf /')，纯代码能防住吗？”</div>
-                <div class="q-answer-snip">防线必须下沉内核！ToolBroker 静态白名单 + macOS Seatbelt 原生 SBPL 规则 (deny file-write*) (deny network*)，内核级强阻断。</div>
+
+            <div style="background: rgba(245, 158, 11, 0.06); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px; padding: 14px;">
+              <div style="font-weight: 700; color: var(--accent-amber); font-size: 13.5px; margin-bottom: 6px;">
+                🌿 2. 真实模型运行于两独立分支
               </div>
-              <div class="q-footer"><span class="q-code-link">src/skillforge/sandbox.py:181</span><span>Seatbelt 内核隔离</span></div>
+              <div style="font-size: 12.5px; color: var(--text-secondary); line-height: 1.55;">
+                真实模型（Gemini 2.5 Pro）验证的是<strong>两条独立分支</strong>：<code>cand_real_v2_fb30297b</code>（失败修补分支）与 <code>cand_lifecycle_v2_8e70d68c</code>（变向复用分支）。两分支各自独立，<strong>严禁拼接成同一条连续端到端轨迹</strong>。
+              </div>
             </div>
-            <div class="q-card">
-              <div>
-                <div class="q-card-head"><span class="q-id">L9</span><span class="q-depth">深度 L4</span></div>
-                <div class="q-title">多 Agent 编排模式与框架选型考量</div>
-                <div class="q-trigger">🔍 面试切入：“为什么不用 LangChain / LangGraph，非要自研 Harness？”</div>
-                <div class="q-answer-snip">主 Agent + 元 Agent + 评估器分层协作；单进程零外部依赖，用 SQLite 状态机提供发布事务保障与 Watchdog 孤儿清理，可测性高。</div>
+
+            <div style="background: rgba(56, 189, 248, 0.06); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 8px; padding: 14px;">
+              <div style="font-weight: 700; color: var(--accent-cyan); font-size: 13.5px; margin-bottom: 6px;">
+                ⛓️ 3. 完整生命周期仅具离线链证据
               </div>
-              <div class="q-footer"><span class="q-code-link">src/skillforge/state_machine.py:49</span><span>发布状态机</span></div>
+              <div style="font-size: 12.5px; color: var(--text-secondary); line-height: 1.55;">
+                “变向 → 新意图失败 → 修补 → 晋升 → 未来复用”这一极长链路，目前仅具备<strong>离线环境下的完整闭环证据</strong>；尚未在真实模型下跑通一镜到底的超长大闭环。
+              </div>
             </div>
-            <div class="q-card">
-              <div>
-                <div class="q-card-head"><span class="q-id">L74</span><span class="q-depth">深度 L1</span></div>
-                <div class="q-title">统一工具接入协议（MCP）本质与依赖声明落地</div>
-                <div class="q-trigger">🔍 面试切入：“在项目中如何落地工具依赖声明与按需取数？”</div>
-                <div class="q-answer-snip">SKILL.md 显式声明 dependencies 并做可用性检查；元数据索引常驻，完整 Body 仅在 use_skill 时动态披露，按需节省 Token。</div>
+
+            <div style="background: rgba(168, 85, 247, 0.06); border: 1px solid rgba(168, 85, 247, 0.3); border-radius: 8px; padding: 14px;">
+              <div style="font-weight: 700; color: var(--accent-purple); font-size: 13.5px; margin-bottom: 6px;">
+                🛡️ 4. OS 级隔离尚未与恢复链组合验收
               </div>
-              <div class="q-footer"><span class="q-code-link">skills/weather_query/SKILL.md:14</span><span>依赖声明与披露</span></div>
+              <div style="font-size: 12.5px; color: var(--text-secondary); line-height: 1.55;">
+                早期的 macOS Seatbelt 专项验证具备真实系统证据；但当前 P5 有界恢复运行于 Python 临时 shadow 目录隔离，尚未与 Seatbelt 内核沙箱做联合组合验收。
+              </div>
             </div>
-            <div class="q-card">
-              <div>
-                <div class="q-card-head"><span class="q-id">L16</span><span class="q-depth">深度 L3</span></div>
-                <div class="q-title">类似 Claude Code 的 AI Coding 底层系统架构</div>
-                <div class="q-trigger">🔍 面试切入：“AI Coding 类工具底层核心的执行沙箱与技能架构是怎样的？”</div>
-                <div class="q-answer-snip">SkillForge 正是其底座：ReAct 显式 tool call + reason 强归因 + 三层级联路由 + 八维评估门禁 + 发布状态机，执行全链路可追溯。</div>
+
+            <div style="background: rgba(100, 116, 139, 0.1); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px;">
+              <div style="font-weight: 700; color: var(--text-primary); font-size: 13.5px; margin-bottom: 6px;">
+                📊 5. 历史记录缺失（如实标注，绝不补造）
               </div>
-              <div class="q-footer"><span class="q-code-link">src/skillforge/registry.py:123</span><span>可解释工具加载</span></div>
+              <div style="font-size: 12.5px; color: var(--text-secondary); line-height: 1.55;">
+                DEV A 组仅有 2/6 汇总明细缺逐任务原始日志；早期 125 次调用仅有总体统计（token 分项为 null，无法精细分账）；修订前锁定和血缘依赖缺失部分快照。不为了补账虚构数据或重跑商业模型。
+              </div>
+            </div>
+
+            <div style="background: rgba(16, 185, 129, 0.06); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 14px;">
+              <div style="font-weight: 700; color: var(--accent-green); font-size: 13.5px; margin-bottom: 6px;">
+                📈 6. 经济收益与普遍效果尚未证实
+              </div>
+              <div style="font-size: 12.5px; color: var(--text-secondary); line-height: 1.55;">
+                真实 A/B/C 小样本试运行已经完成，但跨任务的稳定泛化、显著经济收益与成本完全打平，仍需在大样本（如 18+18 任务族、每任务重复 3 次）的后续立项中深入验证。
+              </div>
             </div>
           </div>
         </div>
 
-        <!-- Bullet 4 Block -->
-        <div class="bullet-block" id="bullet-block-b4" data-bullet="b4">
-          <div class="bullet-header">
-            <span class="bullet-badge badge-core">工程闭环</span>
-            <span class="bullet-title">Bullet 4 · 检索复用与版本治理（共 5 题）</span>
-          </div>
-          <div class="bullet-quote">
-            <strong>简历原文：</strong>按权限、依赖、验证状态和部署状态筛选正式 Skill，并接入真实任务入口；通过运行级版本固定、不可变快照、灰度路由和受控回滚保证复用与演进过程可追溯。
-          </div>
-          <div class="hook-tip">
-            <span>🎯 <strong>口头设伏对齐：</strong><em>“后续任务可以检索并复用，记住一次经历和接受一项长期能力是两个不同的决策。”</em></span>
-          </div>
-          <div class="q-grid">
-            <div class="q-card">
-              <div>
-                <div class="q-card-head"><span class="q-id">L137</span><span class="q-depth">深度 L3</span></div>
-                <div class="q-title">技能动态加载与初始化流程设计，CAS 乐观锁回滚</div>
-                <div class="q-trigger">🔍 面试切入：“线上发生故障回滚时，如何避免老版本依赖缺失次生灾难？”</div>
-                <div class="q-answer-snip">初始化 Pydantic 强校验；动态加载按 SQLite→Git→磁盘三级降级；回滚带 CAS 乐观锁并强制 DependencyProbe 依赖预检。</div>
+        <!-- Block 4: Non-goals & Future Work -->
+        <div class="detail-block" id="milestone-non-goals">
+          <h3 class="detail-heading">0.4 本期不打算做与待定后续工作（清晰的责任与立项边界）</h3>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 10px;">
+            <div style="background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px;">
+              <div style="font-size: 14px; font-weight: 700; color: var(--accent-rose); margin-bottom: 8px;">
+                🚫 本期明确不打算做 (Explicit Non-Goals)
               </div>
-              <div class="q-footer"><span class="q-code-link">src/skillforge/deployments.py:729</span><span>CAS版本控制</span></div>
+              <ul style="font-size: 13px; color: var(--text-secondary); padding-left: 18px; line-height: 1.65;">
+                <li><strong>自动拆分成多正式 Skill</strong>：拆分只提供建议（<code>SplitProposal advisory</code>），绝不自动分裂实体或篡改路由；</li>
+                <li><strong>所有候选强制进图</strong>：拒绝为了图谱好看把噪声强塞入图，未通过准入一律封存；</li>
+                <li><strong>所有 REVIEW 自动重试</strong>：严格防死循环，超出预算立即转由人工介入（HITL）；</li>
+                <li><strong>为形式上的“复用更多”返工旧 Evolver 节点</strong>：保持高内聚低耦合，保护既有稳定性；</li>
+                <li><strong>补造历史数据或账单</strong>：绝不为了补足早期 125 次 null 记录去伪造日志；</li>
+                <li><strong>自动接真实订单与生产系统发布</strong>：本期聚焦工程内核验证，不直接对接真实生产物流环境。</li>
+              </ul>
             </div>
-            <div class="q-card">
-              <div>
-                <div class="q-card-head"><span class="q-id">L57</span><span class="q-depth">深度 L4</span></div>
-                <div class="q-title">知识检索中确定性规则链路比 LLM 链路的优势</div>
-                <div class="q-trigger">🔍 面试切入：“在什么情况下基于规则/意图识别比大模型生成更靠谱？”</div>
-                <div class="q-answer-snip">意图可枚举、成本敏感、需硬拒绝时规则完胜。规则层 0.01ms 出结果，命中即等分，带 LOW_CONF 保守拒识，省 15 倍成本。</div>
+
+            <div style="background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px;">
+              <div style="font-size: 14px; font-weight: 700; color: var(--accent-cyan); margin-bottom: 8px;">
+                ⏳ 待定：尚未立项的后续工作 (Future Proposals)
               </div>
-              <div class="q-footer"><span class="q-code-link">src/skillforge/router/rule.py:20</span><span>确定性首跳</span></div>
-            </div>
-            <div class="q-card">
-              <div>
-                <div class="q-card-head"><span class="q-id">L55</span><span class="q-depth">深度 L1</span></div>
-                <div class="q-title">混合检索（Hybrid Search）必要性与状态机过滤</div>
-                <div class="q-trigger">🔍 面试切入：“纯向量召回有什么缺陷？状态机和权限如何介入？”</div>
-                <div class="q-answer-snip">keyword 保字面、bge 向量保语义、LLM 兜歧义；召回后强制过滤 status != 'APPROVED' 或环境依赖缺失的技能，防不可用越权。</div>
+              <ul style="font-size: 13px; color: var(--text-secondary); padding-left: 18px; line-height: 1.65;">
+                <li><strong>全新任务族严格商业模型对照</strong>：使用预先冻结的评测协议与标准基准集进行长效对照；</li>
+                <li><strong>大样本重复运行评测</strong>：落实原建议的 18＋18 任务样本、每任务重复 3 次，统计胜率方差与置信区间；</li>
+                <li><strong>接入生产物流系统与真实业务数据</strong>：在合规授权前提下，接入真实物流仓储与订单链路；</li>
+                <li><strong>更多真实 API 恢复实验与成本测量</strong>：精细化度量网络抖动、Token 消耗与修复成功率之间的 ROI 曲线。</li>
+              </ul>
+              <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 10px;">
+                * 注：以上待定项需重新评估业务 ROI 并获正式立项，原 18+18 方案属建议项，非本期遗漏。
               </div>
-              <div class="q-footer"><span class="q-code-link">src/skillforge/retrieval.py:280</span><span>两段式硬过滤</span></div>
-            </div>
-            <div class="q-card">
-              <div>
-                <div class="q-card-head"><span class="q-id">L21</span><span class="q-depth">深度 L4</span></div>
-                <div class="q-title">记忆读写：LLM 自主决策 vs 规则路由</div>
-                <div class="q-trigger">🔍 面试切入：“记忆的读取与写入是交给大模型还是基于规则？”</div>
-                <div class="q-answer-snip">确定性优先、LLM 兜底。规则与高置信向量（top1 >= 0.75, margin >= 0.10）直接独占，中间地带交 LLM，硬负例调优 R@1 达 98%。</div>
-              </div>
-              <div class="q-footer"><span class="q-code-link">src/skillforge/router/cascade.py:75</span><span>级联置信度决策</span></div>
-            </div>
-            <div class="q-card">
-              <div>
-                <div class="q-card-head"><span class="q-id">L17</span><span class="q-depth">深度 L3</span></div>
-                <div class="q-title">意图识别与前置拦截（Guards）引入上下文记忆</div>
-                <div class="q-trigger">🔍 面试切入：“在 Gatekeeping 环节如何控制上下文膨胀并进行拦截？”</div>
-                <div class="q-answer-snip">记忆分三层：静态索引常驻（~80 token/skill）、router.jsonl 事件归因、失败样本经验；拦截层靠 not_for 负向边界强拒识。</div>
-              </div>
-              <div class="q-footer"><span class="q-code-link">src/skillforge/registry.py:71</span><span>渐进式披露</span></div>
-            </div>
-            <div class="q-card">
-              <div>
-                <div class="q-card-head"><span class="q-id">L27</span><span class="q-depth">深度 L3</span></div>
-                <div class="q-title">多轮对话上下文省略与指代消解的工程解法</div>
-                <div class="q-trigger">🔍 面试切入：“长上下文多轮对话如何避免撑爆窗口或出现指代漂移？”</div>
-                <div class="q-answer-snip">以单轮 Harness 为主，通过 Skill 结构化抽取把多轮素材压成四段结构，语义消解前置在 LLM 路由层，两段式披露控制 Token。</div>
-              </div>
-              <div class="q-footer"><span class="q-code-link">evaluation_sets/baseline_dev.json:27</span><span>结构化抽取压缩</span></div>
             </div>
           </div>
         </div>
       </section>
-"""
+'''
 
-# Insert section_html right before <!-- Module 1: Execution & Sandbox -->
-target_marker = '<!-- Module 1: Execution & Sandbox -->'
-if 'id="resume-qa-matrix"' not in content:
-    content = content.replace(target_marker, section_html + '\n      ' + target_marker)
+target_insert_needle = '<!-- Section: Embedded Interactive Diagram Viewer -->'
+if target_insert_needle in html:
+    html = html.replace(target_insert_needle, milestone_section_html + '\n      ' + target_insert_needle, 1)
+    print("Milestone section inserted successfully!")
+else:
+    print("WARNING: target_insert_needle not found!")
 
-# 5. Add JavaScript for interactive filtering
-js_to_add = """
-    function filterBullet(bulletId, btn) {
-      document.querySelectorAll('.filter-tab-btn').forEach(b => b.classList.remove('active'));
-      if (btn) btn.classList.add('active');
-      const blocks = document.querySelectorAll('.bullet-block');
-      blocks.forEach(block => {
-        if (bulletId === 'all' || block.getAttribute('data-bullet') === bulletId) {
-          block.style.display = 'block';
-        } else {
-          block.style.display = 'none';
-        }
-      });
-    }
-"""
+# 4. Update Question Cards in Resume Matrix
+# Card L63 (Card 9)
+old_l63 = '多级门禁与校验契约：静态 Schema 校验 ➔ 业务规则断言 ➔ 产物指纹绑定。ValidationReceipt 记录 content_fingerprint 与 validator_config_hash，双重匹配才放行。'
+new_l63 = '双重校验：receipt.py 中 is_valid_for 强制比对产物 SHA-256 与验证器配置哈希；演进恢复流水线在修补前强制校验用例集哈希（dataset_version），漂移立即抛出 CHECKPOINT_INVALIDATED 阻断，消耗 0 次大模型调用。'
+if old_l63 in html:
+    html = html.replace(old_l63, new_l63, 1)
+    print("Card L63 updated.")
+else:
+    print("WARNING: old_l63 not found in html!")
 
-if 'function filterBullet' not in content:
-    content = content.replace('function toggleTheme() {', js_to_add + '\n    function toggleTheme() {')
+# Card L80 (Card 10)
+old_l80 = '自主 Agent 容错成本高且易发散；确定性工作流收敛快。SkillForge 划定边界：核心路由与沙箱执行走状态机硬编码，局部产物自愈与 Prompt 调优交由自主 Agent。'
+new_l80 = '确定性工作流容错成本低且收敛；自主 Agent 容易出现级联发散。SkillForge 采用 BoundedRecovery 有界恢复状态机，共享全局预算且保持原绝对超时期限（start_time 跨检查点不重置），超时立即强杀，杜绝无限重试。'
+if old_l80 in html:
+    html = html.replace(old_l80, new_l80, 1)
+    print("Card L80 updated.")
+else:
+    print("WARNING: old_l80 not found in html!")
 
-with open(html_path, 'w', encoding='utf-8') as f:
-    f.write(content)
+# Card L237 (Card 11)
+old_l237 = 'CorrectionPolicy 限制白名单路径与操作；finalize 强验实时产物 SHA-256 与验证器配置 Hash，内容改动或规则漂移立即作废旧 PASS。'
+new_l237 = '工程化组合拳：CorrectionPolicy 限定局部修复白名单；finalize 强制双重指纹重验；膨胀防线实行“比例 AND 净增超过 1000 token”双重阻断；收尾 61 项自动化回归测试 exit 0，杜绝假 PASS 交付。'
+if old_l237 in html:
+    html = html.replace(old_l237, new_l237, 1)
+    print("Card L237 updated.")
+else:
+    print("WARNING: old_l237 not found in html!")
 
-print('Successfully updated docs/skillforge-knowledge-index.html!')
+# Card L9 (Card 21)
+old_l9 = '拒绝重型黑盒框架。SkillForge 基于 LangGraph 打造轻量级单向演进图，核心节点包括 CandidateGenerator、SandboxEvaluator、PromotionGate。'
+new_l9 = 'LangGraph 架构工程实践：复用既有的 SqliteCheckpointer、ALLOWED_MSGPACK_MODULES 与 JsonPlusSerializer 基础设施；业务上独立编写专用 RecoveryLoopState 与 RepairJob 状态机，在临时 Shadow 目录执行，与旧 Evolver 节点完全解耦，杜绝预算重复计算与权限逃逸。'
+if old_l9 in html:
+    html = html.replace(old_l9, new_l9, 1)
+    print("Card L9 updated.")
+else:
+    print("WARNING: old_l9 not found in html!")
+
+# Card L188 (Card 30)
+old_l188 = '两阶段异步确认：Worker 产出修复 Draft 挂起为 PENDING_REVIEW 写入 SQLite；恢复时重放事件流并校验前置版本依赖，防止脑裂。'
+new_l188 = '基于 SqliteCheckpointer 实现状态机断点续传。恢复时校验快照完整性与依赖哈希；演进提炼出的多技能拆分提议（SplitProposal）严格保持咨询性质（advisory），绝不自动分裂或自作主张修改路由，确保状态流转确定可控。'
+if old_l188 in html:
+    html = html.replace(old_l188, new_l188, 1)
+    print("Card L188 updated.")
+else:
+    print("WARNING: old_l188 not found in html!")
+
+# 5. Update Section 5.3 (System Limitations Table)
+old_limits_table = '''              <tbody>
+                <tr>
+                  <td><strong>跨平台沙箱统一性</strong></td>
+                  <td>当前深度利用 macOS Seatbelt 获得 &lt;5ms 极速启动，Linux 下回退为受限子进程</td>
+                  <td>引入 Linux <code>bubblewrap (bwrap)</code> 与 <code>seccomp-bpf</code>，统一跨 POSIX 系统调用级沙箱抽象</td>
+                </tr>
+                <tr>
+                  <td><strong>Python 代码技能的自动演进</strong></td>
+                  <td>Prompt SOP 已实现全自动演进，但 Python 代码技能的自生成目前仍需人工确认（HITL）</td>
+                  <td>引入短生命周期 Firecracker MicroVM，实现代码技能的全自动沙箱执行与动态单测生成</td>
+                </tr>
+                <tr>
+                  <td><strong>多节点分布式协调</strong></td>
+                  <td>当前基于 SQLite 单机 CAS 状态机，满足单机高并发与本地研发调试</td>
+                  <td>生产级集群部署时下沉至 PostgreSQL + Redis 分布式锁，利用租约机制协调跨实例部署</td>
+                </tr>
+              </tbody>'''
+
+new_limits_table = '''              <tbody>
+                <tr>
+                  <td><strong>真实模型端到端连续轨迹</strong></td>
+                  <td>真实模型（Gemini 2.5 Pro）验证了“失败修补”与“变向复用”两条独立分支，端到端大闭环目前仅具备离线完整链证据</td>
+                  <td>在大样本后续立项中，用预先冻结的协议跑通跨会话全流程一镜到底，不把两条独立分支拼接为伪证据</td>
+                </tr>
+                <tr>
+                  <td><strong>OS 级沙箱与恢复链组合验收</strong></td>
+                  <td>早期 Seatbelt 内核级沙箱专项验证已通过，但本次 P5 有界恢复运行于 Python 临时 shadow 目录隔离，尚未与 Seatbelt 组合验收</td>
+                  <td>将 RepairJob 子进程执行下沉至 Seatbelt/bwrap 沙箱内，完成内核级资源权限与恢复链的端到端联调验收</td>
+                </tr>
+                <tr>
+                  <td><strong>历史审计数据缺失（坚持不补造）</strong></td>
+                  <td>DEV A 组仅保留 2/6 汇总明细缺逐任务原始日志；早期 125 次调用仅有总量统计（token 分项为 null，无法精细分账）</td>
+                  <td>严守“不造假、不为了账面好看重跑模型”的工程伦理，新架构中全面实施不可变事件流与全字段强制遥测</td>
+                </tr>
+                <tr>
+                  <td><strong>普遍经济收益与大样本泛化</strong></td>
+                  <td>真实模型小样本 A/B/C 验证已证明机制可用，但经济收益打平与跨任务族稳定泛化尚未在大样本下充分证实</td>
+                  <td>建议开展 18＋18 任务族、每任务重复 3 次的严格对照评测（原计划建议项），系统性评估成功率与方差</td>
+                </tr>
+                <tr>
+                  <td><strong>跨平台沙箱统一性</strong></td>
+                  <td>当前深度利用 macOS Seatbelt 获得 &lt;5ms 极速启动，Linux 下回退为受限子进程</td>
+                  <td>引入 Linux <code>bubblewrap (bwrap)</code> 与 <code>seccomp-bpf</code>，统一跨 POSIX 系统调用级沙箱抽象</td>
+                </tr>
+              </tbody>'''
+
+if old_limits_table in html:
+    html = html.replace(old_limits_table, new_limits_table, 1)
+    print("Section 5.3 Limitations Table updated.")
+else:
+    print("WARNING: old_limits_table not found in html!")
+
+with open('docs/skillforge-knowledge-index.html', 'w', encoding='utf-8') as f:
+    f.write(html)
+
+print("docs/skillforge-knowledge-index.html updated successfully!")

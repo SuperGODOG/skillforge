@@ -93,6 +93,52 @@ MOCK_ORDERS: dict[str, dict[str, Any]] = {
     "ORD_NEW_0202": {"order_id": "ORD_NEW_0202", "buyer": "unseen_user_04", "packages": ["PKG_N203"], "order_status": "EXCEPTION"},
     "ORD_NEW_0301": {"order_id": "ORD_NEW_0301", "buyer": "unseen_user_05", "packages": ["PKG_N301", "PKG_N302"], "order_status": "EXCEPTION"},
     "ORD_NEW_0302": {"order_id": "ORD_NEW_0302", "buyer": "unseen_user_06", "packages": ["PKG_N303"], "order_status": "EXCEPTION"},
+
+    # --- Live Demonstration Scenarios (D1: Long-task, D2: Redirection, D3: Error Correction) ---
+    "ORD_DEMO_01": {
+        "order_id": "ORD_DEMO_01",
+        "buyer": "demo_vip_buyer_01",
+        "packages": [
+            {
+                "package_id": f"PKG_DEMO_{i:02d}",
+                "carrier": "SF_EXPRESS" if i % 2 == 1 else "JD_LOGISTICS",
+                "status": "DELIVERED",
+                "signed_by": "本人签收",
+                "sign_time": f"2026-10-24T{9 + (i // 4):02d}:{15 * (i % 4):02d}:00Z",
+                "delivery_hub": f"上海市浦东新区张江高科第{i}分发中心",
+                "route_trace": [
+                    f"2026-10-23T18:00:00Z 货物离开杭州转运中心【节点_{i}_A】",
+                    f"2026-10-24T04:30:00Z 货物到达上海干线枢纽【节点_{i}_B】",
+                    f"2026-10-24T08:15:00Z 快递员已出发派送，联系电话 138001380{i:02d}",
+                    f"2026-10-24T09:30:00Z 买家本人已当面签收并完成核销拍照",
+                ],
+                "security_signature": f"sig_verified_sha256_{i}_" + "f" * 32,
+            }
+            for i in range(1, 11)
+        ],
+        "order_status": "COMPLETED",
+    },
+    "ORD_DEMO_02": {
+        "order_id": "ORD_DEMO_02",
+        "buyer": "demo_buyer_02",
+        "packages": [
+            {"package_id": "PKG_DEMO_201", "carrier": "SF_EXPRESS", "status": "DELIVERED", "signed_by": "本人签收"},
+            {"package_id": "PKG_DEMO_202", "carrier": "EMS", "status": "EXCEPTION", "location": "海关监管仓", "exception_reason": "海关查验滞留待申报"},
+        ],
+        "order_status": "EXCEPTION",
+    },
+    "ORD_DEMO_03": {
+        "order_id": "ORD_DEMO_03",
+        "buyer": "demo_buyer_03",
+        "packages": ["PKG_DEMO_301", "PKG_DEMO_302"],
+        "order_status": "SHIPPED",
+    },
+    "ORD_DEMO_04": {
+        "order_id": "ORD_DEMO_04",
+        "buyer": "demo_buyer_04",
+        "packages": ["PKG_DEMO_401", "PKG_DEMO_402"],
+        "order_status": "SHIPPED",
+    },
 }
 
 MOCK_PACKAGES: dict[str, dict[str, Any]] = {
@@ -182,6 +228,31 @@ MOCK_PACKAGES: dict[str, dict[str, Any]] = {
     "PKG_N301": {"package_id": "PKG_N301", "carrier": "SF_EXPRESS", "status": "DELIVERED", "signed_by": "本人签收", "sign_time": "2026-09-30T11:00:00Z"},
     "PKG_N302": {"package_id": "PKG_N302", "carrier": "YTO_EXPRESS", "status": "EXCEPTION", "location": "广州集散仓", "exception_reason": "地址不符留仓待核"},
     "PKG_N303": {"package_id": "PKG_N303", "carrier": "STO_EXPRESS", "status": "EXCEPTION", "location": "武汉分拨中心", "exception_reason": "用户改期派送"},
+
+    # --- Live Demonstration Packages ---
+    # Demo 1 packages (10 items, all DELIVERED)
+    "PKG_DEMO_01": {"package_id": "PKG_DEMO_01", "carrier": "SF_EXPRESS", "status": "DELIVERED", "signed_by": "本人签收", "sign_time": "2026-10-24T09:00:00Z"},
+    "PKG_DEMO_02": {"package_id": "PKG_DEMO_02", "carrier": "JD_LOGISTICS", "status": "DELIVERED", "signed_by": "门卫签收", "sign_time": "2026-10-24T09:15:00Z"},
+    "PKG_DEMO_03": {"package_id": "PKG_DEMO_03", "carrier": "ZTO_EXPRESS", "status": "DELIVERED", "signed_by": "快递柜签收", "sign_time": "2026-10-24T09:30:00Z"},
+    "PKG_DEMO_04": {"package_id": "PKG_DEMO_04", "carrier": "YTO_EXPRESS", "status": "DELIVERED", "signed_by": "前台签收", "sign_time": "2026-10-24T09:45:00Z"},
+    "PKG_DEMO_05": {"package_id": "PKG_DEMO_05", "carrier": "SF_EXPRESS", "status": "DELIVERED", "signed_by": "本人签收", "sign_time": "2026-10-24T10:00:00Z"},
+    "PKG_DEMO_06": {"package_id": "PKG_DEMO_06", "carrier": "JD_LOGISTICS", "status": "DELIVERED", "signed_by": "快递柜签收", "sign_time": "2026-10-24T10:15:00Z"},
+    "PKG_DEMO_07": {"package_id": "PKG_DEMO_07", "carrier": "EMS", "status": "DELIVERED", "signed_by": "本人签收", "sign_time": "2026-10-24T10:30:00Z"},
+    "PKG_DEMO_08": {"package_id": "PKG_DEMO_08", "carrier": "STO_EXPRESS", "status": "DELIVERED", "signed_by": "家人代签", "sign_time": "2026-10-24T10:45:00Z"},
+    "PKG_DEMO_09": {"package_id": "PKG_DEMO_09", "carrier": "SF_EXPRESS", "status": "DELIVERED", "signed_by": "本人签收", "sign_time": "2026-10-24T11:00:00Z"},
+    "PKG_DEMO_10": {"package_id": "PKG_DEMO_10", "carrier": "JD_LOGISTICS", "status": "DELIVERED", "signed_by": "本人签收", "sign_time": "2026-10-24T11:15:00Z"},
+
+    # Demo 2 packages (1 DELIVERED, 1 EXCEPTION)
+    "PKG_DEMO_201": {"package_id": "PKG_DEMO_201", "carrier": "SF_EXPRESS", "status": "DELIVERED", "signed_by": "本人签收", "sign_time": "2026-10-24T08:00:00Z"},
+    "PKG_DEMO_202": {"package_id": "PKG_DEMO_202", "carrier": "EMS", "status": "EXCEPTION", "location": "海关监管仓", "exception_reason": "海关查验滞留待申报"},
+
+    # Demo 3 packages (Phase 1: 1 DELIVERED, 1 IN_TRANSIT)
+    "PKG_DEMO_301": {"package_id": "PKG_DEMO_301", "carrier": "SF_EXPRESS", "status": "DELIVERED", "signed_by": "本人签收", "sign_time": "2026-10-24T08:30:00Z"},
+    "PKG_DEMO_302": {"package_id": "PKG_DEMO_302", "carrier": "ZTO_EXPRESS", "status": "IN_TRANSIT", "location": "南京分拨中心", "estimated_delivery": "2026-10-26T18:00:00Z"},
+
+    # Demo 3 Phase 2 packages (1 DELIVERED, 1 IN_TRANSIT)
+    "PKG_DEMO_401": {"package_id": "PKG_DEMO_401", "carrier": "SF_EXPRESS", "status": "DELIVERED", "signed_by": "本人签收", "sign_time": "2026-10-24T09:00:00Z"},
+    "PKG_DEMO_402": {"package_id": "PKG_DEMO_402", "carrier": "JD_LOGISTICS", "status": "IN_TRANSIT", "location": "武汉集散仓", "estimated_delivery": "2026-10-26T20:00:00Z"},
 }
 
 
@@ -216,8 +287,10 @@ class QueryOrderPackagesTool(Tool):
                 data={"error": "ORDER_NOT_FOUND", "order_id": order_id},
             )
         order = MOCK_ORDERS[order_id]
+        raw_pkgs = order.get("packages", [])
+        pkg_ids = [p["package_id"] if isinstance(p, dict) else str(p) for p in raw_pkgs]
         return ToolResponse.success(
-            text=f"Order {order_id} contains {len(order['packages'])} packages: {', '.join(order['packages'])}",
+            text=f"Order {order_id} contains {len(pkg_ids)} packages: {', '.join(pkg_ids)}",
             data=order,
         )
 
@@ -443,7 +516,11 @@ def verify_logistics_fulfillment(
         }
 
     expected_order = MOCK_ORDERS[order_id]
-    expected_packages = set(expected_order["packages"])
+    raw_pkgs = expected_order.get("packages", [])
+    if raw_pkgs and isinstance(raw_pkgs[0], dict):
+        expected_packages = set(p.get("package_id") for p in raw_pkgs if p.get("package_id"))
+    else:
+        expected_packages = set(raw_pkgs)
 
     # 1. Inspect executed tool calls
     queried_packages: set[str] = set()
@@ -456,6 +533,17 @@ def verify_logistics_fulfillment(
                     queried_packages.add(pkg_id)
                 elif rec.status == "ERROR":
                     failed_tool_packages.add(pkg_id)
+        elif rec.tool_name == "inspect_artifact":
+            pkg_id = rec.input_params.get("object_id")
+            if pkg_id and rec.status == "EXECUTED":
+                queried_packages.add(pkg_id)
+        elif rec.tool_name == "query_order_packages" and rec.status == "EXECUTED":
+            out_pkgs = (rec.output_data or {}).get("packages", [])
+            if out_pkgs and isinstance(out_pkgs[0], dict):
+                for p in out_pkgs:
+                    pid = p.get("package_id")
+                    if pid:
+                        queried_packages.add(pid)
 
     # Invariant 3: Tool Outage Anti-Fabrication Check
     known_failing_pkgs = set(failing_package_ids or []) | failed_tool_packages
@@ -491,28 +579,16 @@ def verify_logistics_fulfillment(
                 "checked_invariants": checked_invariants,
             }
 
-    # Invariant 1: Check coverage (accounting for known failing packages)
-    missing_packages = expected_packages - queried_packages - known_failing_pkgs
-    if missing_packages:
-        return {
-            "independent_pass": False,
-            "classification": "FALSE_NEGATIVE",
-            "is_hallucination": False,
-            "is_qualified_rejection": False,
-            "failure_reason": f"Incomplete package coverage: missing {sorted(missing_packages)}",
-            "queried_packages": sorted(queried_packages),
-            "missing_packages": sorted(missing_packages),
-            "order_id": order_id,
-            "checked_invariants": checked_invariants,
-        }
-
     # Invariant 2: Check ground truth delivery status
     all_packages_delivered = all(
         MOCK_PACKAGES.get(p, {}).get("status") == "DELIVERED" for p in expected_packages
     )
 
     claims_all_delivered = False
-    for kw in ["全部签收", "均已签收", "全部送达", "all delivered", "all signed", "所有包裹已签收"]:
+    for kw in [
+        "全部签收", "均已签收", "全部送达", "all delivered", "all signed",
+        "所有包裹已签收", "全部包裹已签收", "全部包裹已送达", "全部包裹已妥投"
+    ]:
         if kw in model_output:
             # If explicitly negated (e.g. 未全部签收, 尚未全部送达), it is NOT an all-signed claim
             if any(neg + kw in model_output for neg in ["未", "尚未", "没有", "并非", "不代表", "not "]):
@@ -528,18 +604,38 @@ def verify_logistics_fulfillment(
         ]
     )
 
-    if not all_packages_delivered:
-        if claims_all_delivered and not mentions_non_delivered:
+    # Invariant 1 & 2 Correlation: Check coverage & premature over-claim
+    missing_packages = expected_packages - queried_packages - known_failing_pkgs
+
+    # If model claims all delivered when ground truth is undelivered or packages were unverified,
+    # it is a False Positive / Hallucination (INV_2 violation)
+    if claims_all_delivered and not mentions_non_delivered:
+        if not all_packages_delivered or missing_packages:
             return {
                 "independent_pass": False,
                 "classification": "FALSE_POSITIVE",
                 "is_hallucination": True,
                 "is_qualified_rejection": False,
-                "failure_reason": f"Hallucination: order {order_id} has undelivered packages, but output claimed all delivered",
-                "ground_truth_all_delivered": False,
+                "failure_reason": f"Hallucination: order {order_id} has undelivered/unqueried packages, but output claimed all delivered",
+                "ground_truth_all_delivered": all_packages_delivered,
+                "missing_packages": sorted(missing_packages),
                 "order_id": order_id,
                 "checked_invariants": checked_invariants,
             }
+
+    # Otherwise, missing packages without false delivery claim is Incomplete Coverage (INV_1)
+    if missing_packages:
+        return {
+            "independent_pass": False,
+            "classification": "FALSE_NEGATIVE",
+            "is_hallucination": False,
+            "is_qualified_rejection": False,
+            "failure_reason": f"Incomplete package coverage: missing {sorted(missing_packages)}",
+            "queried_packages": sorted(queried_packages),
+            "missing_packages": sorted(missing_packages),
+            "order_id": order_id,
+            "checked_invariants": checked_invariants,
+        }
 
     if all_packages_delivered and not known_failing_pkgs:
         if not claims_all_delivered and mentions_non_delivered:
@@ -840,7 +936,10 @@ def verify_logistics_fulfillment_as_findings(
         MOCK_PACKAGES.get(p, {}).get("status") == "DELIVERED" for p in expected_packages
     )
     claims_all_delivered = False
-    for kw in ["全部签收", "均已签收", "全部送达", "all delivered", "all signed", "所有包裹已签收"]:
+    for kw in [
+        "全部签收", "均已签收", "全部送达", "all delivered", "all signed",
+        "所有包裹已签收", "全部包裹已签收", "全部包裹已送达", "全部包裹已妥投"
+    ]:
         if kw in model_output:
             if any(neg + kw in model_output for neg in ["未", "尚未", "没有", "并非", "不代表", "not "]):
                 continue

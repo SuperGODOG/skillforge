@@ -106,6 +106,8 @@ def mine_candidate(
     candidate_store: CandidateStore,
     registry: Optional[SkillRegistry] = None,
     decision_override: Optional[Literal["create", "revise", "abandon"]] = None,
+    working_summary: Optional[Any] = None,
+    validation_feedback: Optional[dict[str, Any]] = None,
 ) -> MiningResult:
     """Mine and consolidate candidate skill from a list of persisted episodes.
 
@@ -192,6 +194,62 @@ def mine_candidate(
         f"You are a Skill Miner. Target skill: '{target_skill_name}'. Decision: '{decision}'.",
         "Synthesize instructions and metadata based strictly on the following observed episodes:",
     ]
+
+    if working_summary is not None:
+        lines.append("\n=== Working Memory Index & Key Findings ===")
+        valid_evidence_scope = {ep.episode_id for ep in episodes}
+        for ep in episodes:
+            for prov in ep.provenances:
+                if hasattr(prov, "fixture_case_id") and prov.fixture_case_id:
+                    valid_evidence_scope.add(prov.fixture_case_id)
+                if hasattr(prov, "tool_name") and prov.tool_name:
+                    valid_evidence_scope.add(prov.tool_name)
+
+        facts = getattr(working_summary, "verified_facts", []) or []
+        grounded_facts = []
+        for f in facts:
+            ref = str(getattr(f, "evidence_ref", "") or "")
+            # Check A8 Purpose Isolation: fact cannot reference evaluation or heldout sets
+            if any(h in ref.lower() for h in ("heldout", "eval_set", "gold_set")):
+                logger.warning("Omitting fact citing heldout/eval reference: %s (ref=%s)", getattr(f, "fact", ""), ref)
+                continue
+            grounded_facts.append(f)
+
+        if grounded_facts:
+            lines.append("Verified Facts:")
+            for f in grounded_facts:
+                lines.append(f"- {getattr(f, 'fact', str(f))} (evidence: {getattr(f, 'evidence_ref', 'ref')})")
+
+        failures = getattr(working_summary, "failed_attempts", []) or []
+        if failures:
+            lines.append("Observed Failure Paths to Avoid:")
+            for fa in failures:
+                action = getattr(fa, "action", "")
+                reason = getattr(fa, "reason", "")
+                res = getattr(fa, "resolution", "")
+                lines.append(f"- Action: {action} failed: {reason}. Resolution: {res}")
+
+    if validation_feedback is not None:
+        # A8 Purpose Isolation: Reject feedback from locked evaluation or heldout sets
+        feedback_purpose = str(validation_feedback.get("purpose", "learning"))
+        is_heldout = bool(validation_feedback.get("is_heldout", feedback_purpose in ("evaluation", "heldout", "final_audit")))
+        if is_heldout or feedback_purpose in ("evaluation", "heldout", "final_audit"):
+            raise ValueError(
+                f"Purpose isolation violation: validation feedback with purpose='{feedback_purpose}' "
+                "or is_heldout=True cannot be ingested for candidate mining (prevents test set leakage)"
+            )
+
+        rule_id = validation_feedback.get("rule_id") or validation_feedback.get("failed_rule")
+        raw_reason = validation_feedback.get("reason") or validation_feedback.get("failure_reason")
+        if rule_id or raw_reason:
+            lines.append("\n=== Business Validation Guidance ===")
+            if rule_id:
+                lines.append(f"Constraint to satisfy: {rule_id}")
+            if raw_reason:
+                # Secondary presentation scrub
+                clean_reason = re.sub(r"(?i)\[?(hidden|heldout|test_case|eval_set|gold)_[^\]]+\]?", "", str(raw_reason)).strip()
+                lines.append(f"Defect explanation: {clean_reason}")
+
     for ep in episodes:
         lines.append(f"\n--- Episode {ep.episode_id} ---")
         lines.append(f"Outcome: {ep.outcome} (Reason: {ep.outcome_reason})")

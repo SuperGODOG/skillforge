@@ -943,7 +943,12 @@ def test_scenario_f8_end_to_end_lifecycle_from_m4a_to_canary_promotion_and_rollb
     v101_body = "Instructions v1.0.1: division safely handled."
     patcher_llm = FakeLLM([_valid_skill_md("math_tool", "1.0.1", v101_body)])
     judge_llm = FakeLLM([], default_content=_judge_json("tied"))
-    evaluator = SkillEvaluator(registry=reg, llm=FakeLLM(["bare", "out"], default_content="out"), judge_llm=judge_llm)
+    evaluator = SkillEvaluator(
+        registry=reg,
+        llm=FakeLLM(["bare", "out"], default_content="out"),
+        judge_llm=judge_llm,
+        scoring_policy="legacy",
+    )
     eval_cases = [{"id": "c1", "query": "calculate 10 / 2", "reference": "5"}]
 
     repair_job = repair_skill_failure(

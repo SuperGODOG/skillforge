@@ -230,7 +230,12 @@ def _setup_workspace(tmp_path: Path):
 
     agent_llm = FakeLLM(default_content="Order 101: Package 1 delivered, Package 2 in transit.")
     judge_llm = FakeLLM(default_content=_judge_json("tied"))
-    evaluator = SkillEvaluator(registry=registry, llm=agent_llm, judge_llm=judge_llm)
+    evaluator = SkillEvaluator(
+        registry=registry,
+        llm=agent_llm,
+        judge_llm=judge_llm,
+        scoring_policy="legacy",
+    )
 
     eval_cases = [
         {"id": "case_01", "query": "Track order 101", "reference": "Package in transit", "layer": "repair"},

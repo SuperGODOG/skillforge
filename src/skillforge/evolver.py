@@ -335,6 +335,53 @@ class FinalAuditGateResult:
     audit_score: Optional[float] = None
 
 
+def _instantiate_temp_evaluator(
+    temp_reg,
+    evaluator,
+) -> Any:
+    """Safely instantiate SkillEvaluator inside temp sandbox, inspecting parameters to support mocks/subclasses."""
+    from .evaluator import SkillEvaluator
+    import inspect
+
+    judge_llm = getattr(getattr(evaluator, "judge", None), "llm", None)
+    cache_obj = getattr(evaluator, "output_cache", None)
+    route_obj = getattr(evaluator, "router", None)
+
+    init_method = getattr(SkillEvaluator, "__init__", None)
+    sig = inspect.signature(init_method) if init_method else None
+    params = set(sig.parameters.keys()) if sig else set()
+
+    kwargs: dict[str, Any] = {
+        "registry": temp_reg,
+        "llm": getattr(evaluator, "llm", None),
+        "judge_llm": judge_llm,
+    }
+    if "output_cache" in params:
+        kwargs["output_cache"] = cache_obj
+    if "router" in params:
+        kwargs["router"] = route_obj
+    if "scoring_policy" in params:
+        kwargs["scoring_policy"] = getattr(evaluator, "scoring_policy", "criteria_v1")
+    if "rubric" in params:
+        kwargs["rubric"] = getattr(evaluator, "rubric", None)
+
+    try:
+        temp_eval = SkillEvaluator(**kwargs)
+    except TypeError:
+        try:
+            temp_eval = SkillEvaluator(
+                registry=temp_reg,
+                llm=getattr(evaluator, "llm", None),
+                judge_llm=judge_llm,
+            )
+        except TypeError:
+            temp_eval = SkillEvaluator(temp_reg, getattr(evaluator, "llm", None), judge_llm)
+
+    if hasattr(temp_eval, "output_cache") and getattr(temp_eval, "output_cache", None) is None:
+        temp_eval.output_cache = cache_obj
+    return temp_eval
+
+
 def run_final_audit_gate(
     evaluator: Any,
     repo_root: Path,
@@ -392,25 +439,7 @@ def run_final_audit_gate(
                     router_log=sandbox_root / "router.jsonl",
                 )
                 temp_reg.load_skills_from_dir()
-                judge_llm = getattr(getattr(evaluator, "judge", None), "llm", None)
-                cache_obj = getattr(evaluator, "output_cache", None)
-                route_obj = getattr(evaluator, "router", None)
-                try:
-                    sandbox_evaluator = SkillEvaluator(
-                        registry=temp_reg,
-                        llm=getattr(evaluator, "llm", None),
-                        judge_llm=judge_llm,
-                        output_cache=cache_obj,
-                        router=route_obj,
-                    )
-                except TypeError:
-                    sandbox_evaluator = SkillEvaluator(
-                        registry=temp_reg,
-                        llm=getattr(evaluator, "llm", None),
-                        judge_llm=judge_llm,
-                    )
-                    if hasattr(sandbox_evaluator, "output_cache"):
-                        sandbox_evaluator.output_cache = cache_obj
+                sandbox_evaluator = _instantiate_temp_evaluator(temp_reg, evaluator)
     except Exception as e:
         return FinalAuditGateResult(
             passed=False,
@@ -2871,31 +2900,7 @@ def _validate_patch(
 
             if body_changed:
                 channels.append("behavior")
-                from .evaluator import SkillEvaluator
-
-                judge_llm = getattr(getattr(evaluator, "judge", None), "llm", None)
-                cache_obj = getattr(evaluator, "output_cache", None)
-                route_obj = getattr(evaluator, "router", None)
-                try:
-                    temp_eval = SkillEvaluator(
-                        registry=temp_reg,
-                        llm=getattr(evaluator, "llm", None),
-                        judge_llm=judge_llm,
-                        output_cache=cache_obj,
-                        router=route_obj,
-                        scoring_policy=getattr(evaluator, "scoring_policy", "criteria_v1"),
-                        rubric=getattr(evaluator, "rubric", None),
-                    )
-                except TypeError:
-                    temp_eval = SkillEvaluator(
-                        registry=temp_reg,
-                        llm=getattr(evaluator, "llm", None),
-                        judge_llm=judge_llm,
-                        scoring_policy=getattr(evaluator, "scoring_policy", "criteria_v1"),
-                        rubric=getattr(evaluator, "rubric", None),
-                    )
-                    if hasattr(temp_eval, "output_cache"):
-                        temp_eval.output_cache = cache_obj
+                temp_eval = _instantiate_temp_evaluator(temp_reg, evaluator)
                 cases = temp_eval._load_cases(eval_set, skill_name)
                 new_result = temp_eval.evaluate_skill(
                     skill_name,
@@ -2979,33 +2984,12 @@ def _validate_patch(
                     if p0_verdict.decision != "PASS":
                         return result, p0_verdict
                 else:
-                    from .evaluator import SkillEvaluator
                     from .evaluator.p0_gate import (
                         evaluate_p0_gate,
                         check_p0_ratchet_verdict,
                         merge_p0_into_eval_result,
                     )
-                    judge_llm = getattr(getattr(evaluator, "judge", None), "llm", None)
-                    cache_obj = getattr(evaluator, "output_cache", None)
-                    try:
-                        temp_eval = SkillEvaluator(
-                            registry=temp_reg,
-                            llm=getattr(evaluator, "llm", None),
-                            judge_llm=judge_llm,
-                            output_cache=cache_obj,
-                            scoring_policy=getattr(evaluator, "scoring_policy", "criteria_v1"),
-                            rubric=getattr(evaluator, "rubric", None),
-                        )
-                    except TypeError:
-                        temp_eval = SkillEvaluator(
-                            registry=temp_reg,
-                            llm=getattr(evaluator, "llm", None),
-                            judge_llm=judge_llm,
-                            scoring_policy=getattr(evaluator, "scoring_policy", "criteria_v1"),
-                            rubric=getattr(evaluator, "rubric", None),
-                        )
-                        if hasattr(temp_eval, "output_cache"):
-                            temp_eval.output_cache = cache_obj
+                    temp_eval = _instantiate_temp_evaluator(temp_reg, evaluator)
                     p0_result = evaluate_p0_gate(temp_eval, skill_name, repo_root=repo_root, verbose=False)
                     result = merge_p0_into_eval_result(result, p0_result)
                     p0_verdict = check_p0_ratchet_verdict(p0_result)

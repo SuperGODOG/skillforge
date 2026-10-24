@@ -51,12 +51,59 @@ from .models import (
     BoundedRecoveryResult,
 )
 from .retrieval import FutureMemoryRetriever
+from .process_executor import (
+    AsyncProcessExecutor,
+    ProcessConfig,
+    ProcessResult,
+)
+from .harness_loop import (
+    AsyncHarnessLoop,
+    HarnessHooks,
+    HarnessState,
+    HarnessTaskSpec,
+    ModelResponse,
+    ToolCallSpec,
+)
+from .context_engine import (
+    ContextCompressor,
+    CompressionReport,
+    ContextRebuilder,
+    LargeOutputOffloader,
+    OffloadResult,
+    ProtectedState,
+    WorkSummary,
+    VerifiedFact,
+    FailedAttempt,
+    MemoryIndex,
+    AttachmentRef,
+    HierarchicalContext,
+    InspectArtifactTool,
+)
+from .promotion_card import (
+    PromotionCard,
+    build_promotion_card,
+    render_promotion_card,
+    interactive_confirm_promotion,
+)
+from .cli_ui import (
+    DualChannelConsole,
+    create_dual_channel_hooks,
+)
+from .scenarios.ablation_benchmark import (
+    AblationBenchmarkRunner,
+    AblationRunResult,
+    StrategySummary,
+)
 from .runtime import (
     ToolBroker,
     AgentRuntime,
     BrokeredTool,
     sanitize_params,
     validate_parameter_schema,
+)
+from .mcp_client import (
+    McpStdioClient,
+    McpTool,
 )
 from .sandbox import (
     SandboxConfig,
@@ -174,7 +221,13 @@ __all__ = [
     "DeterministicJsonFixer", "compute_artifact_fingerprint", "apply_action_to_content",
     "get_default_ab_cases", "run_artifact_ab_comparison",
     "ExperienceCollector", "RunContext",
+    "AsyncProcessExecutor", "ProcessConfig", "ProcessResult",
+    "AsyncHarnessLoop", "HarnessHooks", "HarnessState", "HarnessTaskSpec", "ModelResponse", "ToolCallSpec",
+    "ContextCompressor", "CompressionReport", "ContextRebuilder", "LargeOutputOffloader", "OffloadResult",
+    "ProtectedState", "WorkSummary", "VerifiedFact", "FailedAttempt", "MemoryIndex", "AttachmentRef", "HierarchicalContext",
+    "PromotionCard", "build_promotion_card", "render_promotion_card", "interactive_confirm_promotion",
     "ToolBroker", "AgentRuntime", "BrokeredTool", "ToolCallRecord", "RunRecord", "RuntimeStatus",
+    "McpStdioClient", "McpTool",
     "sanitize_params", "validate_parameter_schema",
     "LLMLedger", "EvaluatorOutputCache",
     "PromptBloatResult", "check_prompt_bloat", "compute_body_section_stats",
@@ -214,8 +267,53 @@ __all__ = [
     "run_bounded_recovery",
     "recover_bloated_candidate",
     "check_non_recoverable_blockers",
+    "AsyncProcessExecutor",
+    "ProcessConfig",
+    "ProcessResult",
+    "AsyncHarnessLoop",
+    "HarnessHooks",
+    "HarnessState",
+    "HarnessTaskSpec",
+    "ContextCompressor",
+    "CompressionReport",
+    "ContextRebuilder",
+    "LargeOutputOffloader",
+    "ProtectedState",
+    "WorkSummary",
+    "MemoryIndex",
+    "HierarchicalContext",
+    "InspectArtifactTool",
+    "PromotionCard",
+    "build_promotion_card",
+    "render_promotion_card",
+    "interactive_confirm_promotion",
+    "DualChannelConsole",
+    "create_dual_channel_hooks",
+    "AblationBenchmarkRunner",
+    "AblationRunResult",
+    "StrategySummary",
+    "Demo1Result",
+    "Demo2Result",
+    "Demo3Result",
+    "run_demo_1_long_task_amnesia_prevention",
+    "run_demo_2_goal_redirection_and_isolation",
+    "run_demo_3_error_correction_to_reusable_skill",
+    "WorkerAgentSpec",
+    "SupervisorDecision",
+    "SupervisorState",
+    "SupervisorTaskSpec",
+    "SupervisorOrchestrator",
+    "create_supervisor_graph",
 ]
 
+from .scenarios.demonstrations import (
+    Demo1Result,
+    Demo2Result,
+    Demo3Result,
+    run_demo_1_long_task_amnesia_prevention,
+    run_demo_2_goal_redirection_and_isolation,
+    run_demo_3_error_correction_to_reusable_skill,
+)
 from .langgraph_loop import (
     run_evolve_langgraph,
     resume_evolve_langgraph,
@@ -231,5 +329,13 @@ from .bounded_recovery import (
     run_bounded_recovery,
     recover_bloated_candidate,
     check_non_recoverable_blockers,
+)
+from .supervisor import (
+    WorkerAgentSpec,
+    SupervisorDecision,
+    SupervisorState,
+    SupervisorTaskSpec,
+    SupervisorOrchestrator,
+    create_supervisor_graph,
 )
 
