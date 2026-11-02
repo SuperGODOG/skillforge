@@ -51,6 +51,7 @@ _FRONTMATTER_FIELDS = frozenset(
         "evaluation",
     }
 )
+_OPTIONAL_FRONTMATTER_FIELDS = frozenset({"rules", "evaluation_profile"})
 _SECTION_ALIASES = {
     "overview": "Overview",
     "概述": "Overview",
@@ -356,9 +357,10 @@ def _build_full_skill_md_text(
     keywords: list[str],
     examples: list[str],
     body: str,
+    rules: Optional[list[dict[str, Any]]] = None,
 ) -> str:
     """拼接合规的 YAML frontmatter + Body"""
-    front_dict = {
+    front_dict: dict[str, Any] = {
         "name": name,
         "version": version,
         "description": description,
@@ -369,6 +371,8 @@ def _build_full_skill_md_text(
         "examples": examples,
         "evaluation": {"last_score": None, "last_release_id": None},
     }
+    if rules:
+        front_dict["rules"] = rules
     front_yaml = yaml.dump(front_dict, allow_unicode=True, sort_keys=False).strip()
     return f"---\n{front_yaml}\n---\n\n{body.strip()}\n"
 
@@ -401,7 +405,7 @@ def validate_generated_structure(
         return False, "YAML frontmatter 必须为键值映射", None, None, None
 
     unknown_fields = sorted(
-        (str(key) for key in data if key not in _FRONTMATTER_FIELDS),
+        (str(key) for key in data if key not in _FRONTMATTER_FIELDS and key not in _OPTIONAL_FRONTMATTER_FIELDS),
         key=str,
     )
     if unknown_fields:
@@ -509,6 +513,8 @@ def _parse_generation_payload(resp: Any) -> tuple[dict[str, Any], str]:
         raise ValueError("LLM JSON 顶层必须是对象")
     if "skill_md" in payload and payload["skill_md"] is not None and not isinstance(payload["skill_md"], str):
         raise ValueError("skill_md 必须是字符串")
+    if "rules" in payload and payload["rules"] is not None and not isinstance(payload["rules"], list):
+        raise ValueError("rules 若提供必须是列表")
     return payload, raw_text
 
 
@@ -707,6 +713,13 @@ evaluation:
 6. trigger.keywords: 3-6 个精准触发词。
 7. Body 必须包含完整的四级二级标题：## Overview, ## Instructions, ## Examples, ## Constraints。
 8. 初始测试集 3-5 条：覆盖 use_when 主意图 + 1 条边界用例 + 1 条 not_for 越界反例（reference 需指明拒绝/划界理由）。
+9. rules (可选规则提炼数组): 若需求中包含明确的操作规范、关键约束或规避失败的设计要求，可在 JSON 中输出 rules 数组。每项规则包含：
+   - "trigger_condition": 触发该规则的具体条件
+   - "action": 应执行的具体操作或约束
+   - "failure_avoided": 预期规避的设计风险或失败原因
+   - "applicability_boundary": 规则适用的明确范围边界与弃权场景
+   - "body_quote": 必须是正文(body)中字面完全一致的具体规则片段（用于正文证据锚定）
+   若无特定提炼规则，可设为 [] 或在 JSON 中省略。
 
 【输出格式】
 严格仅输出一个合法的 JSON 对象，格式如下：
@@ -718,6 +731,15 @@ evaluation:
   "not_for": ["...", "..."],
   "keywords": ["...", "..."],
   "examples": ["...", "..."],
+  "rules": [
+    {{
+      "trigger_condition": "何时触发该规则（触发条件）",
+      "action": "应执行的具体操作或遵守的规范",
+      "failure_avoided": "规避什么失败或设计风险",
+      "applicability_boundary": "规则适用的边界与弃权场景",
+      "body_quote": "正文(body)中完全一致引用的规则片段"
+    }}
+  ],
   "body": "## Overview\\n...\\n\\n## Instructions\\n...\\n\\n## Examples\\n...\\n\\n## Constraints\\n...",
   "test_cases": [
     {{"query": "...", "reference": "..."}},
@@ -785,6 +807,14 @@ evaluation:
             keywords = payload.get("keywords", [])
             examples = payload.get("examples", [])
             body = payload.get("body", "")
+            raw_rules = payload.get("rules", [])
+            rules_for_fm: list[dict[str, Any]] = []
+            if raw_rules is not None:
+                if not isinstance(raw_rules, list):
+                    raise ValueError("rules 必须是数组")
+                for r in raw_rules:
+                    if isinstance(r, dict):
+                        rules_for_fm.append(r)
             if not all(isinstance(value, str) for value in (name, version, description, use_when, body)):
                 raise ValueError("name/version/description/use_when/body 必须是字符串")
             if not isinstance(not_for, list) or not isinstance(keywords, list) or not isinstance(examples, list):
@@ -798,6 +828,7 @@ evaluation:
                 keywords=keywords,
                 examples=examples,
                 body=body.strip(),
+                rules=rules_for_fm,
             )
     except Exception as exc:
         return GenerationFailure(
@@ -1071,6 +1102,42 @@ def generate_candidate_from_requirement(
 
     source_msg_ids = list(message_ids) if message_ids else []
     rationale_source = "conversation" if eff_source_type == "conversation" else "requirement"
+
+    # Bind structured rule provenance (E1)
+    from .models import RuleTraceEvidence
+    rule_traces: list[RuleTraceEvidence] = []
+    raw_rules = getattr(result.meta, "rules", []) or []
+    if raw_rules:
+        for idx, r in enumerate(raw_rules):
+            r_dict = r if isinstance(r, dict) else (r.to_dict() if hasattr(r, "to_dict") else {})
+            trig = str(r_dict.get("trigger_condition", "")).strip()
+            act = str(r_dict.get("action", "")).strip()
+            fail_av = str(r_dict.get("failure_avoided", "")).strip() or "Expected design risk or boundary constraint"
+            bound = str(r_dict.get("applicability_boundary", "")).strip() or f"Applies to {result.name} scope"
+            b_quote = str(r_dict.get("body_quote") or r_dict.get("body_anchor") or "").strip()
+            if trig and act:
+                s_ref = session_id if eff_source_type == "conversation" else f"req_{spec_hash}"
+                s_hash = hashlib.sha256(request.encode("utf-8")).hexdigest()[:16]
+                rule_traces.append(
+                    RuleTraceEvidence(
+                        rule_id=str(r_dict.get("rule_id", f"RULE_{result.name}_{idx+1}")),
+                        source_ref=s_ref,
+                        source_type=eff_source_type,
+                        trigger_condition=trig,
+                        action=act,
+                        failure_avoided=fail_av,
+                        applicability_boundary=bound,
+                        verification_status="inferred",
+                        task_id=task_id,
+                        intent_revision=1,
+                        skill_version=result.version,
+                        source_content_hash=s_hash,
+                        body_anchor=b_quote,
+                        body_quote=b_quote,
+                        notes=str(r_dict.get("notes", "")),
+                    )
+                )
+
     candidate = CandidateSkill(
         candidate_id=cid,
         skill_name=result.name,
@@ -1085,7 +1152,9 @@ def generate_candidate_from_requirement(
         task_spec_hash=spec_hash,
         source_session_id=session_id,
         source_message_ids=source_msg_ids,
+        rule_traces=rule_traces,
     )
+    candidate.meta.rules = [r.to_dict() for r in rule_traces]
 
     if candidate_store is not None:
         candidate_store.save_candidate(
@@ -1105,6 +1174,80 @@ def generate_candidate_from_requirement(
             candidate_store.save_validation_record(val_rec)
 
     return candidate
+
+
+def generate_candidate_from_conversation(
+    session_id: str,
+    messages: list[dict[str, Any]],
+    candidate_store: Optional[Any] = None,
+    llm: Any = None,
+    repo_root: Optional[Path] = None,
+    budget: Optional[EvolveBudget] = None,
+    max_retries: int = DEFAULT_GENERATOR_MAX_RETRIES,
+    registry: Optional[SkillRegistry] = None,
+    candidate_id: Optional[str] = None,
+    conflict_method: str = "embedding",
+    similarity_threshold: float = DEFAULT_SIMILARITY_THRESHOLD,
+    model_dir: Optional[Path] = None,
+    task_id: Optional[str] = None,
+    allow_existing: bool = False,
+    purpose: str = "learning",
+    is_heldout: bool = False,
+    message_ids: Optional[list[str]] = None,
+) -> CandidateSkill | GenerationFailure:
+    """从会话消息序列直接生成草稿 CandidateSkill (P1 会话提炼).
+
+    将多轮会话文本规范化为需求上下文，自动绑定 session_id 与 message_ids 规范源，
+    保持真实会话上下文溯源，严禁模型自报权威或伪造 Episode。
+    """
+    if purpose in ("evaluation", "heldout", "experiment_holdout", "final_audit") or is_heldout:
+        raise ValueError(
+            f"Purpose isolation violation: cannot generate candidate skills from locked evaluation/heldout tasks (purpose='{purpose}')"
+        )
+
+    if not isinstance(session_id, str) or not session_id.strip():
+        return GenerationFailure(
+            reason="INVALID_ARGUMENT",
+            message="session_id 必须是非空字符串",
+        )
+    if not isinstance(messages, list) or not messages:
+        return GenerationFailure(
+            reason="INVALID_ARGUMENT",
+            message="messages 必须是非空列表",
+        )
+
+    extracted_msg_ids: list[str] = []
+    lines: list[str] = []
+    for idx, msg in enumerate(messages):
+        mid = str(msg.get("id") or msg.get("message_id") or f"m_{idx+1}")
+        extracted_msg_ids.append(mid)
+        role = msg.get("role", "user")
+        content = str(msg.get("content", "")).strip()
+        lines.append(f"[{role}]: {content}")
+
+    eff_msg_ids = list(message_ids) if message_ids is not None else extracted_msg_ids
+    convo_request = f"Conversation extraction ({session_id}):\n" + "\n".join(lines)
+
+    return generate_candidate_from_requirement(
+        request=convo_request,
+        candidate_store=candidate_store,
+        llm=llm,
+        repo_root=repo_root,
+        budget=budget,
+        max_retries=max_retries,
+        registry=registry,
+        candidate_id=candidate_id,
+        conflict_method=conflict_method,
+        similarity_threshold=similarity_threshold,
+        model_dir=model_dir,
+        task_id=task_id,
+        allow_existing=allow_existing,
+        purpose=purpose,
+        is_heldout=is_heldout,
+        source_type="conversation",
+        session_id=session_id.strip(),
+        message_ids=eff_msg_ids,
+    )
 
 
 def _load_registration_json(path: Path, label: str) -> dict[str, Any]:

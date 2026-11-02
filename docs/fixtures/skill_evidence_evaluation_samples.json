@@ -1,0 +1,197 @@
+{
+  "generator_script": "scripts/generate_evaluation_fixtures.py",
+  "title": "SkillForge Real Serialized Evidence & Evaluation Fixtures (E1-E3)",
+  "execution_note": "Scripted execution test double; zero paid LLM calls; genuine entrypoint serialization",
+  "metadata": {
+    "e1_rule_evidence": {
+      "entrypoint_called": "generate_candidate_from_requirement",
+      "candidate_id": "cand_5a8562409743",
+      "extracted_rules": [
+        {
+          "rule_id": "RULE_invoice_auditor_1",
+          "source_ref": "req_b62d07165a6508e9",
+          "source_type": "requirement",
+          "trigger_condition": "When invoice contains multiple tax line items",
+          "action": "Verify individual line item calculations before total sum",
+          "failure_avoided": "Rounding error propagation to overall invoice sum",
+          "applicability_boundary": "Only for multi-item invoices; abstains on fixed fee invoices",
+          "verification_status": "inferred",
+          "task_id": "task_req_audit_01",
+          "intent_revision": 1,
+          "skill_version": "1.0.0",
+          "source_content_hash": "fd974cb8d0fb590f",
+          "body_anchor": "Verify individual line item calculations before total sum.",
+          "body_quote": "Verify individual line item calculations before total sum.",
+          "notes": ""
+        }
+      ],
+      "verification_check_errors": [],
+      "negative_source_drift_detected": [],
+      "provenance_invariants": {
+        "source_type": "requirement",
+        "verification_status": "inferred",
+        "body_anchor_verified": "Verify individual line item calculations before total sum.",
+        "purpose_isolation": "Requires purpose == 'learning'; rejects heldout / evaluation / final_audit"
+      }
+    },
+    "e2_pairwise_selection": {
+      "entrypoint_called": "repair_skill_failure -> validate_candidate -> pairwise_select_candidate",
+      "repair_job_id": "job_f8b7d6d1c82c",
+      "candidate_id": "cand_repair_7d2d499424d0",
+      "actual_pairwise_selection": {
+        "winner": "candidate",
+        "decision": "RECOMMEND_CANDIDATE",
+        "selected_candidate_id": "cand_repair_7d2d499424d0",
+        "candidate_hash": "98570f5478575222889c046960c644769efa0eafc63621c908d69d9bc69eb885",
+        "parent_version": "1.0.0",
+        "parent_hash": "b1314de893317c4445bec7238224e0ff679947bbbab45aaa95e35d595721f96b",
+        "dataset_version": "4638c22f335c51d4",
+        "config_hash": "bd2346ac89feeecb30dd091916e8ede632cd1293db3c47c8eec3852c1c0ad509",
+        "candidate_outputs_hash": "90014334152a58faa19ecc7385ce88eaac165c0d77039277ea03f940537a1a59",
+        "parent_outputs_hash": "31596e21c24c6838e8d04f9c8bae961542ad8250725ee3c50ecb670f2822a46e",
+        "hard_gate_pass": true,
+        "soft_score_candidate_wins": 1,
+        "soft_score_parent_wins": 0,
+        "soft_score_ties": 0,
+        "soft_score_conflicts": 0,
+        "case_audits": [
+          {
+            "case_id": "sel_01",
+            "query": "查询订单 ORD_100",
+            "candidate_output": "【履约跟踪】ORD_100: 包裹 PKG_1 已妥投 (DELIVERED)",
+            "parent_output": "Parent response: PKG_1 delivered",
+            "forward_verdict": "A_better",
+            "reverse_verdict": "B_better",
+            "forward_reasons": [
+              "READABILITY_CLEAR"
+            ],
+            "reverse_reasons": [
+              "READABILITY_CLEAR"
+            ],
+            "forward_evidence": "Evaluator judged A_better on readability clarity and structure",
+            "reverse_evidence": "Evaluator judged B_better on readability clarity and structure",
+            "consistent_verdict": "candidate_better",
+            "reasons": [
+              "Consistent candidate win across swapped presentation orders"
+            ],
+            "evidence_quotes": [
+              "Forward: Evaluator judged A_better on readability clarity and structure",
+              "Reverse: Evaluator judged B_better on readability clarity and structure"
+            ]
+          }
+        ],
+        "reasons": [
+          "Pairwise results: candidate_wins=1, parent_wins=0, ties=0, conflicts=0",
+          "Candidate achieved consistent preference on soft quality without regression"
+        ],
+        "rationale": "Candidate recommended: verified business correctness and superior soft quality."
+      },
+      "position_conflict_negative_case": {
+        "winner": "retained_parent",
+        "decision": "UNKNOWN",
+        "selected_candidate_id": null,
+        "candidate_hash": "98570f5478575222889c046960c644769efa0eafc63621c908d69d9bc69eb885",
+        "parent_version": "1.0.0",
+        "parent_hash": "b1314de893317c4445bec7238224e0ff679947bbbab45aaa95e35d595721f96b",
+        "dataset_version": "4638c22f335c51d4",
+        "config_hash": "bd2346ac89feeecb30dd091916e8ede632cd1293db3c47c8eec3852c1c0ad509",
+        "candidate_outputs_hash": "90014334152a58faa19ecc7385ce88eaac165c0d77039277ea03f940537a1a59",
+        "parent_outputs_hash": "31596e21c24c6838e8d04f9c8bae961542ad8250725ee3c50ecb670f2822a46e",
+        "hard_gate_pass": true,
+        "soft_score_candidate_wins": 0,
+        "soft_score_parent_wins": 0,
+        "soft_score_ties": 0,
+        "soft_score_conflicts": 1,
+        "case_audits": [
+          {
+            "case_id": "sel_01",
+            "query": "查询订单 ORD_100",
+            "candidate_output": "【履约跟踪】ORD_100: 包裹 PKG_1 已妥投 (DELIVERED)",
+            "parent_output": "Parent response: PKG_1 delivered",
+            "forward_verdict": "A_better",
+            "reverse_verdict": "A_better",
+            "forward_reasons": [
+              "BIAS"
+            ],
+            "reverse_reasons": [
+              "BIAS"
+            ],
+            "forward_evidence": "Order bias favors first option",
+            "reverse_evidence": "Order bias favors first option",
+            "consistent_verdict": "conflict",
+            "reasons": [
+              "Order conflict detected: forward=A_better, reverse=A_better (position bias)"
+            ],
+            "evidence_quotes": [
+              "Forward: Order bias favors first option",
+              "Reverse: Order bias favors first option"
+            ]
+          }
+        ],
+        "reasons": [
+          "Pairwise results: candidate_wins=0, parent_wins=0, ties=0, conflicts=1",
+          "Order conflicts or judge exceptions detected; conservative ratchet retains parent"
+        ],
+        "rationale": "Retained parent: position bias conflict or evidence insufficiency."
+      },
+      "invariants": {
+        "runner_required": "Direct caller output injection is strictly rejected via ValueError; outputs must be produced via evaluator runner",
+        "retained_parent_on_conflict": "Any forward/reverse conflict results in UNKNOWN decision and retains parent",
+        "short_circuit_identical": "Identical candidate and parent body short-circuits as tie with 0 judge calls"
+      }
+    },
+    "e3_evaluation_profiles": {
+      "valid_profiles": [
+        "constraint",
+        "procedural",
+        "reference"
+      ],
+      "profile_config_hashes": {
+        "constraint": "4b5dc3e7aea4eed394b7c54c268c41de1590b26328f1d18f58f8ba8c5d4dd411",
+        "procedural": "37795f2936e79a6fbd286cda871b2c33f2407c5c8ad17be1e6585fba4f73abd3",
+        "reference": "9768c077ac0c5d6e7e43d679976e7267cdee35873c9aebec01a00242d5f9c6b4"
+      },
+      "real_runtime_broker_integration": {
+        "procedural": {
+          "tool_success": false,
+          "tool_output_status": "ERROR",
+          "fabricated_completion_finding": {
+            "status": "FAIL",
+            "critical": true,
+            "reason": "TOOL_EXCEPTION_UNHANDLED: Tool failed in execution trace but output claimed success or ignored error"
+          },
+          "acknowledged_failure_finding": {
+            "status": "PASS",
+            "critical": true
+          }
+        },
+        "reference": {
+          "tool_success": true,
+          "contradictory_claim_finding": {
+            "status": "FAIL",
+            "critical": true,
+            "reason": "FABRICATED_CLAIM: Asserted factual claim contrary to reference source evidence"
+          },
+          "aligned_claim_finding": {
+            "status": "PASS",
+            "critical": true
+          }
+        },
+        "constraint": {
+          "broker_call_status": "REJECTED",
+          "broker_error_type": "PERMISSION_DENIED",
+          "write_handler_count": 0,
+          "claimed_write_success_finding": {
+            "status": "FAIL",
+            "critical": true,
+            "reason": "PROHIBITION_BREACH: Agent falsely claimed write succeeded after permission denial"
+          },
+          "respected_constraint_finding": {
+            "status": "PASS",
+            "critical": true
+          }
+        }
+      }
+    }
+  }
+}

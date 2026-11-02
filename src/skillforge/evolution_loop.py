@@ -18,7 +18,7 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Any, Callable, Literal, Optional
 
 import yaml
 
@@ -38,6 +38,7 @@ from .models import (
 from .episode import EpisodeStore, CandidateStore
 from .registry import SkillRegistry
 from .evaluator import SkillEvaluator
+from .evaluator.judge import PairwiseJudge, JudgeResult
 from .evaluator.ratchet import check_ratchet
 from .state_machine import ReleaseStateMachine
 
@@ -95,7 +96,20 @@ def compute_cases_hash(cases: list[Any]) -> str:
             serialized.append(c)
         else:
             serialized.append(str(c))
-    return hashlib.sha256(json.dumps(serialized, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
+    return hashlib.sha256(json.dumps(serialized, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")).hexdigest()[:16]
+
+
+def serialize_pairwise_config(cfg: Optional[dict]) -> str:
+    """Serialize pairwise selector configuration canonically without object addresses or callbacks."""
+    if not cfg:
+        return "none"
+    enabled = bool(cfg.get("enabled", True))
+    strategy = str(cfg.get("strategy", "pairwise_abba"))
+    soft_dim = str(cfg.get("soft_dimension", "readability"))
+    enforce = bool(cfg.get("enforce_recommendation", True))
+    cases = cfg.get("cases") or []
+    cases_hash = compute_cases_hash(cases) if cases else "default_cases"
+    return f"enabled={enabled};strategy={strategy};dim={soft_dim};enforce={enforce};cases_hash={cases_hash}"
 
 
 
@@ -286,6 +300,46 @@ def mine_candidate(
             f"Model returned mismatched skill name '{meta.name}' for target '{target_skill_name}'"
         )
 
+    # Bind rule traces if suggested by model in frontmatter (E1)
+    from .episode import compute_episode_content_hash
+    ep_map = {ep.episode_id: ep for ep in episodes}
+    ep0 = episodes[0] if episodes else None
+    rule_traces: list[RuleTraceEvidence] = []
+    if getattr(meta, "rules", None):
+        for idx, r in enumerate(meta.rules):
+            r_dict = r if isinstance(r, dict) else r.to_dict()
+            trig = str(r_dict.get("trigger_condition", "")).strip()
+            act = str(r_dict.get("action", "")).strip()
+            bound = str(r_dict.get("applicability_boundary", "")).strip()
+            sref = str(r_dict.get("source_ref", "")).strip()
+            matched_ep = ep_map.get(sref) or ep0
+            if trig and act and matched_ep:
+                fail_av = str(r_dict.get("failure_avoided", "")).strip() or matched_ep.outcome_reason or "Derived from observed episode"
+                intent_rev = 1
+                if isinstance(matched_ep.environment, dict) and "intent_revision" in matched_ep.environment:
+                    intent_rev = int(matched_ep.environment["intent_revision"])
+                b_quote = str(r_dict.get("body_quote") or r_dict.get("body_anchor") or "").strip()
+                rule_traces.append(
+                    RuleTraceEvidence(
+                        rule_id=str(r_dict.get("rule_id", f"RULE_MINED_{target_skill_name}_{idx+1}")),
+                        source_ref=matched_ep.episode_id,
+                        source_type="episode",
+                        trigger_condition=trig,
+                        action=act,
+                        failure_avoided=fail_av,
+                        applicability_boundary=bound or f"Applies to {target_skill_name} domain tasks",
+                        verification_status="inferred",
+                        task_id=matched_ep.task_id,
+                        intent_revision=intent_rev,
+                        skill_version=meta.version,
+                        source_content_hash=compute_episode_content_hash(matched_ep),
+                        body_anchor=b_quote,
+                        body_quote=b_quote,
+                        notes=str(r_dict.get("notes", "")),
+                    )
+                )
+    meta.rules = [r.to_dict() for r in rule_traces]
+
     # Application strictly fixes source_episode_ids; model cannot spoof them
     candidate_id = f"cand_{uuid.uuid4().hex[:12]}"
     candidate = CandidateSkill(
@@ -297,6 +351,7 @@ def mine_candidate(
         body=body.strip(),
         rationale=f"Mined from {len(episodes)} episodes: {', '.join(e.episode_id for e in episodes)}",
         status="DRAFT",
+        rule_traces=rule_traces,
     )
 
     candidate_store.save_candidate(candidate)
@@ -338,6 +393,7 @@ def validate_candidate(
     enable_shadow_recovery: bool = False,
     recovery_budget: Optional[Any] = None,
     recovery_llm: Optional[Any] = None,
+    pairwise_selector_config: Optional[dict] = None,
 ) -> ValidationRecord:
     """Run real evaluation and ratchet gate on a candidate skill in sandbox isolation.
 
@@ -364,11 +420,26 @@ def validate_candidate(
                     f"(stored '{effective_scope_hash}' != computed '{recomputed}')"
                 )
 
+    # Verify candidate rule provenance at validation entry point (E1)
+    from .episode import verify_candidate_rule_provenance
+    ep_store = getattr(candidate_store, "_episode_store", None) if candidate_store is not None else None
+    rule_errors = verify_candidate_rule_provenance(candidate, ep_store)
+    if rule_errors:
+        raise ValueError(
+            f"Validation rejected: Candidate '{candidate.candidate_id}' has invalid rule provenance: "
+            + "; ".join(rule_errors)
+        )
+
+    profile = getattr(candidate.meta, "evaluation_profile", None)
+    effective_pairwise_config = pairwise_selector_config or getattr(evaluator, "pairwise_selector_config", None)
     effective_config_hash = (
-        getattr(evaluator, "config_hash", None)
-        or (evaluator.get_config_hash() if hasattr(evaluator, "get_config_hash") else None)
+        (evaluator.get_config_hash(profile=profile) if hasattr(evaluator, "get_config_hash") else None)
+        or getattr(evaluator, "config_hash", None)
         or config_hash
     )
+    if pairwise_selector_config and getattr(evaluator, "pairwise_selector_config", None) != pairwise_selector_config:
+        p_ser = serialize_pairwise_config(pairwise_selector_config)
+        effective_config_hash = hashlib.sha256(f"{effective_config_hash}:{p_ser}".encode("utf-8")).hexdigest()
     # Canonical cases content hash takes precedence over caller-provided arbitrary string
     canonical_cases_hash = compute_cases_hash(eval_cases) if eval_cases else None
     effective_dataset_version = canonical_cases_hash or getattr(eval_cases, "dataset_version", None) or dataset_version
@@ -506,6 +577,46 @@ def validate_candidate(
         # check_ratchet handles old=None as PASS (for cold-start create)
         ratchet_verdict = check_ratchet(baseline_eval_result, candidate_eval_result)
 
+    # Soft quality candidate selection (E2) when explicitly configured
+    pairwise_rec_dict: Optional[dict[str, Any]] = None
+    if (
+        effective_pairwise_config is not None
+        and effective_pairwise_config.get("enabled", True)
+        and candidate.decision == "revise"
+    ):
+        try:
+            p_meta = registry.get_meta(candidate.skill_name)
+            p_body = registry.get_body(candidate.skill_name) if hasattr(registry, "get_body") else registry._bodies.get(candidate.skill_name, "")
+            sel_cases = effective_pairwise_config.get("cases") or eval_cases
+            p_judge = effective_pairwise_config.get("judge") or getattr(evaluator, "judge", None)
+            p_oracle = effective_pairwise_config.get("oracle_fn")
+            p_dim = effective_pairwise_config.get("soft_dimension", "readability")
+            pairwise_res = pairwise_select_candidate(
+                candidate=candidate,
+                parent_meta=p_meta,
+                parent_body=p_body,
+                selection_cases=sel_cases,
+                evaluator=evaluator,
+                judge=p_judge,
+                oracle_fn=p_oracle,
+                soft_dimension=p_dim,
+            )
+            pairwise_rec_dict = pairwise_res.to_dict()
+            enforce = effective_pairwise_config.get("enforce_recommendation", True)
+            if enforce and pairwise_res.decision != "RECOMMEND_CANDIDATE":
+                if ratchet_verdict.decision == "PASS":
+                    ratchet_verdict = RatchetVerdict(
+                        decision="REVIEW",
+                        reasons=[f"Pairwise selector retained parent ({pairwise_res.decision}): {pairwise_res.rationale}"],
+                    )
+        except Exception as exc:
+            pairwise_rec_dict = {"error": str(exc), "decision": "UNKNOWN", "winner": "retained_parent"}
+            if ratchet_verdict.decision == "PASS":
+                ratchet_verdict = RatchetVerdict(
+                    decision="REVIEW",
+                    reasons=[f"Pairwise selection exception: {type(exc).__name__}: {exc}"],
+                )
+
     rec = ValidationRecord(
         candidate_id=candidate.candidate_id,
         content_hash=content_hash,
@@ -517,6 +628,7 @@ def validate_candidate(
         scope_hash=effective_scope_hash,
         config_hash=effective_config_hash,
         dataset_version=effective_dataset_version,
+        pairwise_selection=pairwise_rec_dict,
     )
     if candidate_store is not None:
         candidate_store.save_validation_record(rec)
@@ -533,6 +645,7 @@ def promote_candidate(
     expected_config_hash: Optional[str] = None,
     expected_dataset_version: Optional[str] = None,
     expected_scope_hash: Optional[str] = None,
+    evaluator: Optional[Any] = None,
 ) -> Release:
     """Promote a validated candidate via existing ReleaseStateMachine.
 
@@ -594,6 +707,16 @@ def promote_candidate(
     if stored_record is None:
         raise ValueError(
             f"Promotion rejected: candidate '{candidate.candidate_id}' has no persisted validation record in CandidateStore (forged in-memory record rejected)"
+        )
+
+    # Verify candidate rule provenance if rules are defined (E1)
+    from .episode import verify_candidate_rule_provenance
+    ep_store = getattr(candidate_store, "_episode_store", None)
+    rule_errors = verify_candidate_rule_provenance(candidate, ep_store)
+    if rule_errors:
+        raise ValueError(
+            f"Promotion rejected: Candidate '{candidate.candidate_id}' has invalid rule provenance: "
+            + "; ".join(rule_errors)
         )
 
     # Fail-closed check on incomplete or corrupted records
@@ -661,9 +784,34 @@ def promote_candidate(
         raise ValueError(
             f"Validation invalidated: task scope hash changed from '{stored_record.scope_hash}' to '{expected_scope_hash}'"
         )
-    if expected_config_hash is not None and stored_record.config_hash != expected_config_hash:
+    effective_expected_config_hash = expected_config_hash
+    if evaluator is not None:
+        prof = getattr(candidate.meta, "evaluation_profile", None)
+        current_eval_hash = (
+            evaluator.get_config_hash(profile=prof)
+            if hasattr(evaluator, "get_config_hash")
+            else getattr(evaluator, "config_hash", None)
+        )
+        if effective_expected_config_hash is not None and current_eval_hash and effective_expected_config_hash != current_eval_hash:
+            raise ValueError(
+                f"Validation invalidated: expected_config_hash '{effective_expected_config_hash}' conflicts with current evaluator config hash '{current_eval_hash}'"
+            )
+        effective_expected_config_hash = effective_expected_config_hash or current_eval_hash
+
+    # Reject promotion if candidate validation used pairwise selector or non-default profile but lacks current evaluation context
+    has_new_eval_context = (
+        (stored_record.pairwise_selection is not None)
+        or bool(getattr(candidate.meta, "evaluation_profile", None))
+    )
+    if has_new_eval_context and effective_expected_config_hash is None:
         raise ValueError(
-            f"Validation invalidated: validator config hash changed from '{stored_record.config_hash}' to '{expected_config_hash}'"
+            f"Promotion rejected: candidate '{candidate.candidate_id}' validation used pairwise selector or evaluation profile, "
+            "but no current evaluator or expected_config_hash was provided (missing evaluation context)"
+        )
+
+    if effective_expected_config_hash is not None and stored_record.config_hash != effective_expected_config_hash:
+        raise ValueError(
+            f"Validation invalidated: validator config hash changed from '{stored_record.config_hash}' to '{effective_expected_config_hash}'"
         )
     if expected_dataset_version is not None and stored_record.dataset_version != expected_dataset_version:
         raise ValueError(
@@ -760,4 +908,450 @@ def promote_candidate(
         commit_hash=rel_dict["commit_hash"],
         status=rel_dict["status"],
         level=rel_dict["level"],
+    )
+
+
+# ==============================================================================
+# Darwin-Skill v2.1 Inspired Paired Candidate Selection (E2)
+# ==============================================================================
+
+@dataclass
+class PairwiseCaseAudit:
+    case_id: str
+    query: str
+    candidate_output: str
+    parent_output: str
+    forward_verdict: str
+    reverse_verdict: str
+    forward_reasons: list[str]
+    reverse_reasons: list[str]
+    forward_evidence: str
+    reverse_evidence: str
+    consistent_verdict: Literal["candidate_better", "parent_better", "tie", "conflict", "unknown"]
+    reasons: list[str]
+    evidence_quotes: list[str]
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class PairwiseSelectionResult:
+    winner: Literal["candidate", "parent", "retained_parent"]
+    decision: Literal["RECOMMEND_CANDIDATE", "PASS", "REJECT", "TIE", "UNKNOWN", "HARD_GATE_FAILED"]
+    selected_candidate_id: Optional[str]
+    candidate_hash: str
+    parent_version: str
+    parent_hash: str
+    dataset_version: str
+    config_hash: str
+    candidate_outputs_hash: str
+    parent_outputs_hash: str
+    hard_gate_pass: bool
+    soft_score_candidate_wins: int
+    soft_score_parent_wins: int
+    soft_score_ties: int
+    soft_score_conflicts: int
+    case_audits: list[PairwiseCaseAudit]
+    reasons: list[str]
+    rationale: str
+
+    def to_dict(self) -> dict[str, Any]:
+        d = asdict(self)
+        d["case_audits"] = [a.to_dict() for a in self.case_audits]
+        return d
+
+
+def pairwise_select_candidate(
+    candidate: CandidateSkill,
+    parent_meta: SkillMeta,
+    parent_body: str,
+    selection_cases: list[dict],
+    evaluator: Any,
+    judge: Optional[PairwiseJudge] = None,
+    oracle_fn: Optional[Callable[[str, str, dict], bool]] = None,
+    soft_dimension: str = "readability",
+    candidate_outputs: Optional[dict[str, str]] = None,
+    parent_outputs: Optional[dict[str, str]] = None,
+) -> PairwiseSelectionResult:
+    """Darwin-Skill v2.1 inspired paired comparison for candidate selection.
+
+    Evaluates actual execution outputs of parent vs candidate under the same selection tasks.
+    Invariants:
+    1. Hard gates (business correctness / independent Oracle / criteria / permissions) MUST pass first.
+       Stylistic preference cannot rescue business errors (fails closed: winner='retained_parent').
+    2. Fixed hashes: candidate_hash, parent_hash, dataset_version, config_hash, outputs_hashes.
+       Parent is explicitly evaluated from parent_meta + parent_body, never git HEAD.
+    3. Position swapping for every case:
+       Forward: [A=candidate, B=parent]
+       Reverse: [A=parent, B=candidate]
+       Only consistent wins award points. ANY order conflict or unknown strictly retains parent.
+    4. Purpose isolation: selection cases cannot be from locked/heldout/evaluation tiers.
+    5. Returns selection recommendation ('RECOMMEND_CANDIDATE' or 'RETAIN_PARENT'), never self-styled authoritative release PASS.
+    """
+    if not selection_cases:
+        raise ValueError("selection_cases cannot be empty")
+
+    if candidate_outputs is not None or parent_outputs is not None:
+        raise ValueError(
+            "Direct caller injection of candidate_outputs or parent_outputs is prohibited; "
+            "execution outputs must be generated via evaluator runner"
+        )
+
+    for case in selection_cases:
+        p = str(case.get("purpose") or case.get("layer") or case.get("partition_tier") or "").lower()
+        if p in ("final_audit", "locked_eval", "heldout", "evaluation") or case.get("is_heldout"):
+            raise ValueError(
+                f"Purpose isolation violation: selection case '{case.get('id')}' is from locked tier '{p}'"
+            )
+
+    candidate_hash = compute_candidate_hash(candidate)
+    parent_hash = hashlib.sha256(
+        f"{parent_meta.name}\n{parent_meta.version}\n{parent_body}".encode("utf-8")
+    ).hexdigest()
+    dataset_version = compute_cases_hash(selection_cases)
+
+    profile = getattr(candidate.meta, "evaluation_profile", None)
+    config_hash = (
+        (evaluator.get_config_hash(profile=profile) if hasattr(evaluator, "get_config_hash") else None)
+        or getattr(evaluator, "config_hash", "default_config")
+    )
+
+    # Invariant: identical content hash or body short-circuits as tie; do not waste judge calls
+    if candidate_hash == parent_hash or candidate.body.strip() == parent_body.strip():
+        return PairwiseSelectionResult(
+            winner="retained_parent",
+            decision="TIE",
+            selected_candidate_id=None,
+            candidate_hash=candidate_hash,
+            parent_version=parent_meta.version,
+            parent_hash=parent_hash,
+            dataset_version=dataset_version,
+            config_hash=config_hash,
+            candidate_outputs_hash="",
+            parent_outputs_hash="",
+            hard_gate_pass=True,
+            soft_score_candidate_wins=0,
+            soft_score_parent_wins=0,
+            soft_score_ties=len(selection_cases),
+            soft_score_conflicts=0,
+            case_audits=[],
+            reasons=["Identical candidate and parent content hash; soft comparison short-circuited as tie without calling judge"],
+            rationale="Retained parent: candidate content is identical to parent version.",
+        )
+
+    effective_judge = judge or getattr(evaluator, "judge", None)
+    if effective_judge is None:
+        raise ValueError("A valid PairwiseJudge is required for soft-quality evaluation")
+
+    # Step 1: Run actual outputs for parent and candidate (NO fabricated text!)
+    cand_outs: dict[str, str] = {}
+    par_outs: dict[str, str] = {}
+
+    for case in selection_cases:
+        cid = case["id"]
+        q = case["query"]
+        if hasattr(evaluator, "_run_with_skill"):
+            deps = getattr(candidate.meta, "dependencies", []) or []
+            c_out, _ = evaluator._run_with_skill(
+                q, candidate.body, dependencies=deps, skill_name=candidate.skill_name
+            )
+        else:
+            return PairwiseSelectionResult(
+                winner="retained_parent",
+                decision="UNKNOWN",
+                selected_candidate_id=None,
+                candidate_hash=candidate_hash,
+                parent_version=parent_meta.version,
+                parent_hash=parent_hash,
+                dataset_version=dataset_version,
+                config_hash=config_hash,
+                candidate_outputs_hash="",
+                parent_outputs_hash="",
+                hard_gate_pass=False,
+                soft_score_candidate_wins=0,
+                soft_score_parent_wins=0,
+                soft_score_ties=0,
+                soft_score_conflicts=0,
+                case_audits=[],
+                reasons=["Missing execution outputs and runner unavailable; fabricating fallback text is prohibited"],
+                rationale="Retained parent: runner unavailable to produce candidate execution outputs.",
+            )
+        cand_outs[cid] = c_out
+
+        if hasattr(evaluator, "_run_with_skill"):
+            p_deps = getattr(parent_meta, "dependencies", []) or []
+            p_out, _ = evaluator._run_with_skill(
+                q, parent_body, dependencies=p_deps, skill_name=parent_meta.name
+            )
+        else:
+            return PairwiseSelectionResult(
+                winner="retained_parent",
+                decision="UNKNOWN",
+                selected_candidate_id=None,
+                candidate_hash=candidate_hash,
+                parent_version=parent_meta.version,
+                parent_hash=parent_hash,
+                dataset_version=dataset_version,
+                config_hash=config_hash,
+                candidate_outputs_hash="",
+                parent_outputs_hash="",
+                hard_gate_pass=False,
+                soft_score_candidate_wins=0,
+                soft_score_parent_wins=0,
+                soft_score_ties=0,
+                soft_score_conflicts=0,
+                case_audits=[],
+                reasons=["Missing execution outputs and runner unavailable; fabricating fallback text is prohibited"],
+                rationale="Retained parent: runner unavailable to produce parent execution outputs.",
+            )
+        par_outs[cid] = p_out
+
+    cand_out_hash = hashlib.sha256("".join(f"{k}:{v}" for k, v in sorted(cand_outs.items())).encode("utf-8")).hexdigest()
+    par_out_hash = hashlib.sha256("".join(f"{k}:{v}" for k, v in sorted(par_outs.items())).encode("utf-8")).hexdigest()
+
+    # Step 2: Hard Invariant Gate (Business correctness & oracle)
+    has_case_oracle = any(
+        bool(c.get("oracle_fn")) or (bool(c.get("rubric")) and hasattr(evaluator, "_evaluate_case_criteria"))
+        for c in selection_cases
+    )
+    if oracle_fn is None and not has_case_oracle:
+        return PairwiseSelectionResult(
+            winner="retained_parent",
+            decision="UNKNOWN",
+            selected_candidate_id=None,
+            candidate_hash=candidate_hash,
+            parent_version=parent_meta.version,
+            parent_hash=parent_hash,
+            dataset_version=dataset_version,
+            config_hash=config_hash,
+            candidate_outputs_hash=cand_out_hash,
+            parent_outputs_hash=par_out_hash,
+            hard_gate_pass=False,
+            soft_score_candidate_wins=0,
+            soft_score_parent_wins=0,
+            soft_score_ties=0,
+            soft_score_conflicts=0,
+            case_audits=[],
+            reasons=["Insufficient verification mechanism: neither oracle_fn nor criteria evaluator provided to verify hard gates"],
+            rationale="Retained parent: unverified hard gate invariant.",
+        )
+
+    hard_gate_pass = True
+    hard_fail_reasons: list[str] = []
+
+    for case in selection_cases:
+        cid = case["id"]
+        q = case["query"]
+        c_out = cand_outs[cid]
+
+        # Oracle validation
+        if oracle_fn is not None:
+            passed = oracle_fn(c_out, q, case)
+            if not passed:
+                hard_gate_pass = False
+                hard_fail_reasons.append(
+                    f"Case {cid}: Candidate failed business oracle verification"
+                )
+        elif case.get("oracle_fn") is not None:
+            passed = case["oracle_fn"](c_out, q, case)
+            if not passed:
+                hard_gate_pass = False
+                hard_fail_reasons.append(
+                    f"Case {cid}: Candidate failed case oracle verification"
+                )
+        elif case.get("rubric") and hasattr(evaluator, "_evaluate_case_criteria"):
+            findings, _ = evaluator._evaluate_case_criteria(
+                query=q,
+                answer=c_out,
+                reference=case.get("reference"),
+                rubric=case["rubric"],
+                provenances=getattr(evaluator, "_last_skill_provenances", []),
+                case=case,
+                target="skill",
+            )
+            from .evaluator.criteria import compute_case_scores
+            _, _, valid, is_crit, crit_reasons = compute_case_scores(findings, case["rubric"])
+            if not valid or is_crit:
+                hard_gate_pass = False
+                hard_fail_reasons.append(
+                    f"Case {cid}: Critical criteria failure: {', '.join(crit_reasons)}"
+                )
+
+    if not hard_gate_pass:
+        return PairwiseSelectionResult(
+            winner="retained_parent",
+            decision="HARD_GATE_FAILED",
+            selected_candidate_id=None,
+            candidate_hash=candidate_hash,
+            parent_version=parent_meta.version,
+            parent_hash=parent_hash,
+            dataset_version=dataset_version,
+            config_hash=config_hash,
+            candidate_outputs_hash=cand_out_hash,
+            parent_outputs_hash=par_out_hash,
+            hard_gate_pass=False,
+            soft_score_candidate_wins=0,
+            soft_score_parent_wins=0,
+            soft_score_ties=0,
+            soft_score_conflicts=0,
+            case_audits=[],
+            reasons=hard_fail_reasons,
+            rationale="Candidate failed hard business correctness gate. Style preference cannot rescue business failure.",
+        )
+
+    # Step 3: Paired comparison on soft quality with position swapping
+    audits: list[PairwiseCaseAudit] = []
+    cand_wins = 0
+    par_wins = 0
+    ties = 0
+    conflicts = 0
+
+    for case in selection_cases:
+        cid = case["id"]
+        q = case["query"]
+        ref = case.get("reference")
+        c_out = cand_outs[cid]
+        p_out = par_outs[cid]
+
+        # Forward: A = Candidate, B = Parent
+        try:
+            fwd_res = effective_judge.compare_detailed(
+                query=q,
+                output_a=c_out,
+                output_b=p_out,
+                dimension=soft_dimension,
+                reference=ref,
+            )
+        except Exception as exc:
+            fwd_res = JudgeResult(
+                verdict="INVALID",
+                reason_codes=("JUDGE_EXCEPTION",),
+                evidence_summary=str(exc),
+                source="infrastructure",
+            )
+
+        # Reverse: A = Parent, B = Candidate
+        try:
+            rev_res = effective_judge.compare_detailed(
+                query=q,
+                output_a=p_out,
+                output_b=c_out,
+                dimension=soft_dimension,
+                reference=ref,
+            )
+        except Exception as exc:
+            rev_res = JudgeResult(
+                verdict="INVALID",
+                reason_codes=("JUDGE_EXCEPTION",),
+                evidence_summary=str(exc),
+                source="infrastructure",
+            )
+
+        fwd_v = fwd_res.verdict
+        rev_v = rev_res.verdict
+
+        case_reasons: list[str] = []
+        evidence_quotes: list[str] = []
+
+        if fwd_res.evidence_summary:
+            evidence_quotes.append(f"Forward: {fwd_res.evidence_summary}")
+        if rev_res.evidence_summary:
+            evidence_quotes.append(f"Reverse: {rev_res.evidence_summary}")
+
+        if fwd_v == "INVALID" or rev_v == "INVALID":
+            consistent_verdict = "unknown"
+            conflicts += 1
+            case_reasons.append("Judge returned INVALID or encountered exception; insufficient evidence")
+        elif fwd_v == "A_better" and rev_v == "B_better":
+            consistent_verdict = "candidate_better"
+            cand_wins += 1
+            case_reasons.append("Consistent candidate win across swapped presentation orders")
+        elif fwd_v == "B_better" and rev_v == "A_better":
+            consistent_verdict = "parent_better"
+            par_wins += 1
+            case_reasons.append("Consistent parent win across swapped presentation orders")
+        elif fwd_v == "tied" and rev_v == "tied":
+            consistent_verdict = "tie"
+            ties += 1
+            case_reasons.append("Tied quality across swapped presentation orders")
+        else:
+            consistent_verdict = "conflict"
+            conflicts += 1
+            case_reasons.append(
+                f"Order conflict detected: forward={fwd_v}, reverse={rev_v} (position bias)"
+            )
+
+        audits.append(
+            PairwiseCaseAudit(
+                case_id=cid,
+                query=q,
+                candidate_output=c_out,
+                parent_output=p_out,
+                forward_verdict=fwd_v,
+                reverse_verdict=rev_v,
+                forward_reasons=list(fwd_res.reason_codes),
+                reverse_reasons=list(rev_res.reason_codes),
+                forward_evidence=fwd_res.evidence_summary,
+                reverse_evidence=rev_res.evidence_summary,
+                consistent_verdict=consistent_verdict,
+                reasons=case_reasons,
+                evidence_quotes=evidence_quotes,
+            )
+        )
+
+    # Step 4: Decision derivation with conservative fallback
+    final_reasons: list[str] = [
+        f"Pairwise results: candidate_wins={cand_wins}, parent_wins={par_wins}, ties={ties}, conflicts={conflicts}"
+    ]
+
+    # Invariants:
+    # 1. Any position conflict or unknown strictly retains parent (fixes plurality wins loophole)
+    # 2. Ties retain parent
+    # 3. Candidate recommended ONLY if conflicts == 0, unknowns == 0, and cand_wins > par_wins
+    has_unknown_or_conflict = (conflicts > 0) or any(a.consistent_verdict in ("unknown", "conflict") for a in audits)
+    if has_unknown_or_conflict:
+        winner = "retained_parent"
+        decision = "UNKNOWN"
+        selected_id = None
+        final_reasons.append("Order conflicts or judge exceptions detected; conservative ratchet retains parent")
+        rationale = "Retained parent: position bias conflict or evidence insufficiency."
+    elif ties > 0 and cand_wins <= par_wins:
+        winner = "retained_parent"
+        decision = "TIE"
+        selected_id = None
+        final_reasons.append("Tied quality; conservative ratchet retains parent without gain")
+        rationale = "Retained parent: tied outcome does not trigger automatic promotion or candidate recommendation."
+    elif cand_wins > par_wins and cand_wins > 0 and not has_unknown_or_conflict:
+        winner = "candidate"
+        decision = "RECOMMEND_CANDIDATE"
+        selected_id = candidate.candidate_id
+        final_reasons.append("Candidate achieved consistent preference on soft quality without regression")
+        rationale = "Candidate recommended: verified business correctness and superior soft quality."
+    else:
+        winner = "retained_parent"
+        decision = "REJECT"
+        selected_id = None
+        final_reasons.append("Parent demonstrated equal or superior performance; candidate not recommended")
+        rationale = "Retained parent: candidate did not outperform parent on selection tasks."
+
+    return PairwiseSelectionResult(
+        winner=winner,
+        decision=decision,
+        selected_candidate_id=selected_id,
+        candidate_hash=candidate_hash,
+        parent_version=parent_meta.version,
+        parent_hash=parent_hash,
+        dataset_version=dataset_version,
+        config_hash=config_hash,
+        candidate_outputs_hash=cand_out_hash,
+        parent_outputs_hash=par_out_hash,
+        hard_gate_pass=True,
+        soft_score_candidate_wins=cand_wins,
+        soft_score_parent_wins=par_wins,
+        soft_score_ties=ties,
+        soft_score_conflicts=conflicts,
+        case_audits=audits,
+        reasons=final_reasons,
+        rationale=rationale,
     )

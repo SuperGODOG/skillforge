@@ -7,6 +7,7 @@ Provides data persistence, integrity validation, and isolation for:
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import uuid
@@ -22,6 +23,7 @@ from .models import (
     CandidateStatus,
     ToolCallProvenance,
     SkillMeta,
+    RuleTraceEvidence,
     ValidationRecord,
     RatchetVerdict,
     EvalResult,
@@ -214,6 +216,176 @@ class EpisodeStore:
         return results
 
 
+def compute_episode_content_hash(ep: Episode) -> str:
+    """Compute deterministic content fingerprint for an Episode."""
+    content = f"{ep.episode_id}:{ep.task_id}:{ep.skill_name}:{ep.skill_version}:{ep.outcome}:{ep.outcome_reason}:{json.dumps(ep.environment, sort_keys=True)}"
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def verify_candidate_rule_provenance(
+    candidate: CandidateSkill,
+    episode_store: Optional[EpisodeStore] = None,
+) -> list[str]:
+    """Verify traceable evidence and failure mechanisms for candidate rules.
+
+    Invariants (Nuwa-Skill methodology & strict evidence isolation):
+    1. If source_type == 'episode':
+       - If episode_store is None: fail-closed! Rule citing episode cannot be verified without connected store.
+       - source_ref must exist in EpisodeStore. Non-existent IDs are strictly rejected.
+       - Purpose check: only valid learning episodes accepted; reject heldout, evaluation, final_audit, LOCKED_EVAL, unknown.
+       - Content fingerprint & attribution: task_id, intent_revision, source_content_hash must match canonical episode.
+       - Verification status: CANNOT be 'verified' merely because stored episode was 'success' or had independent pass.
+         Status MUST remain 'inferred' unless rule-level execution verification is explicitly recorded.
+    2. If source_type in ('document', 'policy', 'requirement'):
+       - Genuine attribution: Must link to candidate's real requirement, doc_id, session_id, or message_id.
+       - Verification status: cannot claim 'verified' without execution trace; must be 'inferred' or 'unverified'.
+       - Cannot masquerade as episode (no forged ep_ prefixes).
+    3. Source drift prevention:
+       - Every episode rule's source_ref must be in candidate.source_episode_ids.
+    4. Structural completeness:
+       - trigger_condition, action, failure_avoided, applicability_boundary must not be empty.
+    """
+    errors: list[str] = []
+    rule_traces = getattr(candidate, "rule_traces", [])
+    if not rule_traces and hasattr(candidate.meta, "rules") and candidate.meta.rules:
+        rule_traces = [
+            RuleTraceEvidence.from_dict(r) if isinstance(r, dict) else r
+            for r in candidate.meta.rules
+        ]
+
+    for rule in rule_traces:
+        rid = getattr(rule, "rule_id", "") or "unnamed_rule"
+        trigger = getattr(rule, "trigger_condition", "")
+        action = getattr(rule, "action", "")
+        failure = getattr(rule, "failure_avoided", "")
+        boundary = getattr(rule, "applicability_boundary", "")
+        stype = getattr(rule, "source_type", "")
+        sref = getattr(rule, "source_ref", "")
+        status = getattr(rule, "verification_status", "inferred")
+
+        if not trigger or not trigger.strip():
+            errors.append(f"Rule '{rid}' missing trigger_condition")
+        if not action or not action.strip():
+            errors.append(f"Rule '{rid}' missing action")
+        if not failure or not failure.strip():
+            errors.append(f"Rule '{rid}' missing failure_avoided")
+        if not boundary or not boundary.strip():
+            errors.append(f"Rule '{rid}' missing applicability_boundary")
+
+        b_quote = getattr(rule, "body_quote", None) or getattr(rule, "body_anchor", None)
+        if not b_quote or not str(b_quote).strip():
+            errors.append(f"Rule '{rid}' missing body_quote/body_anchor; rules must quote a literal implementation passage from markdown body")
+        elif str(b_quote).strip() not in (candidate.body or ""):
+            errors.append(
+                f"Rule '{rid}' body_quote does not match candidate body; meta declaration cannot claim implemented rule without matching body text"
+            )
+
+        if stype not in ("episode", "document", "policy", "requirement", "conversation"):
+            errors.append(f"Rule '{rid}' has invalid source_type '{stype}'")
+            continue
+
+        if stype == "episode":
+            if not sref or not sref.strip():
+                errors.append(f"Rule '{rid}' missing episode source_ref")
+                continue
+            if candidate.source_episode_ids and sref not in candidate.source_episode_ids:
+                errors.append(f"Rule '{rid}' source_ref '{sref}' drifts: not present in candidate.source_episode_ids")
+
+            if episode_store is None:
+                errors.append(f"Rule '{rid}' cites episode '{sref}' but EpisodeStore is not connected (fail-closed)")
+                continue
+
+            if not episode_store.has_episode(sref):
+                errors.append(f"Rule '{rid}' cites non-existent episode '{sref}' (does not exist in EpisodeStore)")
+                continue
+
+            stored_ep = episode_store.get_episode(sref)
+            if stored_ep is None:
+                errors.append(f"Rule '{rid}' cannot load episode '{sref}' from EpisodeStore")
+                continue
+
+            # Purpose isolation check: reject heldout, evaluation, final_audit, locked_eval, unknown
+            purpose = ""
+            if isinstance(stored_ep.environment, dict):
+                purpose = str(stored_ep.environment.get("purpose", "")).lower()
+            if purpose in ("heldout", "evaluation", "final_audit", "locked_eval", "unknown") or not purpose:
+                errors.append(
+                    f"Rule '{rid}' cites episode '{sref}' with disallowed purpose='{purpose or 'unknown'}'; "
+                    "only 'learning' episodes are accepted for rule evidence"
+                )
+
+            # Attribution binding: task_id consistency
+            if rule.task_id and rule.task_id != stored_ep.task_id:
+                errors.append(
+                    f"Rule '{rid}' task_id drift: rule claims '{rule.task_id}' but stored episode is '{stored_ep.task_id}'"
+                )
+
+            # Intent revision consistency
+            stored_intent = None
+            if isinstance(stored_ep.environment, dict) and "intent_revision" in stored_ep.environment:
+                stored_intent = int(stored_ep.environment["intent_revision"])
+            elif hasattr(episode_store, "get_task_context"):
+                t_ctx = episode_store.get_task_context(stored_ep.task_id)
+                if t_ctx and hasattr(t_ctx, "intent_revision"):
+                    stored_intent = int(t_ctx.intent_revision)
+            if stored_intent is not None and rule.intent_revision != stored_intent:
+                errors.append(
+                    f"Rule '{rid}' intent_revision drift: rule claims {rule.intent_revision} but stored episode has {stored_intent}"
+                )
+
+            # Fingerprint binding: source_content_hash consistency
+            ep_hash = compute_episode_content_hash(stored_ep)
+            if rule.source_content_hash and rule.source_content_hash != ep_hash:
+                errors.append(
+                    f"Rule '{rid}' source_content_hash drift: episode content modified since rule extraction"
+                )
+
+            if status == "verified":
+                if stored_ep.outcome != "success":
+                    errors.append(
+                        f"Rule '{rid}' falsely claims 'verified' status but stored episode '{sref}' has outcome='{stored_ep.outcome}'"
+                    )
+                elif not stored_ep.verification_evidence or not stored_ep.verification_evidence.get("independent_pass", False):
+                    errors.append(
+                        f"Rule '{rid}' falsely claims 'verified' status without independent verification evidence in EpisodeStore"
+                    )
+                else:
+                    # Strict rule-level execution verification invariant
+                    v_ev = stored_ep.verification_evidence
+                    v_rules = v_ev.get("verified_rules", []) if isinstance(v_ev, dict) else []
+                    has_rule_eval = (
+                        rid in v_rules
+                        or (isinstance(v_ev, dict) and v_ev.get("rule_verification", {}).get(rid) == "pass")
+                        or (isinstance(v_ev, dict) and v_ev.get("rule_id") == rid and v_ev.get("status") == "pass")
+                    )
+                    if not has_rule_eval:
+                        errors.append(
+                            f"Rule '{rid}' cannot claim 'verified' based merely on episode success/independent_pass without explicit rule-level execution verification evidence; must be marked 'inferred'"
+                        )
+        elif stype in ("requirement", "conversation"):
+            if not sref or not sref.strip():
+                errors.append(f"Rule '{rid}' missing {stype} source_ref")
+                continue
+            if status == "verified":
+                errors.append(
+                    f"Rule '{rid}' with source_type '{stype}' cannot claim 'verified' status without execution episode trace; must be marked 'inferred' or 'unverified'"
+                )
+        elif stype in ("document", "policy"):
+            if not sref or not sref.strip():
+                errors.append(f"Rule '{rid}' missing {stype} source_ref")
+                continue
+            if sref.startswith("ep_") or "episode" in sref.lower():
+                errors.append(
+                    f"Rule '{rid}' masquerades document/policy source '{sref}' as an episode"
+                )
+            if status == "verified":
+                errors.append(
+                    f"Rule '{rid}' with source_type '{stype}' cannot claim 'verified' status without execution episode trace; must be marked 'inferred' or 'unverified'"
+                )
+
+    return errors
+
+
 class CandidateStore:
     """SQLite-backed isolated store for candidate skills.
 
@@ -272,6 +444,14 @@ class CandidateStore:
                 raise KeyError(
                     f"Invalid source_episode_id: '{eid}' does not exist in EpisodeStore"
                 )
+
+        # Verify rule provenance integrity and fail-closed on non-existent sources
+        rule_errors = verify_candidate_rule_provenance(candidate, self._episode_store)
+        if rule_errors:
+            for err in rule_errors:
+                if "non-existent episode" in err or "does not exist in EpisodeStore" in err:
+                    raise KeyError(err)
+            raise ValueError(f"Invalid candidate rule provenance: {'; '.join(rule_errors)}")
 
         now_iso = datetime.now(timezone.utc).isoformat()
         if self.has_candidate(candidate.candidate_id):
@@ -782,6 +962,17 @@ class CandidateStore:
                     ensure_ascii=False,
                 )
 
+        if record.pairwise_selection is not None:
+            if eval_j:
+                try:
+                    eval_dict = json.loads(eval_j)
+                    eval_dict["_pairwise_selection"] = record.pairwise_selection
+                    eval_j = json.dumps(eval_dict, ensure_ascii=False)
+                except Exception:
+                    pass
+            else:
+                eval_j = json.dumps({"_pairwise_selection": record.pairwise_selection}, ensure_ascii=False)
+
         ratchet_j = None
         if record.ratchet_verdict is not None:
             try:
@@ -886,9 +1077,11 @@ class CandidateStore:
         ) = row
 
         eval_result = None
+        pairwise_selection = None
         if eval_j:
             try:
                 eval_data = json.loads(eval_j)
+                pairwise_selection = eval_data.get("_pairwise_selection")
                 eval_result = EvalResult(
                     release_id=eval_data.get("release_id", "stored_eval"),
                     structure_score=eval_data.get("structure_score", {}),
@@ -930,6 +1123,7 @@ class CandidateStore:
             scope_hash=sc_hash,
             config_hash=cfg_hash,
             dataset_version=ds_ver,
+            pairwise_selection=pairwise_selection,
             created_at=cat,
             updated_at=uat,
         )

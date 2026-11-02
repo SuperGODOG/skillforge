@@ -20,13 +20,14 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Literal, Optional, Sequence, Union
 
 from .context_engine.schemas import ProtectedState
-from .harness_loop import AsyncHarnessLoop, HarnessState, HarnessTaskSpec, ModelResponse
+from .harness_loop import AsyncHarnessLoop, HarnessHooks, HarnessState, HarnessTaskSpec, ModelResponse, compose_hooks
+from .models import ToolCallRecord
 from .runtime import AgentRuntime, ToolBroker
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,7 @@ class WorkerAgentSpec:
     max_steps_per_call: int = 3
     llm_client: Optional[Any] = None  # None -> inherits Supervisor default LLM client
     context_compressor: Optional[Any] = None
+    hooks: Optional[HarnessHooks] = None
 
 
 @dataclass
@@ -87,6 +89,7 @@ class SupervisorState:
     final_output: Optional[str] = None
     error_message: Optional[str] = None
     workspace_dir: Path = field(default_factory=Path.cwd)
+    tool_records: list[ToolCallRecord] = field(default_factory=list)
 
 
 class SupervisorOrchestrator:
@@ -104,6 +107,7 @@ class SupervisorOrchestrator:
         tool_broker: ToolBroker,
         workspace_dir: Optional[Union[str, Path]] = None,
         router_fn: Optional[Callable[[SupervisorState], SupervisorDecision]] = None,
+        hooks: Optional[HarnessHooks] = None,
     ) -> None:
         self.supervisor_llm = supervisor_llm
         self.workers = {w.name: w for w in workers}
@@ -111,19 +115,33 @@ class SupervisorOrchestrator:
         self.tool_broker = tool_broker
         self.workspace_dir = Path(workspace_dir or Path.cwd())
         self.router_fn = router_fn
+        self.hooks = hooks
 
     def _save_checkpoint(self, state: SupervisorState) -> None:
         """Persist supervisor state checkpoint to disk."""
         chk_file = state.workspace_dir / "supervisor_checkpoint.json"
         try:
             chk_file.parent.mkdir(parents=True, exist_ok=True)
+
+            def _serialize(obj: Any) -> Any:
+                if is_dataclass(obj) and not isinstance(obj, type):
+                    return asdict(obj)
+                if isinstance(obj, dict):
+                    return {k: _serialize(v) for k, v in obj.items()}
+                if isinstance(obj, list):
+                    return [_serialize(item) for item in obj]
+                if isinstance(obj, (str, int, float, bool)) or obj is None:
+                    return obj
+                return str(obj)
+
             chk_data = {
                 "task_id": state.task_id,
                 "user_query": state.user_query,
                 "intent_version": state.intent_version,
                 "global_constraints": state.global_constraints,
-                "worker_history": state.worker_history,
+                "worker_history": _serialize(state.worker_history),
                 "worker_results": state.worker_results,
+                "tool_records": _serialize(state.tool_records),
                 "step_count": state.step_count,
                 "global_budget_consumed": state.global_budget_consumed,
                 "global_budget_max": state.global_budget_max,
@@ -192,6 +210,8 @@ class SupervisorOrchestrator:
 
     async def run(self, spec: SupervisorTaskSpec) -> SupervisorState:
         """Run the supervisor multi-agent orchestration session to completion."""
+        from .context_engine.schemas import MemoryIndex
+        session_memory_index = MemoryIndex()
         session_workspace = self.workspace_dir / "supervisor_runs" / spec.task_id
         session_workspace.mkdir(parents=True, exist_ok=True)
 
@@ -284,23 +304,43 @@ class SupervisorOrchestrator:
                 intent_version=state.intent_version,
                 budget_max=worker_step_budget,
                 context_compressor=worker_spec.context_compressor,
-                initial_scratchpad={"protected_state": worker_protected},
+                initial_scratchpad={"protected_state": worker_protected, "memory_index": session_memory_index},
             )
 
-            # 7. Execute Subordinate Worker Loop
+            # 7. Execute Subordinate Worker Loop with composed supervisor & worker hooks
+            effective_hooks = compose_hooks(self.hooks, worker_spec.hooks)
             worker_loop = AsyncHarnessLoop(
                 runtime=self.runtime,
                 tool_broker=scoped_broker,
                 llm_client=worker_spec.llm_client or self.supervisor_llm,
+                hooks=effective_hooks,
                 workspace_dir=worker_workspace,
             )
 
             worker_state = await worker_loop.run(worker_task_spec)
 
+            # Sync newly offloaded artifacts across workers in this supervisor session
+            if "memory_index" in worker_state.working_scratchpad:
+                w_mi = worker_state.working_scratchpad["memory_index"]
+                if hasattr(w_mi, "attachments") and isinstance(w_mi.attachments, list):
+                    for att in w_mi.attachments:
+                        if att not in session_memory_index.attachments:
+                            session_memory_index.attachments.append(att)
+
             # 8. Record Aggregated Results & Consume Budget
             state.global_budget_consumed += max(1, worker_state.step_count)
             output_text = worker_state.final_output or worker_state.error_message or "Worker executed."
             state.worker_results[worker_spec.name] = output_text
+            state.tool_records.extend(worker_state.tool_records)
+            decision_entry["worker_state"] = {
+                "worker": worker_spec.name,
+                "run_id": worker_state.run_id,
+                "task_id": worker_task_spec.task_id,
+                "status": worker_state.status,
+                "output": output_text,
+                "tool_records": worker_state.tool_records,
+                "hook_audits": list(worker_state.hook_audits),
+            }
 
             state.step_count += 1
             self._save_checkpoint(state)
