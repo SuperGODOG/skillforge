@@ -1,0 +1,47 @@
+COMMAND: .venv/bin/pytest tests/test_harness_business_hooks.py tests/test_harness_loop.py tests/test_runtime_and_tool_broker.py tests/test_supervisor_orchestration.py -v
+EXIT_CODE: 0
+
+--- STDOUT ---
+============================= test session starts ==============================
+platform darwin -- Python 3.13.5, pytest-9.1.1, pluggy-1.6.0 -- /Users/caoruixin/Desktop/project/skillforge/.venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /Users/caoruixin/Desktop/project/skillforge
+configfile: pyproject.toml
+plugins: langsmith-0.12.2, anyio-4.15.1
+collecting ... collected 29 items
+
+tests/test_harness_business_hooks.py::test_t1_legacy_hook_compatibility_and_none_return PASSED [  3%]
+tests/test_harness_business_hooks.py::test_t2_before_tool_business_constraint_denial_real_loop PASSED [  6%]
+tests/test_harness_business_hooks.py::test_t3_hook_allow_does_not_bypass_broker_permission PASSED [ 10%]
+tests/test_harness_business_hooks.py::test_t4_critical_hook_failclosed_and_observation_fault_tolerance PASSED [ 13%]
+tests/test_harness_business_hooks.py::test_t5_cancellation_during_hook_and_sync_timeout_boundary PASSED [ 17%]
+tests/test_harness_business_hooks.py::test_t6_repeated_denial_step_bounded_and_checkpoint_resume_audit PASSED [ 20%]
+tests/test_harness_business_hooks.py::test_h2a_group_a_before_finalize_oracle_fulfillment_pass PASSED [ 24%]
+tests/test_harness_business_hooks.py::test_h2a_group_a_before_finalize_hallucination_denied_delivery_blocked PASSED [ 27%]
+tests/test_harness_business_hooks.py::test_h2a_group_a_generic_without_oracle_unknown_and_failclosed PASSED [ 31%]
+tests/test_harness_business_hooks.py::test_h2a_group_b_review_pause_no_premature_episode_resume_preserves_tools PASSED [ 34%]
+tests/test_harness_business_hooks.py::test_h2a_group_b_task_end_error_preserves_main_and_persists_audit PASSED [ 37%]
+tests/test_harness_business_hooks.py::test_h2a_group_b_tool_denials_recorded_in_sqlite_and_tool_records PASSED [ 41%]
+tests/test_harness_loop.py::test_harness_loop_normal_execution PASSED    [ 44%]
+tests/test_harness_loop.py::test_harness_loop_budget_exhaustion PASSED   [ 48%]
+tests/test_harness_loop.py::test_harness_loop_cancellation PASSED        [ 51%]
+tests/test_harness_loop.py::test_tool_broker_exact_single_call_on_internal_type_error PASSED [ 55%]
+tests/test_harness_loop.py::test_harness_loop_checkpoint_and_resume PASSED [ 58%]
+tests/test_runtime_and_tool_broker.py::test_g1_allowed_tool_and_outcome_separation PASSED [ 62%]
+tests/test_runtime_and_tool_broker.py::test_g2_unauthorized_tool_and_schema_validation PASSED [ 65%]
+tests/test_runtime_and_tool_broker.py::test_g3_budget_enforcement_and_concurrency PASSED [ 68%]
+tests/test_runtime_and_tool_broker.py::test_g4_timeout_deadline_and_cancellation PASSED [ 72%]
+tests/test_runtime_and_tool_broker.py::test_g5_idempotency_and_db_reopen PASSED [ 75%]
+tests/test_runtime_and_tool_broker.py::test_g6_canary_routing_and_snapshot_binding PASSED [ 79%]
+tests/test_runtime_and_tool_broker.py::test_g7_adversarial_injection_and_purpose_isolation PASSED [ 82%]
+tests/test_runtime_and_tool_broker.py::test_g8_e2e_runtime_broker_to_mining_and_promotion PASSED [ 86%]
+tests/test_supervisor_orchestration.py::test_supervisor_native_orchestration_lifecycle[asyncio] PASSED [ 89%]
+tests/test_supervisor_orchestration.py::test_supervisor_global_budget_enforcement[asyncio] PASSED [ 93%]
+tests/test_supervisor_orchestration.py::test_supervisor_constraint_propagation_status_only[asyncio] PASSED [ 96%]
+tests/test_supervisor_orchestration.py::test_supervisor_langgraph_stategraph_execution PASSED [100%]
+
+============================== 29 passed in 7.02s ==============================
+
+
+--- STDERR ---
+

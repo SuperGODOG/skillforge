@@ -22,6 +22,73 @@ class Evaluation(BaseModel):
     last_release_id: Optional[str] = None
 
 
+@dataclass
+class RuleTraceEvidence:
+    """Structured rule provenance and failure mechanism for a skill rule.
+
+    Methodology: Nuwa-Skill extraction framework (https://github.com/alchaincyf/nuwa-skill).
+    Preserves rule source reference, trigger conditions, actions, failure mechanisms avoided,
+    and applicability/abstention boundaries with explicit verification status.
+    """
+
+    rule_id: str
+    source_ref: str
+    source_type: Literal["episode", "document", "policy", "requirement", "conversation"]
+    trigger_condition: str
+    action: str
+    failure_avoided: str
+    applicability_boundary: str
+    verification_status: Literal["verified", "inferred", "unverified"] = "inferred"
+    task_id: Optional[str] = None
+    intent_revision: int = 1
+    skill_version: Optional[str] = None
+    source_content_hash: Optional[str] = None
+    body_anchor: Optional[str] = None
+    body_quote: Optional[str] = None
+    notes: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        b_quote = self.body_quote or self.body_anchor
+        return {
+            "rule_id": self.rule_id,
+            "source_ref": self.source_ref,
+            "source_type": self.source_type,
+            "trigger_condition": self.trigger_condition,
+            "action": self.action,
+            "failure_avoided": self.failure_avoided,
+            "applicability_boundary": self.applicability_boundary,
+            "verification_status": self.verification_status,
+            "task_id": self.task_id,
+            "intent_revision": self.intent_revision,
+            "skill_version": self.skill_version,
+            "source_content_hash": self.source_content_hash,
+            "body_anchor": b_quote,
+            "body_quote": b_quote,
+            "notes": self.notes,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> RuleTraceEvidence:
+        b_quote = data.get("body_quote") or data.get("body_anchor")
+        return cls(
+            rule_id=str(data.get("rule_id", "")),
+            source_ref=str(data.get("source_ref", "")),
+            source_type=data.get("source_type", "requirement"),
+            trigger_condition=str(data.get("trigger_condition", "")),
+            action=str(data.get("action", "")),
+            failure_avoided=str(data.get("failure_avoided", "")),
+            applicability_boundary=str(data.get("applicability_boundary", "")),
+            verification_status=data.get("verification_status", "inferred"),
+            task_id=data.get("task_id"),
+            intent_revision=int(data.get("intent_revision", 1)),
+            skill_version=data.get("skill_version"),
+            source_content_hash=data.get("source_content_hash"),
+            body_anchor=b_quote,
+            body_quote=b_quote,
+            notes=str(data.get("notes", "")),
+        )
+
+
 class SkillMeta(BaseModel):
     """SKILL.md 的 YAML frontmatter 结构"""
     name: str
@@ -33,6 +100,14 @@ class SkillMeta(BaseModel):
     trigger: Trigger = Field(default_factory=Trigger)
     examples: list[str] = Field(default_factory=list)
     evaluation: Evaluation = Field(default_factory=Evaluation)
+    rules: list[dict[str, Any]] = Field(default_factory=list)
+    evaluation_profile: Optional[str] = None
+
+    def get_rule_traces(self) -> list[RuleTraceEvidence]:
+        return [
+            RuleTraceEvidence.from_dict(r) if isinstance(r, dict) else r
+            for r in self.rules
+        ]
 
 
 @dataclass
@@ -125,6 +200,7 @@ class ValidationRecord:
     scope_hash: Optional[str] = None
     config_hash: Optional[str] = None
     dataset_version: Optional[str] = None
+    pairwise_selection: Optional[dict[str, Any]] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
@@ -435,12 +511,24 @@ class CandidateSkill:
     parent_candidate_id: Optional[str] = None
     source_session_id: Optional[str] = None
     source_message_ids: list[str] = field(default_factory=list)
+    rule_traces: list[RuleTraceEvidence] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.parent_candidate_id is None and self.supersedes is not None:
             self.parent_candidate_id = self.supersedes
         elif self.supersedes is None and self.parent_candidate_id is not None:
             self.supersedes = self.parent_candidate_id
+
+        if not self.rule_traces and getattr(self.meta, "rules", None):
+            self.rule_traces = [
+                RuleTraceEvidence.from_dict(r) if isinstance(r, dict) else r
+                for r in self.meta.rules
+            ]
+        elif self.rule_traces and not getattr(self.meta, "rules", None):
+            self.meta.rules = [
+                r.to_dict() if hasattr(r, "to_dict") else r
+                for r in self.rule_traces
+            ]
 
         if self.decision not in ("create", "revise", "abandon"):
             raise ValueError(f"Invalid decision '{self.decision}'. Must be 'create', 'revise', or 'abandon'")

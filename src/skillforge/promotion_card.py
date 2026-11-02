@@ -34,6 +34,8 @@ class PromotionCard:
     critical_invariants_pass: bool = True
     business_invariants_checked: list[str] = field(default_factory=list)
     unverified_boundaries: list[str] = field(default_factory=list)
+    evaluation_profile: Optional[str] = None
+    rule_provenance: list[str] = field(default_factory=list)
     can_promote: bool = True
     rejection_reason: Optional[str] = None
 
@@ -90,9 +92,28 @@ def build_promotion_card(
         "RULE_SET_COMPLETENESS: PASS",
         "RULE_NO_UNAUTHORIZED_REFUND: PASS",
     ]
-    boundaries = unverified_boundaries or [
+    boundaries = list(unverified_boundaries) if unverified_boundaries is not None else [
         "Carrier API rate limiting edge cases require future testing",
     ]
+
+    rules_summary: list[str] = []
+    rule_traces = getattr(candidate, "rule_traces", [])
+    if not rule_traces and hasattr(meta, "rules") and meta.rules:
+        from .models import RuleTraceEvidence
+        rule_traces = [RuleTraceEvidence.from_dict(r) if isinstance(r, dict) else r for r in meta.rules]
+
+    for r in rule_traces:
+        rid = getattr(r, "rule_id", "rule")
+        status = getattr(r, "verification_status", "inferred")
+        sref = getattr(r, "source_ref", "")
+        stype = getattr(r, "source_type", "")
+        favoid = getattr(r, "failure_avoided", "")
+        bound = getattr(r, "applicability_boundary", "")
+        rules_summary.append(f"[{rid}] {status.upper()} (source: {sref}, {stype}) -> avoids: {favoid}")
+        if status in ("inferred", "unverified") and bound:
+            boundaries.append(f"Rule [{rid}] boundary: {bound}")
+
+    profile = getattr(meta, "evaluation_profile", None)
 
     return PromotionCard(
         candidate_id=candidate.candidate_id,
@@ -108,6 +129,8 @@ def build_promotion_card(
         critical_invariants_pass=can_promote,
         business_invariants_checked=invariants,
         unverified_boundaries=boundaries,
+        evaluation_profile=profile,
+        rule_provenance=rules_summary,
         can_promote=can_promote,
         rejection_reason=rejection_reason,
     )
@@ -124,8 +147,17 @@ def render_promotion_card(card: PromotionCard) -> str:
     if card.baseline_version:
         lines.append(f"• 变更基线: {card.baseline_version} -> {card.version}")
     lines.append(f"• 适用范围: {card.use_when}")
+    if card.evaluation_profile:
+        lines.append(f"• 评估模式: {card.evaluation_profile}")
     if card.not_for:
         lines.append(f"• 禁用范围: {', '.join(card.not_for)}")
+    if card.rule_provenance:
+        lines.extend([
+            "-" * 80,
+            "📜 提炼规则溯源与失败机制 (Rule Provenance):",
+        ])
+        for rp in card.rule_provenance:
+            lines.append(f"  • {rp}")
     lines.extend([
         "-" * 80,
         "📝 变更摘要 (Diff Summary):",

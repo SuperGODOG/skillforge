@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from hello_agents.tools import Tool, ToolParameter, ToolResponse
 
@@ -11,7 +11,12 @@ from hello_agents.tools import Tool, ToolParameter, ToolResponse
 class InspectArtifactTool(Tool):
     """Tool to read and inspect items from an offloaded disk artifact."""
 
-    def __init__(self, allowed_base_dir: Optional[Path] = None) -> None:
+    def __init__(
+        self,
+        allowed_base_dir: Optional[Path] = None,
+        authorized_manifest_fn: Optional[Callable[[], Any]] = None,
+        authorized_artifacts: Optional[set[Path] | list[Path] | set[str] | list[str]] = None,
+    ) -> None:
         super().__init__(
             name="inspect_artifact",
             description=(
@@ -22,6 +27,25 @@ class InspectArtifactTool(Tool):
             ),
         )
         self.allowed_base_dir = allowed_base_dir.resolve() if allowed_base_dir else None
+        self._authorized_manifest_fn: Optional[Callable[[], Any]] = authorized_manifest_fn
+        self._authorized_artifacts: set[Path] = set()
+        if authorized_artifacts:
+            for p in authorized_artifacts:
+                s = str(p).strip()
+                if s.startswith("fs://"):
+                    s = s[5:]
+                self._authorized_artifacts.add(Path(s).resolve())
+
+    def bind_run_manifest_fn(self, fn: Optional[Callable[[], Any]]) -> None:
+        """Bind a dynamic callable returning authorized artifact paths for the active run."""
+        self._authorized_manifest_fn = fn
+
+    def register_authorized_artifact(self, path_or_uri: str | Path) -> None:
+        """Register a path or URI into the authorized artifacts set."""
+        s = str(path_or_uri).strip()
+        if s.startswith("fs://"):
+            s = s[5:]
+        self._authorized_artifacts.add(Path(s).resolve())
 
     def get_parameters(self) -> list[ToolParameter]:
         return [
@@ -72,6 +96,27 @@ class InspectArtifactTool(Tool):
                 return ToolResponse.error(
                     "SECURITY_VIOLATION",
                     f"Security violation: access to '{target_path}' is outside allowed directory.",
+                )
+
+        # Security check 2: Manifest authorization (current run boundary)
+        if self._authorized_manifest_fn is not None or self._authorized_artifacts:
+            effective_authorized: set[Path] = set(self._authorized_artifacts)
+            if self._authorized_manifest_fn is not None:
+                try:
+                    manifest_items = self._authorized_manifest_fn()
+                    if manifest_items:
+                        for item in manifest_items:
+                            s = str(item).strip()
+                            if s.startswith("fs://"):
+                                s = s[5:]
+                            effective_authorized.add(Path(s).resolve())
+                except Exception:
+                    pass
+
+            if target_path.resolve() not in effective_authorized:
+                return ToolResponse.error(
+                    "UNAUTHORIZED_ARTIFACT",
+                    f"Access denied: '{target_path.name}' is not in the authorized artifact manifest for the current run.",
                 )
 
         if not target_path.exists() or not target_path.is_file():

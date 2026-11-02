@@ -293,6 +293,24 @@ class ToolBroker:
             tool_obj = self._tools.get(tool_name)
 
         if tool_obj is None:
+            prov = ToolCallProvenance(
+                tool_name=tool_name,
+                fixture_case_id=eff_call_id,
+                call_index=0,
+                call_count=1,
+                is_fixture=False,
+                tool_required=False,
+                tool_called=True,
+                tool_success=False,
+                authenticity_pass=True,
+                input_params=sanitized_input,
+                output_status="ERROR",
+                output_summary=f"Tool '{tool_name}' is not registered in broker",
+                latency_ms=0.0,
+                timestamp=now_iso,
+                signature=f"sha256:{hashlib.sha256(f'{tool_name}:{eff_call_id}:UNKNOWN'.encode()).hexdigest()}",
+                snapshot_id=f"snap_{eff_call_id}",
+            )
             return ToolCallRecord(
                 call_id=eff_call_id,
                 run_id=run_id,
@@ -303,6 +321,7 @@ class ToolBroker:
                 error_message=f"Tool '{tool_name}' is not registered in broker",
                 latency_ms=0.0,
                 created_at=now_iso,
+                provenance=prov,
             )
 
         # 2. Permission check: intersection of application allowlist & skill requirements
@@ -319,6 +338,24 @@ class ToolBroker:
                 )
             else:
                 err_msg = f"Tool '{tool_name}' is not authorized by application policy"
+            prov = ToolCallProvenance(
+                tool_name=tool_name,
+                fixture_case_id=eff_call_id,
+                call_index=0,
+                call_count=1,
+                is_fixture=False,
+                tool_required=False,
+                tool_called=True,
+                tool_success=False,
+                authenticity_pass=True,
+                input_params=sanitized_input,
+                output_status="ERROR",
+                output_summary=err_msg,
+                latency_ms=0.0,
+                timestamp=now_iso,
+                signature=f"sha256:{hashlib.sha256(f'{tool_name}:{eff_call_id}:DENIED'.encode()).hexdigest()}",
+                snapshot_id=f"snap_{eff_call_id}",
+            )
             return ToolCallRecord(
                 call_id=eff_call_id,
                 run_id=run_id,
@@ -329,12 +366,31 @@ class ToolBroker:
                 error_message=err_msg,
                 latency_ms=0.0,
                 created_at=now_iso,
+                provenance=prov,
             )
 
         # 3. Schema validation
         tool_params = self.get_parameters(tool_name)
         valid, schema_err = validate_parameter_schema(tool_params, parameters)
         if not valid:
+            prov = ToolCallProvenance(
+                tool_name=tool_name,
+                fixture_case_id=eff_call_id,
+                call_index=0,
+                call_count=1,
+                is_fixture=False,
+                tool_required=False,
+                tool_called=True,
+                tool_success=False,
+                authenticity_pass=True,
+                input_params=sanitized_input,
+                output_status="ERROR",
+                output_summary=schema_err or "Invalid parameters",
+                latency_ms=0.0,
+                timestamp=now_iso,
+                signature=f"sha256:{hashlib.sha256(f'{tool_name}:{eff_call_id}:SCHEMA'.encode()).hexdigest()}",
+                snapshot_id=f"snap_{eff_call_id}",
+            )
             return ToolCallRecord(
                 call_id=eff_call_id,
                 run_id=run_id,
@@ -345,6 +401,7 @@ class ToolBroker:
                 error_message=schema_err or "Invalid parameters",
                 latency_ms=0.0,
                 created_at=now_iso,
+                provenance=prov,
             )
 
         # 3b. Sandboxed tool isolation path

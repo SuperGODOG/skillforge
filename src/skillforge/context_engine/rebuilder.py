@@ -54,7 +54,25 @@ class ContextRebuilder:
         system_blocks: list[str] = []
 
         if base_system_prompt:
-            system_blocks.append(base_system_prompt.strip())
+            base_clean = base_system_prompt.strip()
+            if "PROTECTED_SYSTEM_STATE" in base_clean:
+                import re
+                base_clean = re.sub(
+                    r"\[PROTECTED_SYSTEM_STATE.*?\](?:.*?)(?=\n\n\[|\Z)",
+                    "",
+                    base_clean,
+                    flags=re.DOTALL,
+                ).strip()
+                if "```yaml:PROTECTED_SYSTEM_STATE" in base_clean:
+                    parts = base_clean.split("```yaml:PROTECTED_SYSTEM_STATE")
+                    prefix_part = parts[0].strip()
+                    suffix_part = ""
+                    if len(parts) > 1 and "```" in parts[1]:
+                        suffix_part = parts[1].split("```", 1)[1].strip()
+                    base_clean = (prefix_part + ("\n\n" + suffix_part if suffix_part else "")).strip()
+
+            if base_clean:
+                system_blocks.append(base_clean)
 
         # Layer 1: Protected State (Authoritative, non-malleable by model)
         system_blocks.append(context.protected.to_yaml_block())

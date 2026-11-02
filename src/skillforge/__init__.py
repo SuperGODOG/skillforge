@@ -28,6 +28,7 @@ from .models import (
     AttemptFeedback,
     Episode,
     CandidateSkill,
+    RuleTraceEvidence,
     EpisodeOutcome,
     SemanticFact,
     SemanticConflict,
@@ -63,6 +64,13 @@ from .harness_loop import (
     HarnessTaskSpec,
     ModelResponse,
     ToolCallSpec,
+    HookDecision,
+    HookAuditRecord,
+    HookSpec,
+    create_read_only_constraint_hook,
+    create_sensitive_data_redaction_hook,
+    create_business_oracle_finalize_hook,
+    compose_hooks,
 )
 from .context_engine import (
     ContextCompressor,
@@ -123,7 +131,11 @@ from .documents import (
     parse_markdown_snippets,
     extract_candidate_from_document,
 )
-from .episode import EpisodeStore, CandidateStore
+from .episode import (
+    EpisodeStore,
+    CandidateStore,
+    verify_candidate_rule_provenance,
+)
 from .evolution_loop import (
     MiningResult,
     ValidationRecord,
@@ -131,6 +143,14 @@ from .evolution_loop import (
     validate_candidate,
     promote_candidate,
     compute_candidate_hash,
+    pairwise_select_candidate,
+    PairwiseSelectionResult,
+    PairwiseCaseAudit,
+)
+from .evaluator.criteria import (
+    get_rubric_for_profile,
+    VALID_EVALUATION_PROFILES,
+    DEFAULT_EVALUATION_PROFILE,
 )
 from .pattern_mining import (
     PatternMiningConfig,
@@ -145,6 +165,7 @@ from .repair import (
     attribute_failure,
     repair_skill_failure,
     promote_repaired_skill,
+    approve_repair_job,
 )
 from .deployments import (
     DeploymentManager,
@@ -178,6 +199,8 @@ from .evolver import SkillEvolver
 from .state_machine import ReleaseStateMachine
 from .skill_generator import (
     generate_skill,
+    generate_candidate_from_requirement,
+    generate_candidate_from_conversation,
     register_skill,
     GeneratedSkill,
     GenerationFailure,
@@ -205,17 +228,19 @@ __all__ = [
     "RouteResult", "ToolCallProvenance", "EvalResult", "RatchetVerdict", "Patch", "PatchStatus", "Release",
     "EvolveBudget", "BudgetExceededError", "BodySectionStats", "EvolveContext", "EvolveRecord",
     "AttemptRecord", "AttemptFeedback",
-    "Episode", "CandidateSkill", "CandidateDecision", "CandidateStatus", "EpisodeOutcome",
+    "Episode", "CandidateSkill", "CandidateDecision", "CandidateStatus", "EpisodeOutcome", "RuleTraceEvidence",
     "SemanticFact", "SemanticConflict", "MemoryLineage",
     "VersionSnapshot", "VersionComparison", "Deployment", "DeploymentAuditEvent", "RunVersionBinding",
     "DocumentSnippet", "DocumentSource", "DocumentExtractionResult",
     "DocumentStore", "parse_markdown_snippets", "extract_candidate_from_document",
     "RetrievalContext", "SkillRecommendation", "FutureRetrievalResult", "FutureMemoryRetriever",
     "SandboxConfig", "SandboxResult", "SandboxBackend", "MacSeatbeltSandbox", "DependencyProbe", "ProbeResult", "SandboxedToolSpec",
-    "EpisodeStore", "CandidateStore", "SemanticStore", "ThreeTierMemoryManager",
+    "EpisodeStore", "CandidateStore", "SemanticStore", "ThreeTierMemoryManager", "verify_candidate_rule_provenance",
     "MiningResult", "ValidationRecord", "mine_candidate", "validate_candidate", "promote_candidate", "compute_candidate_hash",
+    "pairwise_select_candidate", "PairwiseSelectionResult", "PairwiseCaseAudit",
+    "get_rubric_for_profile", "VALID_EVALUATION_PROFILES", "DEFAULT_EVALUATION_PROFILE",
     "PatternMiningConfig", "ClusterReport", "MiningBatchReport", "mine_pending",
-    "AttributionDiagnosis", "RepairAttemptRecord", "RepairJob", "attribute_failure", "repair_skill_failure", "promote_repaired_skill",
+    "AttributionDiagnosis", "RepairAttemptRecord", "RepairJob", "attribute_failure", "repair_skill_failure", "promote_repaired_skill", "approve_repair_job",
     "DeploymentManager", "ConcurrencyError", "compute_content_hash",
     "ValidationDiagnostic", "ValidationReceipt", "JsonConfigValidator", "FixAction", "CorrectionPolicy",
     "DeterministicJsonFixer", "compute_artifact_fingerprint", "apply_action_to_content",
@@ -223,6 +248,8 @@ __all__ = [
     "ExperienceCollector", "RunContext",
     "AsyncProcessExecutor", "ProcessConfig", "ProcessResult",
     "AsyncHarnessLoop", "HarnessHooks", "HarnessState", "HarnessTaskSpec", "ModelResponse", "ToolCallSpec",
+    "HookDecision", "HookAuditRecord", "HookSpec", "create_read_only_constraint_hook",
+    "create_sensitive_data_redaction_hook", "create_business_oracle_finalize_hook", "compose_hooks",
     "ContextCompressor", "CompressionReport", "ContextRebuilder", "LargeOutputOffloader", "OffloadResult",
     "ProtectedState", "WorkSummary", "VerifiedFact", "FailedAttempt", "MemoryIndex", "AttachmentRef", "HierarchicalContext",
     "PromotionCard", "build_promotion_card", "render_promotion_card", "interactive_confirm_promotion",

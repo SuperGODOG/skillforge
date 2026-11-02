@@ -54,6 +54,7 @@ from .models import (
     ToolCallProvenance,
     RecoveryBudget,
     TaskContext,
+    RuleTraceEvidence,
 )
 from .episode import EpisodeStore, CandidateStore
 from .registry import SkillRegistry
@@ -236,8 +237,16 @@ class RepairJob:
                 prompt_lines.append(f"\n--- Feedback from previous attempt ---\n{error_feedback}")
 
             prompt_lines.append(
-                f"\nGenerate a revised SKILL.md for '{self.skill_name}' with version '{target_patch_version}'. "
-                "Output valid YAML frontmatter between --- and markdown body."
+                f"\nGenerate a revised SKILL.md for '{self.skill_name}' with version '{target_patch_version}'.\n"
+                "Output valid YAML frontmatter between --- and markdown body.\n"
+                "If the repair derives behavioral rules avoiding the observed failure, the YAML frontmatter MUST include "
+                "an optional 'rules' array where each item provides:\n"
+                "  - trigger_condition: Specific condition triggering the rule\n"
+                "  - action: Specific operational instructions or constraints to execute\n"
+                "  - failure_avoided: The observed failure mechanism or root cause avoided\n"
+                "  - applicability_boundary: Explicit scope boundary where the rule applies and where it abstains\n"
+                "  - body_quote: Exact literal substring quotation from the markdown body implementing this rule\n"
+                "If no specific rule is extracted, omit rules or specify rules: []."
             )
             patcher_prompt = "\n".join(prompt_lines)
 
@@ -327,6 +336,79 @@ class RepairJob:
                 status="DRAFT",
             )
 
+        # Attach structured rule provenance avoiding the observed learning failure (E1)
+        ep_store = getattr(candidate_store, "_episode_store", None)
+        canonical_episodes: list[Episode] = []
+        for ep in episodes:
+            stored_ep = ep_store.get_episode(ep.episode_id) if ep_store is not None else ep
+            if stored_ep is None:
+                rec = RepairAttemptRecord(
+                    attempt_number=att_num,
+                    validation_decision="DECLINED",
+                    error_feedback=f"Canonical episode '{ep.episode_id}' not found in EpisodeStore",
+                )
+                self.attempts.append(rec)
+                return rec
+            purpose = ""
+            if isinstance(stored_ep.environment, dict):
+                purpose = str(stored_ep.environment.get("purpose", "")).lower()
+            if purpose in ("heldout", "evaluation", "final_audit", "locked_eval", "unknown") or not purpose:
+                rec = RepairAttemptRecord(
+                    attempt_number=att_num,
+                    validation_decision="DECLINED",
+                    error_feedback=f"Disallowed episode purpose '{purpose or 'unknown'}' for repair; only 'learning' episodes permitted",
+                )
+                self.attempts.append(rec)
+                return rec
+            canonical_episodes.append(stored_ep)
+
+        ep0 = canonical_episodes[0] if canonical_episodes else None
+        rule_traces: list[RuleTraceEvidence] = []
+
+        proposed_rules = getattr(cand_meta, "rules", []) or []
+        if proposed_rules and ep0 is not None:
+            from .episode import compute_episode_content_hash
+            canonical_intent = None
+            if isinstance(ep0.environment, dict) and "intent_revision" in ep0.environment:
+                canonical_intent = int(ep0.environment["intent_revision"])
+            elif ep_store is not None and hasattr(ep_store, "get_task_context"):
+                t_ctx = ep_store.get_task_context(ep0.task_id)
+                if t_ctx and hasattr(t_ctx, "intent_revision"):
+                    canonical_intent = int(t_ctx.intent_revision)
+            if canonical_intent is None:
+                canonical_intent = getattr(self.diagnosis, "intent_revision", 1) or 1
+
+            for idx, pr in enumerate(proposed_rules):
+                p_dict = pr if isinstance(pr, dict) else pr.to_dict()
+                trig = str(p_dict.get("trigger_condition", "")).strip()
+                act = str(p_dict.get("action", "")).strip()
+                fail_av = str(p_dict.get("failure_avoided", "")).strip() or (self.diagnosis.reason or ep0.outcome_reason or "Observed learning failure")
+                bound = str(p_dict.get("applicability_boundary", "")).strip()
+                b_quote = str(p_dict.get("body_quote") or p_dict.get("body_anchor") or "").strip()
+                if trig and act:
+                    rule_traces.append(
+                        RuleTraceEvidence(
+                            rule_id=str(p_dict.get("rule_id", f"RULE_REPAIR_{self.skill_name}_{att_num}_{idx+1}")),
+                            source_ref=ep0.episode_id,
+                            source_type="episode",
+                            trigger_condition=trig,
+                            action=act,
+                            failure_avoided=fail_av,
+                            applicability_boundary=bound or f"Applies to {self.skill_name} domain tasks",
+                            verification_status="inferred",
+                            task_id=ep0.task_id,
+                            intent_revision=canonical_intent,
+                            skill_version=target_patch_version,
+                            source_content_hash=compute_episode_content_hash(ep0),
+                            body_anchor=b_quote,
+                            body_quote=b_quote,
+                            notes=str(p_dict.get("notes", "")),
+                        )
+                    )
+
+        candidate.rule_traces = rule_traces
+        candidate.meta.rules = [r.to_dict() for r in rule_traces]
+
         cand_hash = compute_candidate_hash(candidate)
 
         # Duplicate patch hash detection: STOP immediately
@@ -391,6 +473,9 @@ class RepairJob:
 
         verdict_dec = val_rec.ratchet_decision
         if verdict_dec == "PASS":
+            candidate.rule_traces = rule_traces
+            candidate.meta.rules = [r.to_dict() for r in rule_traces]
+            candidate_store.save_candidate(candidate, on_conflict="update")
             rec = RepairAttemptRecord(
                 attempt_number=att_num,
                 candidate_id=cand_id,
@@ -1055,6 +1140,8 @@ def promote_repaired_skill(
     registry: SkillRegistry,
     state_machine: ReleaseStateMachine,
     caller_confirmed: bool = False,
+    evaluator: Optional[Any] = None,
+    expected_config_hash: Optional[str] = None,
 ) -> Release:
     """Promote a READY repair candidate to active registry via ReleaseStateMachine.
 
@@ -1092,7 +1179,8 @@ def promote_repaired_skill(
             f"'{job.baseline_version}' to '{current_baseline}'"
         )
 
-    val_rec = ValidationRecord(
+    stored_rec = candidate_store.get_validation_record(job.latest_candidate.candidate_id)
+    val_rec = stored_rec if stored_rec is not None else ValidationRecord(
         candidate_id=job.latest_candidate.candidate_id,
         content_hash=job.latest_content_hash,
         baseline_version=job.baseline_version,
@@ -1102,6 +1190,15 @@ def promote_repaired_skill(
         promoted=False,
     )
 
+    effective_expected_hash = expected_config_hash
+    if evaluator is not None and effective_expected_hash is None:
+        profile = getattr(current_cand.meta, "evaluation_profile", None)
+        effective_expected_hash = (
+            evaluator.get_config_hash(profile=profile)
+            if hasattr(evaluator, "get_config_hash")
+            else getattr(evaluator, "config_hash", None)
+        )
+
     release = promote_candidate(
         candidate=current_cand,
         validation_record=val_rec,
@@ -1109,6 +1206,8 @@ def promote_repaired_skill(
         registry=registry,
         candidate_store=candidate_store,
         caller_confirmed=True,
+        expected_config_hash=effective_expected_hash,
+        evaluator=evaluator,
     )
 
     job.status = "PROMOTED"
@@ -1118,3 +1217,7 @@ def promote_repaired_skill(
     _save_job(conn, job)
 
     return release
+
+
+# Canonical alias for repair job approval and promotion
+approve_repair_job = promote_repaired_skill
