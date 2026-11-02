@@ -1,7 +1,7 @@
 [project]
 name = "skillforge"
 version = "0.1.0"
-description = "Agent Skill 自进化元 Agent 系统（个人项目 · 面试演示）"
+description = "面向长任务的 Agent Harness 与受控技能自进化框架 (Asyncio ReAct, stdio MCP, Context Engine & 业务断言门禁)"
 requires-python = ">=3.10"
 authors = [{ name = "cao ruixin" }]
 dependencies = [
