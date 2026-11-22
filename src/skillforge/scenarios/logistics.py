@@ -283,8 +283,9 @@ class QueryOrderPackagesTool(Tool):
         order_id = parameters.get("order_id", "").strip()
         if order_id not in MOCK_ORDERS:
             return ToolResponse.error(
+                code="ORDER_NOT_FOUND",
                 message=f"Order '{order_id}' not found.",
-                data={"error": "ORDER_NOT_FOUND", "order_id": order_id},
+                context={"order_id": order_id},
             )
         order = MOCK_ORDERS[order_id]
         raw_pkgs = order.get("packages", [])
@@ -319,20 +320,23 @@ class QueryPackageTrackingTool(Tool):
         package_id = parameters.get("package_id", "").strip()
         if package_id in self.simulated_failing_packages:
             return ToolResponse.error(
+                code="LOGISTICS_SERVICE_UNAVAILABLE",
                 message=f"Logistics query service temporarily unavailable for package '{package_id}'.",
-                data={"error": "LOGISTICS_SERVICE_UNAVAILABLE", "package_id": package_id},
+                context={"package_id": package_id},
             )
 
         if package_id not in MOCK_PACKAGES:
             return ToolResponse.error(
+                code="PACKAGE_NOT_FOUND",
                 message=f"Package '{package_id}' not found.",
-                data={"error": "PACKAGE_NOT_FOUND", "package_id": package_id},
+                context={"package_id": package_id},
             )
         pkg = MOCK_PACKAGES[package_id]
         if pkg.get("status") == "TOOL_ERROR":
             return ToolResponse.error(
+                code="CARRIER_API_ERROR",
                 message=f"Upstream carrier API error for package '{package_id}': {pkg.get('error_reason')}",
-                data={"error": "CARRIER_API_ERROR", "package_id": package_id, "detail": pkg.get("error_reason")},
+                context={"package_id": package_id, "detail": pkg.get("error_reason")},
             )
         return ToolResponse.success(
             text=f"Package {package_id} status is {pkg['status']} via {pkg['carrier']}",

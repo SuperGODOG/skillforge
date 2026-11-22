@@ -166,7 +166,8 @@ def check_non_recoverable_blockers(
         if ep.outcome_reason:
             text_blobs.append(ep.outcome_reason.lower())
         if ep.verification_evidence:
-            text_blobs.append(json.dumps(ep.verification_evidence).lower())
+            # A checked invariant's name does not mean that invariant failed.
+            text_blobs.append(json.dumps({k: v for k, v in ep.verification_evidence.items() if k != "checked_invariants"}).lower())
         for p in ep.provenances:
             if p.output_summary:
                 text_blobs.append(p.output_summary.lower())

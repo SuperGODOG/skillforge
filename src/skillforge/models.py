@@ -701,6 +701,7 @@ class RunVersionBinding:
 RuntimeStatus = Literal[
     "PENDING",
     "RUNNING",
+    "PAUSED",
     "COMPLETED",
     "FAILED",
     "CANCELLED",
@@ -708,6 +709,29 @@ RuntimeStatus = Literal[
     "BUDGET_EXHAUSTED",
     "INTERRUPTED",
 ]
+
+
+@dataclass
+class PiCheckpointRecord:
+    """Safe, persistent execution snapshot for a Pi Agent SDK run."""
+
+    checkpoint_id: str
+    run_id: str
+    format_version: int
+    messages: list[dict[str, Any]]
+    system_prompt: str
+    frozen_body: str
+    intent_version: str
+    epoch: int
+    working_state: dict[str, Any]
+    model_config: dict[str, Any]
+    tools: list[str]
+    created_at: str
+    # Authoritative runtime bindings from runtime_runs (read-only):
+    budget_max: int
+    budget_consumed: int
+    deadline_ts: Optional[float]
+    run_status: str
 
 
 @dataclass

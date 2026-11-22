@@ -331,6 +331,8 @@ __all__ = [
     "SupervisorTaskSpec",
     "SupervisorOrchestrator",
     "create_supervisor_graph",
+    "PiRunnerClient",
+    "PiExecutionResult",
 ]
 
 from .scenarios.demonstrations import (
@@ -364,5 +366,18 @@ from .supervisor import (
     SupervisorTaskSpec,
     SupervisorOrchestrator,
     create_supervisor_graph,
+)
+from .pi_adapter import (
+    PiRunnerClient,
+    PiExecutionResult,
+)
+from .pi_evaluation import (
+    PiEvaluationBackend,
+    PiEvaluationRunResult,
+)
+from .pi_assembly import (
+    PiResourceBundle,
+    assemble_pi_resources,
+    validate_pi_scenario_and_dependencies,
 )
 

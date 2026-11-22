@@ -345,6 +345,7 @@ class SkillEvaluator(Tool):
         pairwise_selector_config: Optional[dict] = None,
         runtime: Optional[Any] = None,
         tool_broker: Optional[Any] = None,
+        execution_backend: Optional[Any] = None,
     ):
         """
         Args:
@@ -359,6 +360,7 @@ class SkillEvaluator(Tool):
             pairwise_selector_config: 可选，成对筛选软质量比较显式配置
             runtime: 可选，AgentRuntime 实例
             tool_broker: 可选，ToolBroker 实例
+            execution_backend: 可选，执行后端适配器（例如 PiEvaluationBackend）
         """
         super().__init__(
             name="skill_evaluator",
@@ -389,6 +391,9 @@ class SkillEvaluator(Tool):
         self.pairwise_selector_config = pairwise_selector_config
         self.runtime = runtime
         self.tool_broker = tool_broker
+        self.execution_backend = execution_backend
+        self._last_bare_provenances: list[Any] = []
+        self._last_skill_provenances: list[Any] = []
         self.router_init_error: Optional[str] = None
         if router is not None:
             self.router = router
@@ -405,16 +410,20 @@ class SkillEvaluator(Tool):
             self.router = None
 
     def get_config_fingerprint(self, rubric_override: Optional[dict] = None) -> str:
-        """Return configuration fingerprint including execution and Judge settings."""
+        """Return configuration fingerprint including execution, backend, and Judge settings."""
         from .llm_factory import compute_evaluator_fingerprint
 
         judge_llm = getattr(getattr(self, "judge", None), "llm", None) or getattr(self, "judge_llm", None)
-        return compute_evaluator_fingerprint(
+        base_fp = compute_evaluator_fingerprint(
             self.llm,
             judge_llm,
             scoring_policy=self.scoring_policy,
             rubric=rubric_override if rubric_override is not None else self.rubric,
         )
+        if self.execution_backend is not None and hasattr(self.execution_backend, "get_config_fingerprint"):
+            backend_fp = self.execution_backend.get_config_fingerprint()
+            return hashlib.sha256(f"{base_fp}:{backend_fp}".encode("utf-8")).hexdigest()[:16]
+        return base_fp
 
     def get_config_hash(self, profile: Optional[str] = None) -> str:
         rubric_to_use = self.rubric
@@ -513,6 +522,11 @@ class SkillEvaluator(Tool):
             runtime:    可选，AgentRuntime 实例，统一管理运行生命周期与 Broker 工具调度
             tool_broker: 可选，ToolBroker 实例，工具权限与模式校验
         """
+        if runtime is None:
+            runtime = getattr(self, "runtime", None)
+        if tool_broker is None:
+            tool_broker = getattr(self, "tool_broker", None)
+
         effective_run_id = run_id or f"eval_{skill_name}_{int(time.time() * 1000)}"
         effective_task_id = task_id or (release_id or f"{eval_set}:{skill_name}")
 
@@ -696,12 +710,13 @@ class SkillEvaluator(Tool):
                         target="skill",
                         run_id=effective_run_id,
                     )
+                    base_provs = list(getattr(self, "_last_bare_provenances", []) or []) if self.execution_backend is not None else []
                     base_findings, base_invals = self._evaluate_case_criteria(
                         query=query,
                         answer=base_out,
                         reference=ref,
                         rubric=case_rubric,
-                        provenances=[],
+                        provenances=base_provs,
                         case=case,
                         target="baseline",
                         run_id=effective_run_id,
@@ -914,12 +929,22 @@ class SkillEvaluator(Tool):
                     "efficiency": self._efficiency_score(base_metrics_list, skill_metrics_list),
                 }
 
+            avg_tokens_s = (
+                round(mean(m["tokens"] for m in skill_metrics_list), 2)
+                if skill_metrics_list and all(m.get("tokens") is not None for m in skill_metrics_list)
+                else None
+            )
+            avg_tokens_b = (
+                round(mean(m["tokens"] for m in base_metrics_list), 2)
+                if base_metrics_list and all(m.get("tokens") is not None for m in base_metrics_list)
+                else None
+            )
             # 3. 客观指标平均
             obj = {
-                "avg_turns_skill": round(mean(m["turns"] for m in skill_metrics_list), 2),
-                "avg_tokens_skill": round(mean(m["tokens"] for m in skill_metrics_list), 2),
-                "avg_tokens_baseline": round(mean(m["tokens"] for m in base_metrics_list), 2),
-                "avg_latency_ms_skill": round(mean(m["latency_ms"] for m in skill_metrics_list), 2),
+                "avg_turns_skill": round(mean(m["turns"] for m in skill_metrics_list), 2) if skill_metrics_list else 1.0,
+                "avg_tokens_skill": avg_tokens_s,
+                "avg_tokens_baseline": avg_tokens_b,
+                "avg_latency_ms_skill": round(mean(m["latency_ms"] for m in skill_metrics_list), 2) if skill_metrics_list else 0.0,
             }
 
             # P0-1: 真实路由判定链计算与保存
@@ -969,6 +994,11 @@ class SkillEvaluator(Tool):
                 verdict_str = "ROUTE_UNAVAILABLE"
                 routing_notes = route_error
 
+            if self.execution_backend is not None:
+                val_channels = ["pi_runtime", "broker"] if all_provenances else []
+            else:
+                val_channels = ["dependency_fixtures"] if all_provenances else []
+
             eval_res = EvalResult(
                 release_id=release_id,
                 structure_score=struct,
@@ -977,7 +1007,7 @@ class SkillEvaluator(Tool):
                 p0_pass=p0_pass,
                 case_verdicts=case_verdicts,
                 case_outputs=case_outputs,
-                validation_channels=["dependency_fixtures"] if all_provenances else [],
+                validation_channels=val_channels,
                 provenances=all_provenances,
                 valid=not invalid_reasons,
                 invalid_reasons=invalid_reasons,
@@ -1077,6 +1107,12 @@ class SkillEvaluator(Tool):
 
     def _run_bare(self, query: str) -> tuple[str, dict]:
         """无 Skill 的 Agent 跑 baseline"""
+        if self.execution_backend is not None:
+            res = self.execution_backend.run(query=query, body="", meta=None, skill_name=None)
+            self._last_bare_provenances = list(getattr(res, "provenances", []) or [])
+            return res.text, res.metrics
+
+        self._last_bare_provenances = []
         fingerprint = self.get_config_fingerprint()
         if self.output_cache is not None:
             cached = self.output_cache.get_bare(query, fingerprint)
@@ -1111,6 +1147,17 @@ class SkillEvaluator(Tool):
         run_id: Optional[str] = None,
     ) -> tuple[str, dict]:
         """有 Skill 的 Agent 跑：若具备依赖且支持工具调用，则挂载受控 fixture 或 BrokeredTool 生成 provenance"""
+        if self.execution_backend is not None:
+            meta = None
+            if skill_name and hasattr(self.registry, "get_meta"):
+                try:
+                    meta = self.registry.get_meta(skill_name)
+                except Exception:
+                    meta = None
+            res = self.execution_backend.run(query=query, body=body, meta=meta, skill_name=skill_name)
+            self._last_skill_provenances = list(getattr(res, "provenances", []) or [])
+            return res.text, res.metrics
+
         fingerprint = self.get_config_fingerprint()
         if self.output_cache is not None:
             cached = self.output_cache.get_with_skill(query, body, fingerprint, dependencies)
@@ -1507,8 +1554,8 @@ class SkillEvaluator(Tool):
            ratio=1 → 10；ratio=2 → 5；ratio=3 → 0（clamp [0, 10]）
            无有效数据 → 5（居中）
         """
-        base_tokens = [m["tokens"] for m in base_metrics if m["tokens"] > 0]
-        skill_tokens = [m["tokens"] for m in skill_metrics if m["tokens"] > 0]
+        base_tokens = [m["tokens"] for m in base_metrics if m.get("tokens") is not None and m["tokens"] > 0]
+        skill_tokens = [m["tokens"] for m in skill_metrics if m.get("tokens") is not None and m["tokens"] > 0]
         if not base_tokens or not skill_tokens:
             return 5.0
         ratio = mean(skill_tokens) / mean(base_tokens)

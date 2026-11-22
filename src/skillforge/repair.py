@@ -546,7 +546,8 @@ def _detect_structured_signal(ep: Episode) -> Optional[tuple[ResponsibilityLayer
     """
     provs = ep.provenances or []
     verif = ep.verification_evidence or {}
-    verif_text = json.dumps(verif).lower()
+    # Names of checks performed are metadata, not evidence that those checks failed.
+    verif_text = json.dumps({k: v for k, v in verif.items() if k != "checked_invariants"}).lower()
     reason_text = (ep.outcome_reason or "").lower()
 
     # 1. Policy violation check

@@ -897,6 +897,7 @@ class AsyncHarnessLoop:
                 "messages": _serialize(state.messages),
                 "step_count": state.step_count,
                 "budget_max": state.budget_max,
+                "deadline_ts": state.deadline_ts,
                 "status": state.status,
                 "tool_records": _serialize(state.tool_records),
                 "working_scratchpad": scratchpad_serializable,
@@ -988,6 +989,10 @@ class AsyncHarnessLoop:
             raise FileNotFoundError(f"Checkpoint file not found for run '{run_id}' at '{chk_file}'")
 
         raw = json.loads(chk_file.read_text(encoding="utf-8"))
+        if raw.get("status") == "BUDGET_EXHAUSTED" and (
+            updated_spec is None or updated_spec.budget_max <= raw.get("budget_max", 0)
+        ):
+            raise ValueError("Exhausted legacy run requires an explicit larger budget")
         raw_scratch = raw.get("working_scratchpad", {})
         scratchpad: dict[str, Any] = {}
 
@@ -1043,7 +1048,7 @@ class AsyncHarnessLoop:
             working_scratchpad=scratchpad,
             tool_records=records,
             status="RUNNING",
-            deadline_ts=None,
+            deadline_ts=raw.get("deadline_ts", getattr(self.runtime.get_run(run_id), "deadline_ts", None)),
             hook_audits=list(audits),
             context_epoch=raw.get("context_epoch", 1),
             request_telemetry=raw.get("request_telemetry", []),
@@ -1567,8 +1572,19 @@ class AsyncHarnessLoop:
                 except Exception as ve_err:
                     verif_ev = {"independent_pass": False, "failure_reason": f"Verification error: {ve_err}"}
 
-            # Finalize run in runtime (only if not paused for review)
-            if state.status != "PAUSED_FOR_REVIEW":
+            # A legacy step-cap stop is a resumable checkpoint, not a completed task.
+            # Only an explicit larger updated_spec can authorize the next segment.
+            if state.status == "BUDGET_EXHAUSTED":
+                conn = self.runtime._get_conn()
+                with self.runtime._lock, conn:
+                    conn.execute(
+                        """UPDATE runtime_runs SET status='PAUSED', error_type='BUDGET_EXHAUSTED',
+                           error_message=?, updated_at=?
+                           WHERE run_id=? AND status IN ('RUNNING','BUDGET_EXHAUSTED')
+                           AND terminal_at IS NULL""",
+                        (state.error_message, datetime.now(timezone.utc).isoformat(), state.run_id),
+                    )
+            elif state.status != "PAUSED_FOR_REVIEW":
                 self.runtime.finalize_run(
                     run_id=state.run_id,
                     model_output=state.final_output or "",

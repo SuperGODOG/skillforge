@@ -339,43 +339,77 @@ def _instantiate_temp_evaluator(
     temp_reg,
     evaluator,
 ) -> Any:
-    """Safely instantiate SkillEvaluator inside temp sandbox, inspecting parameters to support mocks/subclasses."""
+    """Safely instantiate SkillEvaluator inside temp sandbox, inspecting parameters to support mocks/subclasses.
+
+    Preserves execution_backend, runtime, and tool_broker for active backends (e.g. Pi).
+    When execution_backend is active, failure to instantiate must fail-closed rather than falling back to legacy.
+    """
     from .evaluator import SkillEvaluator
     import inspect
 
     judge_llm = getattr(getattr(evaluator, "judge", None), "llm", None)
+    if judge_llm is None and hasattr(evaluator, "judge_llm"):
+        judge_llm = getattr(evaluator, "judge_llm", None)
     cache_obj = getattr(evaluator, "output_cache", None)
     route_obj = getattr(evaluator, "router", None)
 
     init_method = getattr(SkillEvaluator, "__init__", None)
     sig = inspect.signature(init_method) if init_method else None
     params = set(sig.parameters.keys()) if sig else set()
+    has_var_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()) if sig else False
 
     kwargs: dict[str, Any] = {
         "registry": temp_reg,
         "llm": getattr(evaluator, "llm", None),
         "judge_llm": judge_llm,
     }
-    if "output_cache" in params:
+    if "output_cache" in params or has_var_kw:
         kwargs["output_cache"] = cache_obj
-    if "router" in params:
+    if "router" in params or has_var_kw:
         kwargs["router"] = route_obj
-    if "scoring_policy" in params:
+    if "scoring_policy" in params or has_var_kw:
         kwargs["scoring_policy"] = getattr(evaluator, "scoring_policy", "criteria_v1")
-    if "rubric" in params:
+    if "rubric" in params or has_var_kw:
         kwargs["rubric"] = getattr(evaluator, "rubric", None)
+    if "ledger" in params or has_var_kw:
+        kwargs["ledger"] = getattr(evaluator, "ledger", None)
+    if "pairwise_selector_config" in params or has_var_kw:
+        kwargs["pairwise_selector_config"] = getattr(evaluator, "pairwise_selector_config", None)
 
-    try:
-        temp_eval = SkillEvaluator(**kwargs)
-    except TypeError:
+    execution_backend = getattr(evaluator, "execution_backend", None)
+    runtime = getattr(evaluator, "runtime", None)
+    tool_broker = getattr(evaluator, "tool_broker", None)
+    is_active_backend = execution_backend is not None
+
+    if is_active_backend:
+        if "execution_backend" in params or has_var_kw:
+            kwargs["execution_backend"] = execution_backend
+        else:
+            raise RuntimeError("SkillEvaluator class does not accept execution_backend for active backend")
+        if "runtime" in params or has_var_kw:
+            kwargs["runtime"] = runtime
+        if "tool_broker" in params or has_var_kw:
+            kwargs["tool_broker"] = tool_broker
+
+        # Active backend must fail closed: no silent fallback to legacy constructor
         try:
-            temp_eval = SkillEvaluator(
-                registry=temp_reg,
-                llm=getattr(evaluator, "llm", None),
-                judge_llm=judge_llm,
-            )
+            temp_eval = SkillEvaluator(**kwargs)
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to instantiate isolated evaluator with active execution backend: {e}"
+            ) from e
+    else:
+        try:
+            temp_eval = SkillEvaluator(**kwargs)
         except TypeError:
-            temp_eval = SkillEvaluator(temp_reg, getattr(evaluator, "llm", None), judge_llm)
+            try:
+                temp_eval = SkillEvaluator(
+                    registry=temp_reg,
+                    llm=getattr(evaluator, "llm", None),
+                    judge_llm=judge_llm,
+                )
+            except TypeError:
+                temp_eval = SkillEvaluator(temp_reg, getattr(evaluator, "llm", None), judge_llm)
 
     if hasattr(temp_eval, "output_cache") and getattr(temp_eval, "output_cache", None) is None:
         temp_eval.output_cache = cache_obj
@@ -612,6 +646,11 @@ class SkillEvolver(SimpleAgent):
                 and self.evaluator.judge.llm is not None
             ):
                 self.evaluator.judge.llm = wrap_with_ledger(self.evaluator.judge.llm, ledger, role="judge")
+            if hasattr(self.evaluator, "execution_backend") and self.evaluator.execution_backend is not None:
+                if hasattr(self.evaluator.execution_backend, "bind_ledger"):
+                    self.evaluator.execution_backend.bind_ledger(ledger)
+            if hasattr(self.evaluator, "ledger"):
+                self.evaluator.ledger = ledger
 
     def _create_attempt_record(
         self,
@@ -2908,8 +2947,15 @@ def _validate_patch(
                     cases=cases,
                     verbose=False,
                 )
-                new_result.validation_channels = channels
+                for provenance in getattr(new_result, "provenances", []) or []:
+                    if provenance not in provenances:
+                        provenances.append(provenance)
                 new_result.provenances = list(provenances)
+                if getattr(new_result, "validation_channels", None):
+                    for vc in new_result.validation_channels:
+                        if vc not in channels:
+                            channels.append(vc)
+                new_result.validation_channels = channels
 
                 from .evaluator.p0_gate import (
                     evaluate_p0_gate,

@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import time
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -47,6 +48,10 @@ class LLMCallRecord:
     # token usage that the provider did not return.
     status: str = "success"
     error_type: Optional[str] = None
+    call_id: Optional[str] = None
+    usage_unknown: bool = False
+    prompt_unknown: bool = False
+    completion_unknown: bool = False
 
 
 class LLMLedger:
@@ -55,6 +60,7 @@ class LLMLedger:
     def __init__(self, budget: Optional[EvolveBudget] = None) -> None:
         self.budget = budget or EvolveBudget()
         self.records: list[LLMCallRecord] = []
+        self._pending_reservations: dict[str, int] = {}
         self.start_time: float = time.time()
         self.last_budget_error: Optional[BudgetExceededError] = None
 
@@ -63,6 +69,7 @@ class LLMLedger:
         if budget is not None:
             self.budget = budget
         self.records.clear()
+        self._pending_reservations.clear()
         self.start_time = time.time()
         self.last_budget_error = None
 
@@ -73,6 +80,10 @@ class LLMLedger:
     @property
     def failed_calls(self) -> int:
         return sum(1 for record in self.records if record.status == "error")
+
+    @property
+    def has_unknown_tokens(self) -> bool:
+        return any(r.usage_unknown for r in self.records)
 
     @property
     def total_tokens(self) -> int:
@@ -133,6 +144,15 @@ class LLMLedger:
                 raise err
 
         if self.budget.max_tokens is not None:
+            if self.has_unknown_tokens:
+                err = BudgetExceededError(
+                    "TOKEN_USAGE_UNKNOWN: cannot enforce max_tokens ceiling because prior turn usage is unknown",
+                    cap_type="token",
+                    limit=self.budget.max_tokens,
+                    current=self.total_tokens,
+                )
+                self.last_budget_error = err
+                raise err
             if self.total_tokens >= self.budget.max_tokens:
                 err = BudgetExceededError(
                     f"TOKEN_LIMIT_EXCEEDED: token usage {self.total_tokens} >= limit {self.budget.max_tokens}",
@@ -162,6 +182,15 @@ class LLMLedger:
                 raise err
 
         if self.budget.max_tokens is not None:
+            if self.has_unknown_tokens:
+                err = BudgetExceededError(
+                    "TOKEN_USAGE_UNKNOWN: cannot enforce max_tokens ceiling because prior turn usage is unknown",
+                    cap_type="token",
+                    limit=self.budget.max_tokens,
+                    current=self.total_tokens,
+                )
+                self.last_budget_error = err
+                raise err
             if self.total_tokens > self.budget.max_tokens:
                 err = BudgetExceededError(
                     f"TOKEN_LIMIT_EXCEEDED: token usage {self.total_tokens} > limit {self.budget.max_tokens}",
@@ -182,6 +211,167 @@ class LLMLedger:
                 )
                 self.last_budget_error = err
                 raise err
+
+    def reserve_turn(self, role: str = "agent", call_id: Optional[str] = None) -> LLMCallRecord:
+        """Preflight check and reservation for an upcoming provider call attempt."""
+        if call_id is not None:
+            if call_id in self._pending_reservations:
+                idx = self._pending_reservations[call_id]
+                return self.records[idx]
+            for r in self.records:
+                if r.call_id == call_id:
+                    return r
+
+        self.check_budget(role=role)
+        cid = call_id or f"call_{len(self.records)}_{uuid.uuid4().hex[:8]}"
+        rec = LLMCallRecord(
+            role=role,
+            prompt_tokens=0,
+            completion_tokens=0,
+            total_tokens=0,
+            latency_ms=0.0,
+            timestamp=time.time(),
+            status="pending",
+            call_id=cid,
+        )
+        idx = len(self.records)
+        self.records.append(rec)
+        self._pending_reservations[cid] = idx
+        return rec
+
+    def settle_turn(
+        self,
+        call_id: str,
+        usage: Optional[dict[str, Any]] = None,
+        latency_ms: float = 0.0,
+        status: str = "success",
+        error_type: Optional[str] = None,
+    ) -> Optional[LLMCallRecord]:
+        """Settle a previously reserved pending turn with final usage and outcome."""
+        if call_id not in self._pending_reservations:
+            for r in reversed(self.records):
+                if r.call_id == call_id:
+                    return r
+            return None
+
+        idx = self._pending_reservations.pop(call_id)
+        old_rec = self.records[idx]
+
+        usage_unknown = False
+        prompt_unknown = False
+        completion_unknown = False
+        p_tok, c_tok, t_tok = 0, 0, 0
+
+        if usage is not None and isinstance(usage, dict):
+            # usage aliases use is not None (not truthiness so 0 tokens is valid)
+            def _get_val(keys: list[str]) -> Any:
+                for k in keys:
+                    v = usage.get(k)
+                    if v is not None:
+                        return v
+                return None
+
+            p = _get_val(["input", "prompt_tokens", "input_tokens"])
+            c = _get_val(["output", "completion_tokens", "output_tokens"])
+            t = _get_val(["totalTokens", "total_tokens"])
+
+            if p is not None:
+                p_tok = int(p)
+            else:
+                prompt_unknown = True
+
+            if c is not None:
+                c_tok = int(c)
+            else:
+                completion_unknown = True
+
+            # require totalTokens or BOTH input/output for known total (one partial field not known)
+            if t is not None:
+                t_tok = int(t)
+            elif p is not None and c is not None:
+                t_tok = p_tok + c_tok
+            else:
+                usage_unknown = True
+                t_tok = p_tok + c_tok  # lower bound
+        else:
+            usage_unknown = True
+            prompt_unknown = True
+            completion_unknown = True
+
+        settled = LLMCallRecord(
+            role=old_rec.role,
+            prompt_tokens=p_tok,
+            completion_tokens=c_tok,
+            total_tokens=t_tok,
+            latency_ms=latency_ms,
+            timestamp=old_rec.timestamp,
+            status=status,
+            error_type=error_type,
+            call_id=call_id,
+            usage_unknown=usage_unknown,
+            prompt_unknown=prompt_unknown,
+            completion_unknown=completion_unknown,
+        )
+        self.records[idx] = settled
+
+        # Check post-settlement budget violations to block next turn
+        if self.budget.max_tokens is not None:
+            if usage_unknown:
+                self.last_budget_error = BudgetExceededError(
+                    "TOKEN_USAGE_UNKNOWN: cannot enforce max_tokens ceiling because turn usage is unknown",
+                    cap_type="token",
+                    limit=self.budget.max_tokens,
+                    current=self.total_tokens,
+                )
+            elif self.total_tokens > self.budget.max_tokens:
+                self.last_budget_error = BudgetExceededError(
+                    f"TOKEN_LIMIT_EXCEEDED: token usage {self.total_tokens} > limit {self.budget.max_tokens}",
+                    cap_type="token",
+                    limit=self.budget.max_tokens,
+                    current=self.total_tokens,
+                )
+
+        if self.budget.deadline_seconds is not None:
+            elapsed = self.elapsed_seconds
+            if elapsed > self.budget.deadline_seconds:
+                self.last_budget_error = BudgetExceededError(
+                    f"DEADLINE_EXCEEDED: elapsed {elapsed:.2f}s > deadline {self.budget.deadline_seconds}s",
+                    cap_type="deadline",
+                    limit=self.budget.deadline_seconds,
+                    current=elapsed,
+                )
+
+        return settled
+
+    def cancel_pending(
+        self,
+        call_id: Optional[str] = None,
+        error_type: str = "CANCELLED",
+    ) -> list[LLMCallRecord]:
+        """Settle outstanding pending reservations as errors."""
+        settled_list = []
+        target_ids = ([call_id] if call_id in self._pending_reservations else []) if call_id is not None else list(self._pending_reservations)
+        for cid in target_ids:
+            idx = self._pending_reservations.pop(cid, None)
+            if idx is not None:
+                old_rec = self.records[idx]
+                settled = LLMCallRecord(
+                    role=old_rec.role,
+                    prompt_tokens=0,
+                    completion_tokens=0,
+                    total_tokens=0,
+                    latency_ms=0.0,
+                    timestamp=old_rec.timestamp,
+                    status="error",
+                    error_type=error_type,
+                    call_id=cid,
+                    usage_unknown=True,
+                    prompt_unknown=True,
+                    completion_unknown=True,
+                )
+                self.records[idx] = settled
+                settled_list.append(settled)
+        return settled_list
 
     def record_call(self, role: str, resp: Any, latency_ms: float) -> LLMCallRecord:
         """Post-invocation recording and ceiling verification."""
@@ -243,16 +433,32 @@ class LLMLedger:
         return rec
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        has_unknown_total = any(r.usage_unknown for r in self.records)
+        has_unknown_prompt = any(r.prompt_unknown for r in self.records)
+        has_unknown_completion = any(r.completion_unknown for r in self.records)
+
+        d = {
             "total_calls": self.total_calls,
             "failed_calls": self.failed_calls,
-            "total_tokens": self.total_tokens,
-            "prompt_tokens": self.prompt_tokens,
-            "completion_tokens": self.completion_tokens,
+            "total_tokens": None if has_unknown_total else self.total_tokens,
+            "prompt_tokens": None if has_unknown_prompt else self.prompt_tokens,
+            "completion_tokens": None if has_unknown_completion else self.completion_tokens,
             "elapsed_seconds": round(self.elapsed_seconds, 3),
             "calls_by_role": self.calls_by_role,
             "tokens_by_role": self.tokens_by_role,
         }
+        if has_unknown_total:
+            d["tokens_unknown"] = True
+            d["total_tokens_lower_bound"] = self.total_tokens
+        if has_unknown_prompt:
+            d["prompt_tokens_lower_bound"] = self.prompt_tokens
+        if has_unknown_completion:
+            d["completion_tokens_lower_bound"] = self.completion_tokens
+
+        pending_count = sum(1 for r in self.records if r.status == "pending")
+        if pending_count > 0:
+            d["pending_calls"] = pending_count
+        return d
 
 
 class TrackedLLM:

@@ -540,6 +540,10 @@ def validate_candidate(
                 ledger=getattr(evaluator, "ledger", None),
                 scoring_policy=getattr(evaluator, "scoring_policy", "criteria_v1"),
                 rubric=getattr(evaluator, "rubric", None),
+                pairwise_selector_config=getattr(evaluator, "pairwise_selector_config", None),
+                runtime=getattr(evaluator, "runtime", None),
+                tool_broker=getattr(evaluator, "tool_broker", None),
+                execution_backend=getattr(evaluator, "execution_backend", None),
             )
             candidate_eval_result = sandbox_evaluator.evaluate_skill(
                 candidate.skill_name,

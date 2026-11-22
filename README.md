@@ -14,7 +14,7 @@
 *Agent Harness · Episode-Driven Skill Evolution · Evidence-Grounded Evaluation*
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776ab?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
-[![Harness](https://img.shields.io/badge/Harness-Asyncio%20ReAct-3b82f6?style=flat-square)](src/skillforge/harness_loop.py)
+[![Harness](https://img.shields.io/badge/Harness-Pi%20Agent%20SDK%20%2B%20Python-3b82f6?style=flat-square)](src/skillforge/pi_adapter.py)
 [![Context](https://img.shields.io/badge/Context-State%20%2B%20Offload%20%2B%20Compaction-06b6d4?style=flat-square)](src/skillforge/context_engine/)
 [![Hooks](https://img.shields.io/badge/Hooks-Gates%20%2B%20Safe%20Views-10b981?style=flat-square)](docs/HARNESS_HOOKS_ACCEPTANCE.md)
 [![Multi-Agent](https://img.shields.io/badge/Multi--Agent-Supervisor-8b5cf6?style=flat-square)](src/skillforge/supervisor.py)
@@ -24,6 +24,7 @@
 <p>
   <a href="#position">🎯 项目定位</a> •
   <a href="#architecture">🏛️ 双闭环架构</a> •
+  <a href="#pi-migration">🔄 Pi 重构进展</a> •
   <a href="#design">⚙️ 三大核心设计</a> •
   <a href="#validation">📊 演示与验证</a> •
   <a href="#quickstart">🚀 快速上手</a> •
@@ -67,13 +68,12 @@ flowchart TB
     Task["用户目标 / 约束 / 意图版本"] --> Context
 
     subgraph Harness["执行闭环 · 当前任务"]
-        Context["Context Engine<br/>受保护状态 / 工作摘要 / 工件索引 / 近期交互"] --> Loop["AsyncHarnessLoop<br/>模型调用 / Hooks / 预算 / 检查点"]
+        Context["Context Engine<br/>受保护状态 / 工作摘要 / 工件索引 / 近期交互"] --> Loop["Pi Agent SDK + AgentRuntime<br/>模型工具循环 / Python 权威状态"]
         Loop --> Broker["ToolBroker<br/>权限 / 参数 / 超时 / 调用记录"]
         Broker --> Tools["Native / MCP / 受管子进程"]
         Tools --> View["安全观察视图 / 大输出下沉"]
         View --> Context
         Context <--> Artifacts["受管工件<br/>按对象与分页回读"]
-        Supervisor["可选 Supervisor<br/>Worker 权限切片 / 约束级联 / 联合预算"] --> Loop
     end
 
     Loop --> Oracle["独立业务 Oracle<br/>检查交付结果与执行证据"]
@@ -91,6 +91,53 @@ flowchart TB
 ```
 
 短需求或对话也可直接生成任务内 **Draft**，先服务当前任务；只有实际执行才形成 Episode。Draft、待验证 Candidate 与正式 Skill 分开管理，当前任务试用与跨任务发布使用不同的准入边界。
+
+<a id="pi-migration"></a>
+### Pi 重构：哪些已经迁移，哪些继续由 SkillForge 管理？
+
+**Pi Agent SDK 承担模型与工具循环，SkillForge 的 Python 层继续管理权限、证据、预算与技能演进。Phase 1–3 的运行、上下文与演进链已接通；Phase 4 进一步接入 evaluate / evolve CLI 和 Supervisor Worker，并补齐 Hook 与编排恢复。应用显式选择 Pi，原 legacy 默认入口继续兼容。**
+
+#### 重构前后变化
+
+| 能力 | Pi 化之前 | 当前 Pi 路径 |
+|---|---|---|
+| **模型与工具循环** | Python `AsyncHarnessLoop` 自行推进模型响应、工具派发与下一轮 | 薄 TypeScript runner 调用官方 Pi `Agent`；Python 通过 JSONL 桥接掌握权威状态，工具仍经 Runtime / Broker 执行 |
+| **上下文工程** | Context Engine 接入原 Python 循环 | Pi 每轮送模前通过 `transformContext` 调回同一压缩管道，保留受保护目标、工件索引、摘要和近期交互；不是另写一套压缩器 |
+| **暂停、恢复与取消** | 原 Harness / Runtime 的快照与检查点机制 | 增加 Pi 消息及上下文状态的 SQLite 检查点；支持新 Runtime、新 Pi 进程续跑，核对绑定、保留预算与期限，未知动作转人工核对 |
+| **候选评测执行** | `SkillEvaluator` 原有执行路径 | 可注入 `PiEvaluationBackend`，无 Skill、父版和候选版经实际 Pi / Broker 执行；Oracle、Judge、回归棘轮仍由原评测器负责 |
+| **失败修补与正式复用** | 已有 Episode、RepairJob、共同验证与晋升机制 | 集成验证 Pi 失败 Episode → 实际 RepairJob → Pi 后端评测 → 共同验证 → 显式确认临时库晋升 → 新任务自动检索正式版并经 Pi 执行，回收新 Episode |
+| **应用入口与多 Agent** | CLI 使用原评测执行路径，Supervisor 直接创建 Python Worker 循环 | `evaluate / evolve` 可显式选择 Pi；Python Supervisor 继续路由，Worker 独立连接 Runtime，工具权限取父子交集，模型轮次与工具共用父级步骤预算 |
+| **Hook 与恢复** | 原 Python 循环提供生命周期拦截 | Pi 请求、回执、工具、压缩和交付边界接入同一组 Hook；父级拒绝优先，过滤观察不改原始凭据；编排恢复保留预算、期限与历史，未决副作用转人工核对 |
+| **运行展示** | 原业务场景演示与 CLI | 无需密钥的 `pi-demo` 落盘工具轨迹、Oracle、Episode 和报告；旧演示保留 |
+
+**迁移的是执行引擎，项目特色保留在 Python 治理层。** Pi 不直接决定工具权限、业务是否成功或技能能否发布，也未开放绕过 Broker 的默认文件 / Bash 工具。Episode 聚类、Draft / Candidate 生成、RepairJob 和 LangGraph 有界恢复继续复用现有实现；修补模型产生正文后，由接入 Pi 的评测执行路径检查其行为。它们不需要改写成 Pi 节点才算闭环。
+
+对应代码：[`runner.ts`](src/skillforge/pi_runner/runner.ts) → [`pi_adapter.py`](src/skillforge/pi_adapter.py) → [`AgentRuntime`](src/skillforge/runtime.py)；评测适配为 [`PiEvaluationBackend`](src/skillforge/pi_evaluation.py)。本阶段最终验证为 **173 项执行治理回归 + 79 项既有业务门禁回归通过**（两批共32个相关文件，exit 0）；命令与断言见 [Pi 重构验收记录](docs/PI_REFACTOR_PROGRESS.md)。机制测试运行实际 Pi / Runtime / Broker / Collector，模型响应与修补输出受控、数据为合成数据；此前真实模型实验单独保留，不作为 Pi 迁移后的效果结论。
+
+#### 如何使用与理解迁移边界
+
+```bash
+# 无需密钥的离线机制演示
+skillforge pi-demo --output-dir ./scratch/pi-demo
+
+# 已准备 skills/logistics_query/SKILL.md 及对应评测集后，显式使用 Pi
+# PI_MODEL_ID 为已配置 Provider 的模型 ID，Judge/Patcher 使用独立配置
+skillforge evaluate --skill logistics_query --execution-backend pi \
+  --pi-provider anthropic --pi-model "$PI_MODEL_ID" --pi-scenario logistics
+skillforge evolve --skill logistics_query --execution-backend pi \
+  --pi-provider anthropic --pi-model "$PI_MODEL_ID" --pi-scenario logistics \
+  --max-calls 200 --deadline-seconds 600
+```
+
+CLI 的 Pi 装配目前支持 **synthetic logistics** 工具集，其他业务通过应用自行注册 Broker 工具。`evolve` 使用原 SkillEvolver、共同验证与影子模式：候选临时评测保留 Pi 后端，Pi 每轮请求、修补生成与 Judge 共享账本，不自动改写正式 Skill。Supervisor 则在 `WorkerAgentSpec(execution_backend="pi", pi_model_config=...)` 显式启用；路由次数与 Worker 的模型/工具步骤是两种限额，不能当成全部模型费用统计。
+
+`SupervisorOrchestrator.run(spec, resume=True)` 从本地检查点接续：已完成 Worker 不重跑，安全暂停的 Pi 子任务用同一 run ID 恢复；预算与绝对期限不重置。意图、Worker 正文、工具契约或模型配置变化会拒绝旧恢复；工具执行结果不明确时进入人工核对。JSON 检查点与 SQLite 不构成跨资源事务，这一机制不承诺任意崩溃下的外部动作恰好一次。
+
+**补充真实模型验证（2026-11-22）：**使用本地 Pi 配置的 `deepseek-v4-flash`，经实际 Pi / Runtime / Broker / Collector 跑通全部签收、部分签收和物流服务故障三类用例，由代码 Oracle 判定；订单与物流工具仍为合成夹具。累计12次模型请求，包含纠正故障夹具后的定向补测；不据三例推断普遍效果提升。过程与统计修正见 [验收记录第二十一节](docs/PI_REFACTOR_PROGRESS.md#二十一codex-真实模型冒烟复核与定向收口2026-11-22)。
+
+**后续可选工作：**扩展其他业务场景装配、Pi 路径的真实模型演进或配对实验，再根据调用方迁移情况决定是否调整默认后端。旧循环继续承担兼容入口，本次不直接删除。自定义本地模型配置暂不支持跨进程恢复：配置尚未纳入完整冻结绑定，相关恢复会明确拒绝；已有内置模型／受控夹具的恢复机制与证据单列。
+
+**无需 Pi 化的部分：**业务 Oracle、Judge 的规则计分、EpisodeStore、来源与用途隔离、SkillRegistry、CandidateStore、显式晋升，以及 MCP / 子进程沙箱等 Broker 下层能力。它们为不同执行引擎提供共同约束；LangGraph 继续负责有界演进恢复，Pi 负责 Agent 执行循环。单次生成 / 修补的模型调用也无需全部包装成工具循环。
 
 ---
 
@@ -122,14 +169,16 @@ flowchart TB
 
 #### 生命周期与工具管理
 
-[`AsyncHarnessLoop`](src/skillforge/harness_loop.py) 使用原生 `asyncio` 显式驱动“构建上下文 → 调用模型 → 执行工具 → 验证交付”。每一步都可以记录、拦截、暂停和恢复。
+**Pi 负责执行循环，SkillForge 负责执行依据。** 新执行路径通过薄 TypeScript runner 复用官方 Pi Agent SDK 的模型与工具循环；Python [`AgentRuntime`](src/skillforge/runtime.py) 掌握目标、冻结正文、工具权限、预算、检查点与经历回收。两侧通过带运行 ID 的 JSONL 协议通信，Pi 发出的工具请求仍须经过 ToolBroker。
+
+每轮送模前，Pi 的 `transformContext` 调用既有 Context Engine；暂停后将消息、正文和压缩状态保存到 SQLite，新 Runtime 与新 Pi 进程据此续跑。恢复时重新核对任务、模型、工具和验证配置，预算与期限保留。工具已完成则复用记录；动作是否完成不明时转人工核对。
 
 - **统一工具入口**：[`ToolBroker`](src/skillforge/runtime.py) 对 Native Tool 与 [`stdio MCP`](src/skillforge/mcp_client.py) 工具执行权限、Schema、签名绑定、预算与超时检查。工具内部 `TypeError` 与模型入参错误分开处理，避免错误重试。
 - **文件与执行环境**：运行目录保存工件与检查点；[`ProcessExecutor`](src/skillforge/process_executor.py) 使用独立 POSIX 进程组，取消或超时后依次执行 `SIGTERM → SIGKILL` 清理。OS 访问限制由 [`sandbox.py`](src/skillforge/sandbox.py) 的平台实现承担，进程组负责生命周期管理。
 - **运行快照与恢复**：当前运行绑定 Skill / Draft 正文与意图版本；Harness 检查点与 Runtime 持久化状态配合恢复进度，保留已消费预算，并重新校验待执行动作。
 - **多 Agent 约束**：[`SupervisorOrchestrator`](src/skillforge/supervisor.py) 为 Worker 分配工具子集、传递父级约束并管理联合预算；Worker 的局部放行不能覆盖父级拒绝。
 
-**取舍：**主循环保留原生 Python 的可追踪性；有界演进恢复复用 LangGraph 检查点基础设施，适配当前 RepairJob 与验证路径，避免混用两套预算和发布状态。
+**取舍：**复用 Pi 的通用执行能力，保留 Python 中已有的上下文治理、业务 Oracle 和发布规则。原 [`AsyncHarnessLoop`](src/skillforge/harness_loop.py) 与 Supervisor 路径保留兼容；有界演进恢复继续复用 LangGraph 检查点基础设施。新 Pi 路径的机制与验收见 [重构记录](docs/PI_REFACTOR_PROGRESS.md)。
 
 #### Hooks：把业务约束插入执行边界
 
@@ -268,6 +317,7 @@ LLM Judge 输出逐规则判断与软质量比较结果，评分规则由程序�
 | 验证内容 | 已有记录 | 证据入口 |
 |---|---|---|
 | 规则来源、成对筛选与类型评测 | 48 项专项；含相关模块的回归 178 项通过 | [验收记录](docs/SKILL_EVIDENCE_EVALUATION_ACCEPTANCE.md) / [原始日志](docs/fixtures/pytest_execution.log) |
+| Pi 接入、持久化恢复、演进闭环与 CLI | 本轮 22 个相关测试文件联合 149 项通过；受控模型响应、合成数据 | [Pi 重构验收与复现命令](docs/PI_REFACTOR_PROGRESS.md) |
 | 上下文、Hooks、Runtime 与 Supervisor | 相关回归记录 53 项通过 | [原始日志](docs/fixtures/context_cache_pytest.txt) |
 | Judge 真实模型校准 | 16 个合成答案、64 项主规则，匹配 52/64（81.25%） | [校准结果](docs/judge_criteria_real_calibration_results.json) |
 | 真实模型生命周期 | `glm-5.3-flash` 下分别验证失败修补、目标变向后的修订与复用 | [实验原始结果](docs/p6_real_model_abc_raw_results.json) / [进度记录](docs/QUICK_GENERATION_EVOLUTION_PROGRESS.md) |
@@ -288,13 +338,24 @@ cd skillforge
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
+
+# Pi 执行路径需要 Node.js 22+，按锁文件安装 runner 依赖
+npm ci --prefix src/skillforge/pi_runner
 ```
 
 Python 3.10+。进程组管理需要 POSIX 环境；OS 沙箱能力按平台探测，macOS Seatbelt 与应用层权限检查分别配置。
 
 ### 先看演示
 
-无需外部 API 密钥，按顺序观察“执行 → 变向 → 演进”：
+先运行无需 API 密钥的 Pi 物流演示：
+
+```bash
+.venv/bin/python -m skillforge.cli pi-demo --output-dir /tmp/skillforge-pi-demo
+```
+
+它启动实际 Pi 进程，通过 Runtime / ToolBroker 查询合成订单的两个包裹，由独立 Oracle 核验，再将 Episode、工具轨迹和 `report.json` 写入唯一运行子目录。模型响应采用受控 `faux` 脚本，未调用真实模型，未执行 OS 沙箱测试；草稿仅在本次任务试用。
+
+原有三个场景演示仍可按顺序观察“执行 → 变向 → 演进”：
 
 ```bash
 # 全部三个演示；也可分别使用 --demo 1、2、3
@@ -304,6 +365,9 @@ Python 3.10+。进程组管理需要 POSIX 环境；OS 沙箱能力按平台探�
 ### 再看断言
 
 ```bash
+# Pi CLI 与完整修补、显式晋升、后续任务检索复用专项
+.venv/bin/pytest tests/test_pi_cli.py tests/test_pi_evolution.py -q
+
 # 三个业务演示的自动化断言
 .venv/bin/pytest tests/test_three_demonstrations.py -v
 
@@ -325,7 +389,9 @@ Python 3.10+。进程组管理需要 POSIX 环境；OS 沙箱能力按平台探�
 
 | 从哪个问题开始读 | 核心代码 | 设计与验证 |
 |---|---|---|
-| 一轮 Agent 如何执行、拦截和恢复？ | [`harness_loop.py`](src/skillforge/harness_loop.py)、[`runtime.py`](src/skillforge/runtime.py) | [Hooks 设计](docs/HARNESS_HOOKS_ACCEPTANCE.md) |
+| Pi 与 Python 如何分工、暂停和恢复？ | [`pi_adapter.py`](src/skillforge/pi_adapter.py)、[`pi_runner/runner.ts`](src/skillforge/pi_runner/runner.ts)、[`runtime.py`](src/skillforge/runtime.py) | [Pi 重构与验收](docs/PI_REFACTOR_PROGRESS.md) |
+| Pi 如何进入候选评测与修补闭环？ | [`pi_evaluation.py`](src/skillforge/pi_evaluation.py)、[`evaluator/`](src/skillforge/evaluator/)、[`repair.py`](src/skillforge/repair.py) | [Pi 评测专项](tests/test_pi_evaluation.py)、[修补与复用专项](tests/test_pi_evolution.py) |
+| 原执行循环如何拦截动作？ | [`harness_loop.py`](src/skillforge/harness_loop.py) | [Hooks 设计](docs/HARNESS_HOOKS_ACCEPTANCE.md) |
 | 长任务如何压缩历史并保留证据？ | [`context_engine/`](src/skillforge/context_engine/) | [上下文与缓存](docs/CONTEXT_CACHE_ACCEPTANCE.md) |
 | Worker 如何继承权限与预算？ | [`supervisor.py`](src/skillforge/supervisor.py) | [架构详解](docs/ARCHITECTURE_V2_DEEP_DIVE.md) |
 | MCP 与命令执行如何进入受控工具链？ | [`mcp_client.py`](src/skillforge/mcp_client.py)、[`process_executor.py`](src/skillforge/process_executor.py)、[`sandbox.py`](src/skillforge/sandbox.py) | [模块交接记录](docs/m1_m4_handover_diff.md) |

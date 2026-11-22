@@ -35,6 +35,7 @@ from .models import (
     CandidateSkill,
     Episode,
     FutureRetrievalResult,
+    PiCheckpointRecord,
     RetrievalContext,
     RunRecord,
     RunVersionBinding,
@@ -766,6 +767,7 @@ class AgentRuntime:
         episode_store: Optional[Any] = None,
         collector: Optional[Any] = None,
         memory_manager: Optional[Any] = None,
+        candidate_store: Optional[Any] = None,
     ):
         self.db_path = db_path
         self.tool_broker = tool_broker or ToolBroker()
@@ -782,6 +784,7 @@ class AgentRuntime:
                 registry=self.registry,
             )
         self.memory_manager = memory_manager
+        self.candidate_store = candidate_store
         self._lock = threading.Lock()
         self._local = threading.local()
         self._provenances: dict[str, list[ToolCallProvenance]] = {}
@@ -789,15 +792,194 @@ class AgentRuntime:
         self._run_retrieval_results: dict[str, FutureRetrievalResult] = {}
         self._run_artifact_validators: dict[str, Any] = {}
         self._run_candidate_bodies: dict[str, str] = {}
+        self._active_pi_clients: dict[str, Any] = {}
+        self._last_pi_pids: dict[str, int] = {}
+        self._last_pi_result: Optional[Any] = None
+        self._last_pi_results: dict[str, Any] = {}
+        self._run_harness_states: dict[str, Any] = {}
+        self._pause_requested_runs: set[str] = set()
+
+    def get_last_pi_pid(self, run_id: str) -> Optional[int]:
+        """Fetch the PID of the most recent Pi subprocess for a run."""
+        with self._lock:
+            return self._last_pi_pids.get(run_id)
+
+    def get_last_pi_result(self, run_id: Optional[str] = None) -> Optional[Any]:
+        """Return the last PiExecutionResult from a prompt execution."""
+        with self._lock:
+            if run_id and run_id in self._last_pi_results:
+                return self._last_pi_results[run_id]
+            return self._last_pi_result
+
+    def get_harness_state(self, run_id: str) -> Optional[Any]:
+        """Return the live HarnessState for an ongoing or completed run."""
+        with self._lock:
+            return self._run_harness_states.get(run_id)
 
     def register_artifact_validator(self, run_id: str, validator: Any) -> None:
         """Bind an authoritative validator to a run for end-to-end receipt verification."""
         with self._lock:
             self._run_artifact_validators[run_id] = validator
 
+    def request_pause_run(self, run_id: str) -> bool:
+        """Request a cooperative pause for an active run at the next context checkpoint.
+
+        Idempotent: repeated calls for the same active run succeed without error.
+        Explicitly rejects non-existent runs with KeyError and terminal/paused runs with ValueError.
+        """
+        with self._lock:
+            if run_id in self._pause_requested_runs:
+                return True
+
+            run = self.get_run(run_id)
+            if not run:
+                raise KeyError(f"Run '{run_id}' not found")
+
+            if run.status in (
+                "COMPLETED",
+                "FAILED",
+                "CANCELLED",
+                "TIMED_OUT",
+                "BUDGET_EXHAUSTED",
+                "INTERRUPTED",
+                "PAUSED",
+            ):
+                raise ValueError(
+                    f"Cannot pause run '{run_id}' in terminal/paused status '{run.status}'"
+                )
+
+            self._pause_requested_runs.add(run_id)
+            return True
+
+    def get_pi_checkpoint(self, run_id: str) -> Optional[PiCheckpointRecord]:
+        """Fetch the latest Pi checkpoint for a run joined with authoritative runtime bindings."""
+        conn = self._get_conn()
+        with self._lock:
+            row = conn.execute(
+                """SELECT
+                    c.checkpoint_id,
+                    c.run_id,
+                    c.format_version,
+                    c.messages_json,
+                    c.system_prompt,
+                    c.frozen_body,
+                    c.intent_version,
+                    c.epoch,
+                    c.working_state_json,
+                    c.model_config_json,
+                    c.tools_json,
+                    c.created_at,
+                    r.budget_max,
+                    r.budget_consumed,
+                    r.deadline_ts,
+                    r.status
+                FROM runtime_pi_checkpoints c
+                JOIN runtime_runs r ON c.run_id = r.run_id
+                WHERE c.run_id = ?
+                ORDER BY c.created_at DESC, c.rowid DESC
+                LIMIT 1""",
+                (run_id,),
+            ).fetchone()
+
+            if not row:
+                return None
+
+            fmt_ver = row[2]
+            if fmt_ver != 1:
+                raise ValueError(
+                    f"INVALID_CHECKPOINT: Unsupported format_version '{fmt_ver}' in checkpoint '{row[0]}', expected 1"
+                )
+
+            try:
+                messages = json.loads(row[3]) if row[3] is not None else []
+            except Exception as exc:
+                raise ValueError(
+                    f"INVALID_CHECKPOINT: Corrupted messages_json in checkpoint '{row[0]}': {exc}"
+                ) from exc
+
+            if not isinstance(messages, list):
+                raise ValueError(
+                    f"INVALID_CHECKPOINT: messages must be a list in checkpoint '{row[0]}'"
+                )
+
+            try:
+                working_state = json.loads(row[8]) if row[8] is not None else {}
+            except Exception as exc:
+                raise ValueError(
+                    f"INVALID_CHECKPOINT: Corrupted working_state_json in checkpoint '{row[0]}': {exc}"
+                ) from exc
+
+            if not isinstance(working_state, dict):
+                raise ValueError(
+                    f"INVALID_CHECKPOINT: working_state must be a dict in checkpoint '{row[0]}'"
+                )
+
+            try:
+                model_config = json.loads(row[9]) if row[9] is not None else {}
+            except Exception as exc:
+                raise ValueError(
+                    f"INVALID_CHECKPOINT: Corrupted model_config_json in checkpoint '{row[0]}': {exc}"
+                ) from exc
+
+            if not isinstance(model_config, dict):
+                raise ValueError(
+                    f"INVALID_CHECKPOINT: model_config must be a dict in checkpoint '{row[0]}'"
+                )
+
+            try:
+                tools = json.loads(row[10]) if row[10] is not None else []
+            except Exception as exc:
+                raise ValueError(
+                    f"INVALID_CHECKPOINT: Corrupted tools_json in checkpoint '{row[0]}': {exc}"
+                ) from exc
+
+            if not isinstance(tools, list):
+                raise ValueError(
+                    f"INVALID_CHECKPOINT: tools must be a list in checkpoint '{row[0]}'"
+                )
+
+            return PiCheckpointRecord(
+                checkpoint_id=row[0],
+                run_id=row[1],
+                format_version=int(row[2]) if row[2] is not None else 1,
+                messages=messages,
+                system_prompt=row[4] or "",
+                frozen_body=row[5] or "",
+                intent_version=str(row[6]) if row[6] is not None else "",
+                epoch=int(row[7]) if row[7] is not None else 0,
+                working_state=working_state,
+                model_config=model_config,
+                tools=tools,
+                created_at=str(row[11]) if row[11] is not None else "",
+                budget_max=int(row[12]) if row[12] is not None else 0,
+                budget_consumed=int(row[13]) if row[13] is not None else 0,
+                deadline_ts=float(row[14]) if row[14] is not None else None,
+                run_status=str(row[15]) if row[15] is not None else "",
+            )
+
     def _get_conn(self) -> sqlite3.Connection:
         if not hasattr(self._local, "conn") or self._local.conn is None:
             self._local.conn = init_db(self.db_path)
+            self._local.conn.execute(
+                """CREATE TABLE IF NOT EXISTS runtime_pi_checkpoints (
+                    checkpoint_id        TEXT PRIMARY KEY,
+                    run_id               TEXT NOT NULL,
+                    format_version       INTEGER NOT NULL DEFAULT 1,
+                    messages_json        TEXT NOT NULL,
+                    system_prompt        TEXT,
+                    frozen_body          TEXT,
+                    intent_version       TEXT,
+                    epoch                INTEGER NOT NULL DEFAULT 0,
+                    working_state_json   TEXT,
+                    model_config_json    TEXT,
+                    tools_json           TEXT,
+                    created_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (run_id) REFERENCES runtime_runs(run_id)
+                )"""
+            )
+            self._local.conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_runtime_pi_checkpoints_run ON runtime_pi_checkpoints(run_id)"
+            )
         return self._local.conn
 
     def close(self) -> None:
@@ -1079,6 +1261,14 @@ class AgentRuntime:
             task_spec_hash_val = candidate.task_spec_hash if candidate else None
             candidate_id_val = candidate.candidate_id if candidate else None
 
+            if self.candidate_store and hasattr(self.candidate_store, "get_task_context"):
+                tc = self.candidate_store.get_task_context(task_id)
+                if tc:
+                    if not candidate or getattr(candidate, "intent_revision", None) is None:
+                        intent_revision_val = tc.intent_revision
+                    if not task_spec_hash_val:
+                        task_spec_hash_val = tc.contract_fingerprint or tc.compute_fingerprint()
+
             conn.execute(
                 """INSERT INTO runtime_runs (
                     run_id, task_id, skill_name, skill_version, content_hash,
@@ -1176,6 +1366,36 @@ class AgentRuntime:
             if not run:
                 raise KeyError(f"Run '{run_id}' not found")
 
+            TERMINAL_STATUSES = {
+                "COMPLETED",
+                "FAILED",
+                "CANCELLED",
+                "TIMED_OUT",
+                "BUDGET_EXHAUSTED",
+                "INTERRUPTED",
+            }
+            if run.status in TERMINAL_STATUSES:
+                raise ValueError(f"Cannot resume run '{run_id}' from terminal state '{run.status}'")
+
+            # Check unsettled ADMITTED tool calls
+            admitted = conn.execute(
+                "SELECT call_id FROM runtime_tool_calls WHERE run_id = ? AND status = 'ADMITTED' ORDER BY created_at ASC",
+                (run_id,),
+            ).fetchall()
+            if admitted:
+                admitted_ids = [r[0] for r in admitted]
+                now_iso = datetime.now(timezone.utc).isoformat()
+                msg = f"Unsettled in-flight tool calls requiring review: {', '.join(admitted_ids)}"
+                conn.execute(
+                    """UPDATE runtime_runs
+                       SET status = 'INTERRUPTED', error_type = 'REVIEW_REQUIRED',
+                           error_message = ?, updated_at = ?, terminal_at = ?
+                       WHERE run_id = ?""",
+                    (msg, now_iso, now_iso, run_id),
+                )
+                conn.commit()
+                raise ValueError(f"REVIEW_REQUIRED: {msg}")
+
             now_iso = datetime.now(timezone.utc).isoformat()
             new_budget = budget_max if budget_max is not None else run.budget_max
             new_deadline = deadline_ts if deadline_ts is not None else run.deadline_ts
@@ -1236,8 +1456,12 @@ class AgentRuntime:
         """Execute a tool call under runtime budget, deadline, and permission guards."""
         eff_call_id = call_id or f"call_{uuid.uuid4().hex[:12]}"
         conn = self._get_conn()
+        sanitized = sanitize_params(parameters)
+        now_iso = datetime.now(timezone.utc).isoformat()
 
-        with self._lock:
+        with self._lock, conn:
+            conn.execute("BEGIN IMMEDIATE")
+
             # 1. Idempotency on call_id
             existing = conn.execute(
                 """SELECT call_id, run_id, tool_name, status, input_params_json,
@@ -1247,18 +1471,53 @@ class AgentRuntime:
                 (eff_call_id,),
             ).fetchone()
             if existing:
+                ex_cid, ex_rid, ex_tname, ex_st, ex_pjson, ex_otext, ex_odjson, ex_err_type, ex_err_msg, ex_lat, ex_created = existing
+                ex_params = json.loads(ex_pjson) if ex_pjson else {}
+
+                # Verify run_id, tool_name, and sanitize(input_params) match
+                if ex_rid != run_id or ex_tname != tool_name or ex_params != sanitized:
+                    # Conflict: explicitly reject and do not expose or overwrite original record
+                    return ToolCallRecord(
+                        call_id=eff_call_id,
+                        run_id=run_id,
+                        tool_name=tool_name,
+                        status="REJECTED",
+                        input_params=sanitized,
+                        error_type="IDEMPOTENCY_CONFLICT",
+                        error_message=f"call_id '{eff_call_id}' already exists with conflicting parameters or run",
+                        latency_ms=0.0,
+                        created_at=now_iso,
+                    )
+
+                if ex_st == "ADMITTED":
+                    # Same ADMITTED: in flight / unknown, cannot treat as success, cannot re-execute
+                    return ToolCallRecord(
+                        call_id=ex_cid,
+                        run_id=ex_rid,
+                        tool_name=ex_tname,
+                        status="ADMITTED",
+                        input_params=ex_params,
+                        output_text="",
+                        output_data={},
+                        error_type="IN_FLIGHT",
+                        error_message="Tool call is already admitted and currently in flight",
+                        latency_ms=0.0,
+                        created_at=ex_created,
+                    )
+
+                # Same completed call: return original result without re-executing or charging budget
                 return ToolCallRecord(
-                    call_id=existing[0],
-                    run_id=existing[1],
-                    tool_name=existing[2],
-                    status=existing[3],
-                    input_params=json.loads(existing[4]) if existing[4] else {},
-                    output_text=existing[5] or "",
-                    output_data=json.loads(existing[6]) if existing[6] else {},
-                    error_type=existing[7],
-                    error_message=existing[8],
-                    latency_ms=existing[9] or 0.0,
-                    created_at=existing[10],
+                    call_id=ex_cid,
+                    run_id=ex_rid,
+                    tool_name=ex_tname,
+                    status=ex_st,
+                    input_params=ex_params,
+                    output_text=ex_otext or "",
+                    output_data=json.loads(ex_odjson) if ex_odjson else {},
+                    error_type=ex_err_type,
+                    error_message=ex_err_msg,
+                    latency_ms=ex_lat or 0.0,
+                    created_at=ex_created,
                 )
 
             # 2. Check run state & budget
@@ -1271,21 +1530,12 @@ class AgentRuntime:
                 raise KeyError(f"Run '{run_id}' not found in runtime")
 
             status, b_max, b_consumed, deadline_ts, purpose = run_row
-            sanitized = sanitize_params(parameters)
-            now_iso = datetime.now(timezone.utc).isoformat()
 
-            # Reject if already terminal
-            if status in (
-                "COMPLETED",
-                "FAILED",
-                "CANCELLED",
-                "TIMED_OUT",
-                "BUDGET_EXHAUSTED",
-                "INTERRUPTED",
-            ):
+            # Reject if not RUNNING (PAUSED, INTERRUPTED, CANCELLED, COMPLETED, FAILED, TIMED_OUT, BUDGET_EXHAUSTED)
+            if status != "RUNNING":
                 err_type = (
                     status
-                    if status in ("BUDGET_EXHAUSTED", "TIMED_OUT", "CANCELLED")
+                    if status in ("BUDGET_EXHAUSTED", "TIMED_OUT", "CANCELLED", "PAUSED", "INTERRUPTED")
                     else "DISPATCH_AFTER_TERMINAL"
                 )
                 rec = ToolCallRecord(
@@ -1295,7 +1545,7 @@ class AgentRuntime:
                     status="REJECTED",
                     input_params=sanitized,
                     error_type=err_type,
-                    error_message=f"Cannot dispatch tool after run entered terminal state '{status}'",
+                    error_message=f"Cannot dispatch tool while run is in status '{status}'",
                     latency_ms=0.0,
                     created_at=now_iso,
                 )
@@ -1312,16 +1562,6 @@ class AgentRuntime:
                        WHERE run_id = ?""",
                     (now_iso, now_iso, run_id),
                 )
-                conn.commit()
-                if self.collector:
-                    self.collector.finish_run(
-                        run_id=run_id,
-                        infra_error="Task execution deadline exceeded",
-                        verification_evidence={
-                            "independent_pass": None,
-                            "failure_reason": "Task execution deadline exceeded",
-                        },
-                    )
                 rec = ToolCallRecord(
                     call_id=eff_call_id,
                     run_id=run_id,
@@ -1333,16 +1573,29 @@ class AgentRuntime:
                     latency_ms=0.0,
                     created_at=now_iso,
                 )
+                # Release SQLite's write lock before Collector writes via its connection.
                 self._persist_tool_call(rec)
+                if (
+                    self.collector
+                    and hasattr(self.collector, "_runs")
+                    and run_id in self.collector._runs
+                ):
+                    self.collector.finish_run(
+                        run_id=run_id,
+                        infra_error="Task execution deadline exceeded",
+                        verification_evidence={
+                            "independent_pass": None,
+                            "failure_reason": "Task execution deadline exceeded",
+                        },
+                    )
                 return rec
 
             # Check budget: rejected attempts also consume request budget!
             if b_consumed >= b_max:
                 conn.execute(
-                    "UPDATE runtime_runs SET status = 'BUDGET_EXHAUSTED', updated_at = CURRENT_TIMESTAMP WHERE run_id = ?",
-                    (run_id,),
+                    "UPDATE runtime_runs SET status = 'BUDGET_EXHAUSTED', updated_at = ? WHERE run_id = ?",
+                    (now_iso, run_id),
                 )
-                conn.commit()
                 rec = ToolCallRecord(
                     call_id=eff_call_id,
                     run_id=run_id,
@@ -1357,13 +1610,26 @@ class AgentRuntime:
                 self._persist_tool_call(rec)
                 return rec
 
-            # Pre-consume 1 budget ticket atomically
+            # Pre-consume 1 budget ticket and insert ADMITTED record atomically
             new_consumed = b_consumed + 1
             conn.execute(
-                "UPDATE runtime_runs SET budget_consumed = ?, updated_at = CURRENT_TIMESTAMP WHERE run_id = ?",
-                (new_consumed, run_id),
+                "UPDATE runtime_runs SET budget_consumed = ?, updated_at = ? WHERE run_id = ?",
+                (new_consumed, now_iso, run_id),
             )
-            conn.commit()
+            admitted_rec = ToolCallRecord(
+                call_id=eff_call_id,
+                run_id=run_id,
+                tool_name=tool_name,
+                status="ADMITTED",
+                input_params=sanitized,
+                output_text="",
+                output_data={},
+                error_type=None,
+                error_message=None,
+                latency_ms=0.0,
+                created_at=now_iso,
+            )
+            self._persist_tool_call(admitted_rec)
 
             skill_reqs = self._skill_required_tools.get(run_id)
 
@@ -1377,24 +1643,28 @@ class AgentRuntime:
             timeout=tool_timeout,
         )
 
-        with self._lock:
+        with self._lock, conn:
+            conn.execute("BEGIN IMMEDIATE")
             self._persist_tool_call(call_rec)
             if call_rec.provenance:
                 self._provenances.setdefault(run_id, []).append(call_rec.provenance)
                 if self.collector:
-                    self.collector.record_tool_call(
-                        run_id=run_id,
-                        provenance=call_rec.provenance,
-                        action_summary=f"Tool {tool_name} dispatch: {call_rec.status}",
-                    )
+                    collector_ctx = getattr(self.collector, "_runs", {}).get(run_id)
+                    if collector_ctx and not getattr(collector_ctx, "completed", False):
+                        self.collector.record_tool_call(
+                            run_id=run_id,
+                            provenance=call_rec.provenance,
+                            action_summary=f"Tool {tool_name} dispatch: {call_rec.status}",
+                        )
 
-            # Check if budget was just reached
+            # Check if budget was just reached (only update if still RUNNING)
             if new_consumed >= b_max:
                 conn.execute(
-                    "UPDATE runtime_runs SET status = 'BUDGET_EXHAUSTED', updated_at = CURRENT_TIMESTAMP WHERE run_id = ?",
-                    (run_id,),
+                    """UPDATE runtime_runs
+                       SET status = 'BUDGET_EXHAUSTED', updated_at = ?
+                       WHERE run_id = ? AND status = 'RUNNING'""",
+                    (datetime.now(timezone.utc).isoformat(), run_id),
                 )
-                conn.commit()
 
         return call_rec
 
@@ -1428,6 +1698,21 @@ class AgentRuntime:
         """Explicitly cancel an ongoing run."""
         if self.tool_broker and getattr(self.tool_broker, "sandbox_backend", None):
             self.tool_broker.sandbox_backend.cancel_run(run_id)
+        with self._lock:
+            pi_client = self._active_pi_clients.get(run_id)
+        if pi_client:
+            try:
+                import asyncio
+                if asyncio.iscoroutinefunction(getattr(pi_client, "abort", None)):
+                    try:
+                        loop = asyncio.get_running_loop()
+                        loop.create_task(pi_client.abort(run_id=run_id, reason=reason))
+                    except RuntimeError:
+                        asyncio.run(pi_client.abort(run_id=run_id, reason=reason))
+                else:
+                    pi_client.abort(run_id=run_id, reason=reason)
+            except Exception:
+                pass
         conn = self._get_conn()
         with self._lock:
             now_iso = datetime.now(timezone.utc).isoformat()
@@ -1442,6 +1727,7 @@ class AgentRuntime:
                 "CANCELLED",
                 "TIMED_OUT",
                 "BUDGET_EXHAUSTED",
+                "INTERRUPTED",
             ):
                 conn.execute(
                     """UPDATE runtime_runs
@@ -1451,15 +1737,21 @@ class AgentRuntime:
                     (reason, now_iso, now_iso, run_id),
                 )
                 conn.commit()
-                if self.collector:
-                    self.collector.finish_run(
-                        run_id=run_id,
-                        infra_error=f"CANCELLED: {reason}",
-                        verification_evidence={
-                            "independent_pass": None,
-                            "failure_reason": f"CANCELLED: {reason}",
-                        },
-                    )
+                if (
+                    self.collector
+                    and hasattr(self.collector, "_runs")
+                    and run_id in self.collector._runs
+                ):
+                    ctx = self.collector._runs[run_id]
+                    if not getattr(ctx, "completed", False):
+                        self.collector.finish_run(
+                            run_id=run_id,
+                            infra_error=f"CANCELLED: {reason}",
+                            verification_evidence={
+                                "independent_pass": None,
+                                "failure_reason": f"CANCELLED: {reason}",
+                            },
+                        )
 
         return self.get_run(run_id)  # type: ignore
 
@@ -1817,11 +2109,15 @@ class AgentRuntime:
           budget consumption, deadline checks, and ExperienceCollector logging.
         """
         skill_name = candidate.skill_name if candidate else None
-        if not skill_name:
-            run_rec = self.get_run(run_id)
-            if run_rec and run_rec.skill_name:
-                skill_name = run_rec.skill_name
-        body = self.get_run_body(skill_name=skill_name, run_id=run_id)
+        run_rec = self.get_run(run_id)
+        if not skill_name and run_rec and run_rec.skill_name:
+            skill_name = run_rec.skill_name
+        body = ""
+        if candidate or (run_rec and run_rec.skill_name):
+            try:
+                body = self.get_run_body(skill_name=skill_name, run_id=run_id)
+            except KeyError:
+                body = ""
         system_prompt = f"{system_prompt_header}\n{body}".strip() if system_prompt_header else body
 
         from hello_agents import Config, SimpleAgent, ToolRegistry
@@ -1856,6 +2152,1693 @@ class AgentRuntime:
             max_tool_iterations=max_tool_iterations,
         )
         return agent.run(input_text)
+
+    def consume_turn_budget(self, run_id: str) -> tuple[bool, Optional[str], Optional[str]]:
+        """Authoritatively check and consume 1 budget ticket for a model turn.
+
+        Returns: (allowed, error_type, error_message)
+        """
+        conn = self._get_conn()
+        with self._lock:
+            row = conn.execute(
+                "SELECT status, budget_max, budget_consumed, deadline_ts FROM runtime_runs WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+            if not row:
+                return False, "RUN_NOT_FOUND", f"Run '{run_id}' not found"
+
+            status, b_max, b_consumed, dl_ts = row
+            now_iso = datetime.now(timezone.utc).isoformat()
+
+            if status != "RUNNING":
+                return False, status, f"Run is not running ('{status}')"
+
+            if dl_ts and time.time() > dl_ts:
+                conn.execute(
+                    """UPDATE runtime_runs
+                       SET status = 'TIMED_OUT', error_type = 'TIMEOUT', error_message = 'Deadline exceeded',
+                           updated_at = ?, terminal_at = ?
+                       WHERE run_id = ?""",
+                    (now_iso, now_iso, run_id),
+                )
+                conn.commit()
+                if self.collector and run_id in getattr(self.collector, "_runs", {}):
+                    try:
+                        self.collector.finish_run(
+                            run_id=run_id,
+                            model_output="",
+                            verification_evidence={
+                                "independent_pass": False,
+                                "failure_reason": "Execution deadline exceeded in consume_turn_budget",
+                            },
+                            infra_error="Execution deadline exceeded",
+                        )
+                    except Exception:
+                        pass
+                return False, "TIMED_OUT", "Execution deadline exceeded"
+
+            if b_consumed >= b_max:
+                conn.execute(
+                    """UPDATE runtime_runs
+                       SET status = 'BUDGET_EXHAUSTED', error_type = 'BUDGET_EXHAUSTED', error_message = 'Budget limit reached',
+                           updated_at = ?, terminal_at = ?
+                       WHERE run_id = ?""",
+                    (now_iso, now_iso, run_id),
+                )
+                conn.commit()
+                return False, "BUDGET_EXHAUSTED", f"Budget limit reached ({b_consumed}/{b_max})"
+
+            new_consumed = b_consumed + 1
+            conn.execute(
+                "UPDATE runtime_runs SET budget_consumed = ?, updated_at = CURRENT_TIMESTAMP WHERE run_id = ?",
+                (new_consumed, run_id),
+            )
+            if new_consumed >= b_max:
+                conn.execute(
+                    "UPDATE runtime_runs SET status = 'BUDGET_EXHAUSTED', updated_at = CURRENT_TIMESTAMP WHERE run_id = ?",
+                    (run_id,),
+                )
+            conn.commit()
+            return True, None, None
+
+    async def arun_agent_with_pi(
+        self,
+        run_id: str,
+        input_text: str = "",
+        candidate: Optional[Any] = None,
+        tools: Optional[list[str]] = None,
+        system_prompt_header: str = "",
+        model_config: Optional[dict[str, Any]] = None,
+        test_mode: Optional[bool] = None,
+        timeout: float = 30.0,
+        context_compressor: Optional[Any] = None,
+        hooks: Optional[Any] = None,
+        initial_scratchpad: Optional[dict[str, Any]] = None,
+        goal: Optional[str] = None,
+        intent_version: Optional[str] = None,
+        active_constraints: Optional[list[str]] = None,
+        workspace_dir: Optional[Path] = None,
+        checkpoint: Optional[PiCheckpointRecord] = None,
+        model_turn_admission: Optional[Callable[[str, int], Any]] = None,
+        model_turn_receipt: Optional[Callable[[dict[str, Any]], Any]] = None,
+    ) -> str:
+        """Execute a Pi Agent SDK run using frozen skill body snapshot and brokered tools.
+
+        Guarantees:
+        - System prompt strictly uses get_run_body to prevent mutable draft leakage.
+        - Tool execution strictly mediates through AgentRuntime.execute_tool -> ToolBroker.
+        - Model turns and tool calls share authoritative runtime step/budget/deadline.
+        - ContextCompressor integration through native Pi transformContext protocol.
+        - Zero default tools (read/write/bash) enabled on Pi.
+        - Subprocess lifecycle managed with graceful abort and reaping.
+        - Terminal exceptions/aborts settle run and collector, preventing success Episode.
+        """
+        import asyncio
+        import copy
+        import sys
+        from .pi_adapter import PiRunnerClient, tool_parameters_to_json_schema
+        from .context_engine.schemas import ProtectedState, WorkSummary, MemoryIndex, AttachmentRef, VerifiedFact, FailedAttempt
+        from .harness_loop import (
+            AsyncHarnessLoop,
+            HarnessHooks,
+            HarnessState,
+            HookDecision,
+            ToolCallSpec,
+            ModelResponse,
+            normalize_model_usage,
+        )
+
+        if test_mode is None:
+            is_test = bool(
+                "pytest" in sys.modules
+                or os.environ.get("SKILLFORGE_ENV") == "test"
+                or (model_config and (model_config.get("is_test") or model_config.get("test_mode")))
+            )
+        else:
+            is_test = bool(test_mode)
+
+        if model_config is None:
+            if checkpoint and checkpoint.model_config:
+                model_config = dict(checkpoint.model_config)
+            else:
+                model_config = {"provider": "anthropic", "model_id": "claude-haiku-4-5"}
+
+        provider = model_config.get("provider", "anthropic")
+        if provider == "faux" and not is_test:
+            raise ValueError("Faux provider is restricted to explicit test mode (test_mode=True)")
+        if "responses" in model_config and not is_test:
+            raise ValueError("Pre-written response scripts are restricted to explicit test mode (test_mode=True)")
+
+        run_rec = self.get_run(run_id)
+
+        if checkpoint:
+            if tools is not None:
+                raise ValueError("Cannot override tools when resuming from checkpoint")
+            if candidate is not None:
+                raise ValueError("Cannot override candidate when resuming from checkpoint")
+            if goal is not None:
+                raise ValueError("Cannot override goal when resuming from checkpoint")
+            if intent_version is not None:
+                raise ValueError("Cannot override intent_version when resuming from checkpoint")
+            if initial_scratchpad is not None:
+                raise ValueError("Cannot override initial_scratchpad when resuming from checkpoint")
+            if active_constraints is not None:
+                raise ValueError("Cannot override active_constraints when resuming from checkpoint")
+            if bool(system_prompt_header):
+                raise ValueError("Cannot override system_prompt_header when resuming from checkpoint")
+
+            if not run_rec:
+                raise KeyError(f"Run '{run_id}' not found")
+
+            TERMINAL_STATUSES = {
+                "COMPLETED",
+                "FAILED",
+                "CANCELLED",
+                "TIMED_OUT",
+                "BUDGET_EXHAUSTED",
+                "INTERRUPTED",
+            }
+            if run_rec.status in TERMINAL_STATUSES:
+                raise ValueError(f"Cannot resume run '{run_id}' in terminal status '{run_rec.status}'")
+            if run_rec.status != "PAUSED":
+                raise ValueError(f"Cannot resume run '{run_id}' in non-PAUSED status '{run_rec.status}'")
+
+            # Check unsettled ADMITTED tool calls
+            conn = self._get_conn()
+            admitted = conn.execute(
+                "SELECT call_id FROM runtime_tool_calls WHERE run_id = ? AND status = 'ADMITTED' ORDER BY created_at ASC",
+                (run_id,),
+            ).fetchall()
+            if admitted:
+                admitted_ids = [r[0] for r in admitted]
+                now_iso = datetime.now(timezone.utc).isoformat()
+                msg = f"Unsettled in-flight tool calls requiring review: {', '.join(admitted_ids)}"
+                with self._lock:
+                    conn.execute(
+                        """UPDATE runtime_runs
+                           SET status = 'INTERRUPTED', error_type = 'REVIEW_REQUIRED',
+                               error_message = ?, updated_at = ?, terminal_at = ?
+                           WHERE run_id = ?""",
+                        (msg, now_iso, now_iso, run_id),
+                    )
+                    conn.commit()
+                    if (
+                        self.collector
+                        and hasattr(self.collector, "_runs")
+                        and run_id in self.collector._runs
+                    ):
+                        try:
+                            self.collector.finish_run(
+                                run_id=run_id,
+                                infra_error=msg,
+                                verification_evidence={
+                                    "independent_pass": None,
+                                    "failure_reason": f"REVIEW_REQUIRED: {msg}",
+                                },
+                            )
+                        except Exception:
+                            pass
+                raise ValueError(f"REVIEW_REQUIRED: {msg}")
+
+            canonical_checkpoint = self.get_pi_checkpoint(run_id)
+            if not canonical_checkpoint:
+                raise ValueError(f"INVALID_CHECKPOINT: No canonical checkpoint found for run '{run_id}'")
+
+            if (
+                checkpoint.checkpoint_id != canonical_checkpoint.checkpoint_id
+                or checkpoint.run_id != canonical_checkpoint.run_id
+                or checkpoint.format_version != canonical_checkpoint.format_version
+                or checkpoint.messages != canonical_checkpoint.messages
+                or checkpoint.frozen_body != canonical_checkpoint.frozen_body
+                or checkpoint.working_state != canonical_checkpoint.working_state
+                or checkpoint.system_prompt != canonical_checkpoint.system_prompt
+                or checkpoint.epoch != canonical_checkpoint.epoch
+                or checkpoint.intent_version != canonical_checkpoint.intent_version
+                or checkpoint.tools != canonical_checkpoint.tools
+            ):
+                raise ValueError(
+                    f"INVALID_CHECKPOINT: Caller-provided checkpoint differs from canonical store checkpoint for run '{run_id}'"
+                )
+
+            checkpoint = canonical_checkpoint
+            working_state = checkpoint.working_state or {}
+            binding = working_state.get("recovery_binding")
+            if not binding or not isinstance(binding, dict):
+                raise ValueError(
+                    f"STALE_CHECKPOINT: Checkpoint '{checkpoint.checkpoint_id}' missing valid recovery_binding (unsupported legacy or unverified checkpoint)"
+                )
+
+            # 1. Compare against canonical RunRecord
+            if binding.get("run_id") != run_rec.run_id:
+                raise ValueError(f"STALE_CHECKPOINT: run_id drift: expected {binding.get('run_id')}, got {run_rec.run_id}")
+            if binding.get("task_id") != run_rec.task_id:
+                raise ValueError(f"STALE_CHECKPOINT: task_id drift: expected {binding.get('task_id')}, got {run_rec.task_id}")
+            if binding.get("intent_revision") != run_rec.intent_revision:
+                raise ValueError(f"STALE_CHECKPOINT: intent_revision drift in RunRecord: expected {binding.get('intent_revision')}, got {run_rec.intent_revision}")
+            if (binding.get("task_spec_hash") or "") != (run_rec.task_spec_hash or ""):
+                raise ValueError(f"STALE_CHECKPOINT: task_spec_hash drift in RunRecord: expected {binding.get('task_spec_hash')}, got {run_rec.task_spec_hash}")
+            if (binding.get("content_hash") or "") != (run_rec.content_hash or ""):
+                raise ValueError(f"STALE_CHECKPOINT: content_hash drift in RunRecord: expected {binding.get('content_hash')}, got {run_rec.content_hash}")
+
+            cur_body_sha256 = hashlib.sha256((run_rec.frozen_body or "").encode("utf-8")).hexdigest()
+            if binding.get("body_sha256") != cur_body_sha256:
+                raise ValueError(f"STALE_CHECKPOINT: frozen_body sha256 drift in RunRecord: expected {binding.get('body_sha256')}, got {cur_body_sha256}")
+
+            # 2. Compare model_config whitelist (provider, model_id, model, temperature, max_tokens)
+            bound_mc = binding.get("model_config") or {}
+            for k in ("provider", "model_id", "model", "temperature", "max_tokens"):
+                if k in bound_mc:
+                    expected_v = bound_mc[k]
+                    actual_v = model_config.get(k) if isinstance(model_config, dict) else None
+                    if actual_v != expected_v:
+                        raise ValueError(f"STALE_CHECKPOINT: model_config drift for '{k}': expected {expected_v}, got {actual_v}")
+                elif isinstance(model_config, dict) and k in model_config and model_config[k] is not None:
+                    raise ValueError(f"STALE_CHECKPOINT: model_config introduced parameter '{k}' not present in bound checkpoint")
+
+            # 3. Compare ToolBroker allowlist & tool schemas
+            if self.tool_broker:
+                curr_allowlist = (
+                    sorted(list(self.tool_broker.application_allowlist))
+                    if self.tool_broker.application_allowlist is not None
+                    else None
+                )
+                if binding.get("application_allowlist") != curr_allowlist:
+                    raise ValueError(
+                        f"STALE_CHECKPOINT: ToolBroker application_allowlist drift: expected {binding.get('application_allowlist')}, got {curr_allowlist}"
+                    )
+
+                bound_tools = binding.get("tools") or []
+                bound_schemas = binding.get("tool_schemas") or {}
+                for tname in bound_tools:
+                    if self.tool_broker.get_tool(tname) is None:
+                        raise ValueError(f"STALE_CHECKPOINT: Tool '{tname}' missing from ToolBroker")
+                    curr_params = self.tool_broker.get_parameters(tname)
+                    curr_schema = tool_parameters_to_json_schema(curr_params)
+                    if tname in bound_schemas and curr_schema != bound_schemas[tname]:
+                        raise ValueError(f"STALE_CHECKPOINT: Tool parameter schema drift for tool '{tname}'")
+
+            # 4. Compare bound artifact validator if present
+            bound_val = binding.get("artifact_validator")
+            if bound_val is not None:
+                curr_val = self._run_artifact_validators.get(run_id)
+                if not curr_val:
+                    raise ValueError("STALE_CHECKPOINT: Missing required artifact_validator")
+                c_id = getattr(curr_val, "validator_id", getattr(curr_val, "id", str(type(curr_val).__name__)))
+                c_ver = getattr(curr_val, "validator_version", getattr(curr_val, "version", "1.0.0"))
+                c_hash = getattr(curr_val, "config_hash", getattr(curr_val, "hash", ""))
+                if (
+                    c_id != bound_val.get("id")
+                    or c_ver != bound_val.get("version")
+                    or c_hash != bound_val.get("config_hash")
+                ):
+                    raise ValueError("STALE_CHECKPOINT: Artifact validator drift detected")
+
+            # 5. Compare TaskContext from CandidateStore if present
+            if binding.get("task_context") is not None and self.candidate_store is None:
+                raise ValueError("STALE_CHECKPOINT: Missing required canonical TaskContext store")
+            if self.candidate_store and hasattr(self.candidate_store, "get_task_context"):
+                tc = self.candidate_store.get_task_context(run_rec.task_id)
+                bound_ctx = binding.get("task_context")
+                if bound_ctx is not None:
+                    if not tc:
+                        raise ValueError(f"STALE_CHECKPOINT: Canonical TaskContext missing for task '{run_rec.task_id}'")
+                    if tc.intent_revision != bound_ctx.get("intent_revision"):
+                        raise ValueError(
+                            f"STALE_CHECKPOINT: TaskContext intent_revision drift: expected {bound_ctx.get('intent_revision')}, got {tc.intent_revision}"
+                        )
+                    curr_fp = tc.compute_fingerprint()
+                    if curr_fp != bound_ctx.get("contract_fingerprint"):
+                        raise ValueError(
+                            f"STALE_CHECKPOINT: TaskContext contract_fingerprint drift: expected {bound_ctx.get('contract_fingerprint')}, got {curr_fp}"
+                        )
+                    if sorted(list(tc.constraints)) != bound_ctx.get("constraints"):
+                        raise ValueError("STALE_CHECKPOINT: TaskContext constraints drift")
+                    if tc.acceptance_criteria != bound_ctx.get("acceptance_criteria"):
+                        raise ValueError("STALE_CHECKPOINT: TaskContext acceptance_criteria drift")
+
+            # Pre-execution deadline check
+            if run_rec.deadline_ts and time.time() > run_rec.deadline_ts:
+                with self._lock:
+                    now_iso = datetime.now(timezone.utc).isoformat()
+                    conn = self._get_conn()
+                    conn.execute(
+                        """UPDATE runtime_runs
+                           SET status = 'TIMED_OUT', error_type = 'TIMEOUT', error_message = 'Deadline exceeded',
+                               updated_at = ?, terminal_at = ?
+                           WHERE run_id = ? AND terminal_at IS NULL""",
+                        (now_iso, now_iso, run_id),
+                    )
+                    conn.commit()
+                    if self.collector and run_id in getattr(self.collector, "_runs", {}):
+                        try:
+                            self.collector.finish_run(
+                                run_id=run_id,
+                                model_output="",
+                                verification_evidence={
+                                    "independent_pass": False,
+                                    "failure_reason": "Execution deadline exceeded before run started",
+                                },
+                                infra_error="Execution deadline exceeded",
+                            )
+                        except Exception:
+                            pass
+                raise TimeoutError("Execution deadline exceeded before run started")
+
+            # CAS update from PAUSED to RUNNING without altering budget_max or deadline_ts
+            now_iso = datetime.now(timezone.utc).isoformat()
+            conn = self._get_conn()
+            with self._lock:
+                cur = conn.execute(
+                    """UPDATE runtime_runs
+                       SET status = 'RUNNING', updated_at = ?
+                       WHERE run_id = ? AND status = 'PAUSED' AND terminal_at IS NULL""",
+                    (now_iso, run_id),
+                )
+                if cur.rowcount == 0:
+                    raise ValueError(f"Cannot resume run '{run_id}': CAS update failed, run is not in PAUSED state")
+                conn.commit()
+            run_rec = self.get_run(run_id)
+
+            working_state = checkpoint.working_state or {}
+            body = checkpoint.frozen_body or (run_rec.frozen_body if run_rec else "")
+            self._run_candidate_bodies[run_id] = body
+            base_system_prompt = working_state.get("base_system_prompt") or body
+            system_prompt = base_system_prompt
+
+            target_tools: list[str] = list(checkpoint.tools or [])
+            self._skill_required_tools[run_id] = set(target_tools)
+
+            eff_goal = working_state.get("goal") or (run_rec.task_id if run_rec else input_text)
+            eff_intent = checkpoint.intent_version or working_state.get("intent_version") or "v1"
+            curr_epoch = checkpoint.epoch or working_state.get("context_epoch", 1)
+            curr_step = working_state.get("step_count", 0)
+
+            raw_scratch = working_state.get("working_scratchpad", {})
+            scratchpad: dict[str, Any] = {}
+            if "protected_state" in raw_scratch:
+                ps_data = raw_scratch["protected_state"]
+                if isinstance(ps_data, ProtectedState):
+                    scratchpad["protected_state"] = ps_data
+                elif isinstance(ps_data, dict):
+                    scratchpad["protected_state"] = ProtectedState(
+                        intent_version=str(ps_data.get("intent_version", eff_intent)),
+                        current_goal=str(ps_data.get("current_goal", eff_goal)),
+                        active_constraints=list(ps_data.get("active_constraints", [])),
+                        pending_approvals=list(ps_data.get("pending_approvals", [])),
+                        allowed_tools=list(ps_data.get("allowed_tools", target_tools)),
+                    )
+            else:
+                scratchpad["protected_state"] = ProtectedState(
+                    intent_version=eff_intent,
+                    current_goal=eff_goal,
+                    active_constraints=list(active_constraints or []),
+                    allowed_tools=list(target_tools),
+                )
+
+            if "work_summary" in raw_scratch:
+                ws_d = raw_scratch["work_summary"]
+                if isinstance(ws_d, WorkSummary):
+                    scratchpad["work_summary"] = ws_d
+                elif isinstance(ws_d, dict):
+                    facts = [
+                        f if isinstance(f, VerifiedFact) else VerifiedFact(
+                            fact=str(f.get("fact", "")),
+                            evidence_ref=str(f.get("evidence_ref", "")),
+                            timestamp=str(f.get("timestamp", "")),
+                            confidence=f.get("confidence", "HIGH"),
+                        )
+                        for f in ws_d.get("verified_facts", [])
+                    ]
+                    attempts = [
+                        a if isinstance(a, FailedAttempt) else FailedAttempt(
+                            action=str(a.get("action", "")),
+                            reason=str(a.get("reason", "")),
+                            resolution=str(a.get("resolution", "")),
+                        )
+                        for a in ws_d.get("failed_attempts", [])
+                    ]
+                    scratchpad["work_summary"] = WorkSummary(
+                        verified_facts=facts,
+                        failed_attempts=attempts,
+                        open_questions=list(ws_d.get("open_questions", [])),
+                        structured_entities=dict(ws_d.get("structured_entities", {})),
+                    )
+            else:
+                scratchpad["work_summary"] = WorkSummary()
+
+            if "memory_index" in raw_scratch:
+                mi_d = raw_scratch["memory_index"]
+                if isinstance(mi_d, MemoryIndex):
+                    scratchpad["memory_index"] = mi_d
+                elif isinstance(mi_d, dict):
+                    atts = [
+                        a if isinstance(a, AttachmentRef) else AttachmentRef(
+                            ref_id=str(a.get("ref_id", "")),
+                            description=str(a.get("description", "")),
+                            total_items=int(a.get("total_items", 0)),
+                            expanded_items=int(a.get("expanded_items", 0)),
+                            item_keys=list(a.get("item_keys", [])),
+                            access_method=str(a.get("access_method", "")),
+                        )
+                        for a in mi_d.get("attachments", [])
+                    ]
+                    scratchpad["memory_index"] = MemoryIndex(
+                        attachments=atts,
+                        object_coverage=dict(mi_d.get("object_coverage", {})),
+                    )
+            else:
+                scratchpad["memory_index"] = MemoryIndex()
+
+            for k, v in raw_scratch.items():
+                if k not in scratchpad:
+                    scratchpad[k] = v
+
+            harness_state = HarnessState(
+                run_id=run_id,
+                task_id=run_rec.task_id if run_rec else "task_default",
+                intent_version=eff_intent,
+                goal=eff_goal,
+                system_prompt=checkpoint.system_prompt or system_prompt,
+                messages=list(checkpoint.messages),
+                step_count=curr_step,
+                budget_max=run_rec.budget_max if run_rec else 10,
+                working_scratchpad=scratchpad,
+                workspace_dir=Path(workspace_dir) if workspace_dir else Path.cwd(),
+                deadline_ts=run_rec.deadline_ts if run_rec else None,
+            )
+            setattr(harness_state, "context_epoch", curr_epoch)
+
+            def _rebuild_provenance(d: Any) -> Optional[ToolCallProvenance]:
+                if isinstance(d, ToolCallProvenance):
+                    return d
+                if not isinstance(d, dict):
+                    return None
+                try:
+                    return ToolCallProvenance(
+                        tool_name=str(d.get("tool_name", "")),
+                        fixture_case_id=str(d.get("fixture_case_id", "")),
+                        call_index=int(d.get("call_index", 0)),
+                        call_count=int(d.get("call_count", 0)),
+                        is_fixture=bool(d.get("is_fixture", False)),
+                        tool_required=bool(d.get("tool_required", False)),
+                        tool_called=bool(d.get("tool_called", False)),
+                        tool_success=bool(d.get("tool_success", False)),
+                        authenticity_pass=bool(d.get("authenticity_pass", False)),
+                        input_params=dict(d.get("input_params", {})),
+                        output_status=d.get("output_status", "SUCCESS"),
+                        output_summary=str(d.get("output_summary", "")),
+                        latency_ms=float(d.get("latency_ms", 0.0)),
+                        timestamp=str(d.get("timestamp", "")),
+                        signature=str(d.get("signature", "")),
+                        snapshot_id=str(d.get("snapshot_id", "")),
+                        snapshot_content=str(d.get("snapshot_content", "")),
+                    )
+                except Exception:
+                    return None
+
+            raw_rt_provs = working_state.get("runtime_provenances", [])
+            rebuilt_rt_provs = [p for p in (_rebuild_provenance(x) for x in raw_rt_provs) if p is not None]
+            with self._lock:
+                self._provenances[run_id] = rebuilt_rt_provs
+
+            if self.collector:
+                from .collector import RunContext
+                raw_c_provs = working_state.get("collector_provenances", [])
+                rebuilt_c_provs = [p for p in (_rebuild_provenance(x) for x in raw_c_provs) if p is not None]
+                if not rebuilt_c_provs and rebuilt_rt_provs:
+                    rebuilt_c_provs = list(rebuilt_rt_provs)
+                c_env = working_state.get("collector_environment") or {"purpose": run_rec.purpose}
+                c_sums = working_state.get("collector_action_summaries") or []
+                self.collector._runs[run_id] = RunContext(
+                    run_id=run_id,
+                    task_id=run_rec.task_id,
+                    skill_name=run_rec.skill_name or "",
+                    skill_version=run_rec.skill_version or "",
+                    environment=dict(c_env),
+                    provenances=list(rebuilt_c_provs),
+                    action_summaries=list(c_sums),
+                    completed=False,
+                )
+        else:
+            # Pre-execution deadline check
+            if run_rec and run_rec.deadline_ts and time.time() > run_rec.deadline_ts:
+                with self._lock:
+                    now_iso = datetime.now(timezone.utc).isoformat()
+                    conn = self._get_conn()
+                    conn.execute(
+                        """UPDATE runtime_runs
+                           SET status = 'TIMED_OUT', error_type = 'TIMEOUT', error_message = 'Deadline exceeded',
+                               updated_at = ?, terminal_at = ?
+                           WHERE run_id = ? AND terminal_at IS NULL""",
+                        (now_iso, now_iso, run_id),
+                    )
+                    conn.commit()
+                    if self.collector and run_id in getattr(self.collector, "_runs", {}):
+                        try:
+                            self.collector.finish_run(
+                                run_id=run_id,
+                                model_output="",
+                                verification_evidence={
+                                    "independent_pass": False,
+                                    "failure_reason": "Execution deadline exceeded before run started",
+                                },
+                                infra_error="Execution deadline exceeded",
+                            )
+                        except Exception:
+                            pass
+                raise TimeoutError("Execution deadline exceeded before run started")
+
+            skill_name = candidate.skill_name if candidate else None
+            if not skill_name and run_rec and run_rec.skill_name:
+                skill_name = run_rec.skill_name
+            body = ""
+            if candidate or (run_rec and run_rec.skill_name):
+                try:
+                    body = self.get_run_body(skill_name=skill_name, run_id=run_id)
+                except KeyError:
+                    body = ""
+            base_system_prompt = f"{system_prompt_header}\n{body}".strip() if system_prompt_header else body
+            system_prompt = base_system_prompt
+
+            target_tools = []
+            if tools is not None:
+                target_tools = list(tools)
+            elif candidate and getattr(candidate, "meta", None) and getattr(candidate.meta, "dependencies", None):
+                target_tools = list(candidate.meta.dependencies)
+            elif self.tool_broker:
+                target_tools = list(self.tool_broker._tools.keys())
+
+            # Authoritative goal, intent, constraints from runtime snapshot
+            eff_goal = goal or (run_rec.task_id if run_rec else input_text)
+            eff_intent = intent_version or (run_rec.intent_revision if run_rec and run_rec.intent_revision else "v1")
+            eff_constraints = list(active_constraints or [])
+
+            scratchpad = dict(initial_scratchpad or {})
+            if "protected_state" not in scratchpad:
+                scratchpad["protected_state"] = ProtectedState(
+                    intent_version=eff_intent,
+                    current_goal=eff_goal,
+                    active_constraints=eff_constraints,
+                    allowed_tools=list(target_tools),
+                )
+            if "work_summary" not in scratchpad:
+                scratchpad["work_summary"] = WorkSummary()
+            if "memory_index" not in scratchpad:
+                scratchpad["memory_index"] = MemoryIndex()
+
+            harness_state = HarnessState(
+                run_id=run_id,
+                task_id=run_rec.task_id if run_rec else "task_default",
+                intent_version=eff_intent,
+                goal=eff_goal,
+                system_prompt=system_prompt,
+                messages=[],
+                step_count=0,
+                budget_max=run_rec.budget_max if run_rec else 10,
+                working_scratchpad=scratchpad,
+                workspace_dir=Path(workspace_dir) if workspace_dir else Path.cwd(),
+                deadline_ts=run_rec.deadline_ts if run_rec else None,
+            )
+        with self._lock:
+            self._run_harness_states[run_id] = harness_state
+
+        bound_run_rec = run_rec
+        bound_task_id = run_rec.task_id if run_rec else ""
+        bound_intent_revision = run_rec.intent_revision if run_rec and run_rec.intent_revision is not None else 1
+        bound_task_spec_hash = run_rec.task_spec_hash or "" if run_rec else ""
+        bound_content_hash = run_rec.content_hash or "" if run_rec else ""
+        bound_f_body = run_rec.frozen_body if (run_rec and run_rec.frozen_body is not None) else body
+        bound_body_sha256 = hashlib.sha256((bound_f_body or "").encode("utf-8")).hexdigest()
+
+        bound_requires_store = False
+        bound_tc_present = False
+        bound_tc_revision = None
+        bound_tc_fingerprint = None
+
+        if checkpoint and checkpoint.working_state:
+            rec_b = checkpoint.working_state.get("recovery_binding") or {}
+            tc_b = rec_b.get("task_context")
+            if tc_b:
+                bound_requires_store = True
+                bound_tc_present = True
+                bound_tc_revision = tc_b.get("intent_revision")
+                bound_tc_fingerprint = tc_b.get("contract_fingerprint")
+        elif self.candidate_store and hasattr(self.candidate_store, "get_task_context") and bound_task_id:
+            bound_requires_store = True
+            init_tc = self.candidate_store.get_task_context(bound_task_id)
+            if init_tc:
+                bound_tc_present = True
+                bound_tc_revision = init_tc.intent_revision
+                bound_tc_fingerprint = init_tc.compute_fingerprint()
+
+        # Construct explicit tool list for Pi
+        pi_tools = []
+        for tname in target_tools:
+            tool_obj = self.tool_broker.get_tool(tname)
+            desc = ""
+            if hasattr(tool_obj, "description"):
+                desc = getattr(tool_obj, "description", "")
+            elif isinstance(tool_obj, dict):
+                desc = tool_obj.get("description", "")
+            params = self.tool_broker.get_parameters(tname)
+            schema = tool_parameters_to_json_schema(params)
+            pi_tools.append({
+                "name": tname,
+                "description": desc,
+                "parameters": schema,
+            })
+
+        client = PiRunnerClient()
+        await client.start()
+
+        with self._lock:
+            self._active_pi_clients[run_id] = client
+            if client.pid:
+                self._last_pi_pids[run_id] = client.pid
+
+        async def pause_for_hook_review(r_id: str, message: str) -> dict[str, Any]:
+            harness_state.status = "PAUSED_FOR_REVIEW"
+            harness_state.error_message = message
+            conn = self._get_conn()
+            now_iso = datetime.now(timezone.utc).isoformat()
+            conn.execute(
+                """UPDATE runtime_runs SET status='INTERRUPTED', error_type='REVIEW_REQUIRED',
+                   error_message=?, updated_at=?, terminal_at=?
+                   WHERE run_id=? AND terminal_at IS NULL""",
+                (message, now_iso, now_iso, r_id),
+            )
+            conn.commit()
+            # Stop queued tool calls, not just the current observation.
+            await client.abort(run_id=r_id, reason=message)
+            return {"status": "REJECTED", "error_type": "REVIEW_REQUIRED", "output": message}
+
+        try:
+            async def handle_tool_call(r_id: str, t_name: str, params: dict[str, Any], c_id: str) -> dict[str, Any]:
+                tc = ToolCallSpec(id=c_id, name=t_name, arguments=params)
+
+                # Hook: pre_tool_exec
+                if hooks and hasattr(hooks, "pre_tool_exec") and hooks.pre_tool_exec:
+                    decision = await AsyncHarnessLoop._execute_hook(
+                        hooks.pre_tool_exec,
+                        "pre_tool_exec",
+                        harness_state,
+                        tc,
+                        default_critical=True,
+                    )
+                    if decision.action == "deny":
+                        allowed, err_type, err_msg = self.consume_turn_budget(r_id)
+                        if not allowed:
+                            raise RuntimeError(f"{err_type}: {err_msg}")
+                        # Hook details stay in audit, not in model-visible observations.
+                        err_msg = f"ERROR [PERMISSION_DENIED]: Tool '{tc.name}' denied by business constraint hook ({decision.reason_code})"
+                        now_iso = datetime.now(timezone.utc).isoformat()
+                        rec = ToolCallRecord(
+                            call_id=c_id,
+                            run_id=r_id,
+                            tool_name=tc.name,
+                            status="REJECTED",
+                            input_params=tc.arguments,
+                            output_text=err_msg,
+                            error_type="HOOK_DENIED",
+                            error_message=decision.reason_code or "Denied by business constraint hook",
+                            latency_ms=0.0,
+                            created_at=now_iso,
+                        )
+                        harness_state.tool_records.append(rec)
+                        self._persist_tool_call(rec)
+
+                        # Hook: post_tool_exec (observation)
+                        if hooks and hasattr(hooks, "post_tool_exec") and hooks.post_tool_exec:
+                            await AsyncHarnessLoop._execute_hook(
+                                hooks.post_tool_exec,
+                                "post_tool_exec",
+                                harness_state,
+                                rec,
+                                default_critical=False,
+                            )
+
+                        return {
+                            "status": "REJECTED",
+                            "error_type": "HOOK_DENIED",
+                            "error_message": err_msg,
+                            "output": err_msg,
+                        }
+
+                    elif decision.action == "review":
+                        return await pause_for_hook_review(
+                            r_id, f"Pre-tool review ({decision.reason_code}): {tc.name}"
+                        )
+
+                call_rec = self.execute_tool(
+                    run_id=r_id,
+                    tool_name=t_name,
+                    parameters=params,
+                    call_id=c_id,
+                )
+                harness_state.tool_records.append(call_rec)
+
+                output_str = call_rec.output_text or ""
+                output_data = call_rec.output_data or {}
+
+                # Hook: post_tool_exec
+                if hooks and hasattr(hooks, "post_tool_exec") and hooks.post_tool_exec:
+                    post_dec = await AsyncHarnessLoop._execute_hook(
+                        hooks.post_tool_exec,
+                        "post_tool_exec",
+                        harness_state,
+                        call_rec,
+                        default_critical=False,
+                    )
+                    if isinstance(post_dec, HookDecision):
+                        if post_dec.action == "deny":
+                            output_str = f"ERROR [RESULT_DENIED]: Post-tool hook denied observation ({post_dec.reason_code})"
+                            output_data = {}
+                            return {
+                                "status": "COMPLETED",
+                                "output": output_str,
+                                "data": output_data,
+                            }
+                        elif post_dec.action == "review":
+                            return await pause_for_hook_review(
+                                r_id, f"Post-tool review ({post_dec.reason_code}): {t_name}"
+                            )
+                        elif post_dec.observation_view is not None:
+                            output_str = post_dec.observation_view
+                            output_data = {}
+                            try:
+                                parsed = json.loads(post_dec.observation_view)
+                                if isinstance(parsed, dict):
+                                    output_data = parsed
+                            except Exception:
+                                pass
+
+                if call_rec.status in ("COMPLETED", "EXECUTED"):
+                    return {
+                        "status": "COMPLETED",
+                        "output": output_str,
+                        "data": output_data,
+                    }
+                else:
+                    return {
+                        "status": call_rec.status,
+                        "error_type": call_rec.error_type or "TOOL_ERROR",
+                        "error_message": call_rec.error_message or output_str or "Tool execution failed",
+                        "output": output_str,
+                    }
+
+            async def handle_turn_request(r_id: str, t_idx: int, p_input: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+                allowed, err_type, err_msg = self.consume_turn_budget(r_id)
+                if not allowed:
+                    return {
+                        "allowed": False,
+                        "error_type": err_type,
+                        "error": err_msg,
+                    }
+                # Hook: pre_model_call
+                if hooks and hasattr(hooks, "pre_model_call") and hooks.pre_model_call:
+                    harness_state.step_count = t_idx
+                    m_dec = await AsyncHarnessLoop._execute_hook(
+                        hooks.pre_model_call,
+                        "pre_model_call",
+                        harness_state,
+                        default_critical=False,
+                    )
+                    if isinstance(m_dec, HookDecision):
+                        if m_dec.action == "deny":
+                            harness_state.status = "FAILED"
+                            harness_state.error_message = f"Pre-model hook denied execution: {m_dec.reason_code}"
+                            return {
+                                "allowed": False,
+                                "error_type": "HOOK_DENIED",
+                                "error": harness_state.error_message,
+                            }
+                        elif m_dec.action == "review":
+                            harness_state.status = "PAUSED_FOR_REVIEW"
+                            harness_state.error_message = f"Pre-model hook paused for review: {m_dec.reason_code}"
+                            return {
+                                "allowed": False,
+                                "error_type": "PAUSED_FOR_REVIEW",
+                                "error": harness_state.error_message,
+                            }
+
+                if model_turn_admission is not None:
+                    try:
+                        import inspect
+                        res = model_turn_admission(r_id, t_idx)
+                        if inspect.isawaitable(res):
+                            res = await res
+                        if isinstance(res, dict) and not res.get("allowed", True):
+                            return {
+                                "allowed": False,
+                                "error_type": res.get("error_type", "BUDGET_EXCEEDED"),
+                                "error": res.get("error", "Model turn admission denied"),
+                            }
+                    except Exception as e:
+                        err_cap = getattr(e, "cap_type", None)
+                        err_name = "BUDGET_EXCEEDED" if ("budget" in type(e).__name__.lower() or "budget" in str(e).lower() or err_cap) else "ADMISSION_ERROR"
+                        return {
+                            "allowed": False,
+                            "error_type": err_cap or err_name,
+                            "error": str(e),
+                        }
+
+                return {
+                    "allowed": True,
+                    "error_type": None,
+                    "error": None,
+                }
+
+            async def handle_turn_receipt(frame: dict[str, Any]) -> None:
+                # 1. 4A2a model_turn_receipt for shared ledger
+                if model_turn_receipt is not None:
+                    import inspect
+                    res = model_turn_receipt(frame)
+                    if inspect.isawaitable(res):
+                        await res
+
+                # 2. Hook: post_model_call
+                if hooks and hasattr(hooks, "post_model_call") and hooks.post_model_call:
+                    raw_usage = frame.get("usage")
+                    eff_usage = dict(raw_usage) if isinstance(raw_usage, dict) else {}
+                    mapped_usage = dict(eff_usage)
+                    if "input" in mapped_usage and "input_tokens" not in mapped_usage:
+                        mapped_usage["input_tokens"] = mapped_usage["input"]
+                    if "output" in mapped_usage and "output_tokens" not in mapped_usage:
+                        mapped_usage["output_tokens"] = mapped_usage["output"]
+                    if "totalTokens" in mapped_usage and "total_tokens" not in mapped_usage:
+                        mapped_usage["total_tokens"] = mapped_usage["totalTokens"]
+
+                    struct_resp = ModelResponse(
+                        content="",
+                        tool_calls=[],
+                        usage=eff_usage,
+                        normalized_usage=normalize_model_usage(mapped_usage),
+                    )
+                    if "stop_reason" in frame:
+                        setattr(struct_resp, "stop_reason", frame["stop_reason"])
+                    await AsyncHarnessLoop._execute_hook(
+                        hooks.post_model_call,
+                        "post_model_call",
+                        harness_state,
+                        struct_resp,
+                        default_critical=False,
+                    )
+
+            async def handle_context_transform(
+                r_id: str,
+                req_id: str,
+                intent_ver: str,
+                t_idx: int,
+                raw_messages: list[dict[str, Any]],
+            ) -> dict[str, Any]:
+                auth_protected = harness_state.working_scratchpad.get("protected_state")
+                if auth_protected and intent_ver != auth_protected.intent_version:
+                    return {
+                        "allowed": False,
+                        "error_type": "STALE_INTENT",
+                        "error": f"Intent mismatch: authoritative={auth_protected.intent_version}, requested={intent_ver}",
+                    }
+
+                def check_canonical_integrity() -> dict[str, Any]:
+                    live_run = self.get_run(r_id)
+                    if not live_run:
+                        return {"allowed": False, "error_type": "RUN_NOT_FOUND", "error": f"Run '{r_id}' not found"}
+                    if live_run.status in ("COMPLETED", "FAILED", "CANCELLED", "TIMED_OUT", "BUDGET_EXHAUSTED"):
+                        return {"allowed": False, "error_type": live_run.status, "error": f"Run is already terminal ({live_run.status})"}
+                    if live_run.deadline_ts and time.time() > live_run.deadline_ts:
+                        self.consume_turn_budget(r_id)
+                        return {"allowed": False, "error_type": "TIMED_OUT", "error": "Execution deadline exceeded"}
+
+                    if bound_run_rec:
+                        if live_run.intent_revision != bound_intent_revision:
+                            return {
+                                "allowed": False,
+                                "error_type": "STALE_INTENT",
+                                "error": f"RunRecord intent_revision drifted: expected {bound_intent_revision}, got {live_run.intent_revision}",
+                            }
+                        if (live_run.task_spec_hash or "") != bound_task_spec_hash:
+                            return {
+                                "allowed": False,
+                                "error_type": "STALE_CHECKPOINT",
+                                "error": f"RunRecord task_spec_hash drifted: expected {bound_task_spec_hash}, got {live_run.task_spec_hash}",
+                            }
+                        if (live_run.content_hash or "") != bound_content_hash:
+                            return {
+                                "allowed": False,
+                                "error_type": "STALE_CHECKPOINT",
+                                "error": f"RunRecord content_hash drifted: expected {bound_content_hash}, got {live_run.content_hash}",
+                            }
+                        cur_f_body = live_run.frozen_body or ""
+                        if not cur_f_body:
+                            try:
+                                cur_f_body = self.get_run_body(run_id=r_id)
+                            except Exception:
+                                cur_f_body = ""
+                        cur_body_sha256 = hashlib.sha256((cur_f_body or "").encode("utf-8")).hexdigest()
+                        if cur_body_sha256 != bound_body_sha256:
+                            return {
+                                "allowed": False,
+                                "error_type": "STALE_CHECKPOINT",
+                                "error": "RunRecord frozen_body drifted",
+                            }
+
+                    if bound_requires_store:
+                        if self.candidate_store is None or not hasattr(self.candidate_store, "get_task_context"):
+                            return {
+                                "allowed": False,
+                                "error_type": "STALE_CHECKPOINT",
+                                "error": "Missing required canonical TaskContext store",
+                            }
+
+                    if bound_tc_present:
+                        if self.candidate_store is None or not hasattr(self.candidate_store, "get_task_context"):
+                            return {
+                                "allowed": False,
+                                "error_type": "STALE_CHECKPOINT",
+                                "error": "Missing required canonical TaskContext store",
+                            }
+                        live_tc = self.candidate_store.get_task_context(live_run.task_id)
+                        if not live_tc:
+                            return {
+                                "allowed": False,
+                                "error_type": "STALE_INTENT",
+                                "error": f"Canonical TaskContext missing or deleted for task '{live_run.task_id}'",
+                            }
+                        if live_tc.intent_revision != bound_tc_revision:
+                            return {
+                                "allowed": False,
+                                "error_type": "STALE_INTENT",
+                                "error": f"Canonical TaskContext intent drift: canonical={live_tc.intent_revision}, active={bound_tc_revision}",
+                            }
+                        live_fp = live_tc.compute_fingerprint()
+                        if live_fp != bound_tc_fingerprint:
+                            return {
+                                "allowed": False,
+                                "error_type": "STALE_INTENT",
+                                "error": f"Canonical TaskContext contract_fingerprint drifted: expected {bound_tc_fingerprint}, got {live_fp}",
+                            }
+                        if auth_protected and str(live_tc.intent_revision) != str(auth_protected.intent_version):
+                            return {
+                                "allowed": False,
+                                "error_type": "STALE_INTENT",
+                                "error": f"Canonical TaskContext intent drift: canonical={live_tc.intent_revision}, active={auth_protected.intent_version}",
+                            }
+                    elif self.candidate_store and hasattr(self.candidate_store, "get_task_context") and live_run:
+                        live_tc = self.candidate_store.get_task_context(live_run.task_id)
+                        if live_tc and auth_protected:
+                            if str(live_tc.intent_revision) != str(auth_protected.intent_version):
+                                return {
+                                    "allowed": False,
+                                    "error_type": "STALE_INTENT",
+                                    "error": f"Canonical TaskContext intent drift: canonical={live_tc.intent_revision}, active={auth_protected.intent_version}",
+                                }
+
+                    return {"allowed": True}
+
+                integrity = check_canonical_integrity()
+                if not integrity["allowed"]:
+                    return integrity
+
+                # Convert incoming messages to standard dict structure
+                converted_msgs: list[dict[str, Any]] = []
+                for m in raw_messages:
+                    m_role = m.get("role")
+                    if m_role == "system":
+                        continue
+                    elif m_role in ("tool", "toolResult"):
+                        tool_data = m.get("details") or m.get("data")
+                        content_val = m.get("content")
+                        if not tool_data and isinstance(content_val, str):
+                            try:
+                                tool_data = json.loads(content_val)
+                            except Exception:
+                                pass
+                        converted_msgs.append({
+                            "role": "tool",
+                            "tool_call_id": m.get("tool_call_id") or m.get("toolCallId") or "",
+                            "tool_name": m.get("tool_name") or m.get("toolName") or "",
+                            "content": content_val if isinstance(content_val, str) else json.dumps(content_val),
+                            "data": tool_data,
+                            "is_error": bool(m.get("is_error") or m.get("isError")),
+                        })
+                    elif m_role == "assistant":
+                        tool_calls = m.get("tool_calls") or []
+                        if not tool_calls and isinstance(m.get("content"), list):
+                            for block in m.get("content"):
+                                if isinstance(block, dict) and block.get("type") == "toolCall":
+                                    tool_calls.append({
+                                        "id": block.get("id"),
+                                        "type": "function",
+                                        "name": block.get("name"),
+                                        "function": {
+                                            "name": block.get("name"),
+                                            "arguments": json.dumps(block.get("arguments", {})) if isinstance(block.get("arguments"), dict) else str(block.get("arguments", "")),
+                                        },
+                                        "arguments": block.get("arguments", {}),
+                                    })
+                        converted_msgs.append({
+                            "role": "assistant",
+                            "content": m.get("content") if isinstance(m.get("content"), str) else "",
+                            "tool_calls": tool_calls,
+                        })
+                    else:
+                        converted_msgs.append({
+                            "role": "user",
+                            "content": m.get("content") if isinstance(m.get("content"), str) else json.dumps(m.get("content")),
+                        })
+
+                harness_state.messages = converted_msgs
+                harness_state.step_count = t_idx
+
+                def checkpoint_response(
+                    msgs: list[dict[str, Any]],
+                    combined_sys: str,
+                    rep: Any,
+                ) -> dict[str, Any]:
+                    with self._lock:
+                        is_pause_requested = r_id in self._pause_requested_runs
+
+                    report_dict = (
+                        rep
+                        if isinstance(rep, dict)
+                        else {
+                            "triggered": rep.triggered,
+                            "level": rep.level,
+                            "tokens_before": rep.tokens_before,
+                            "tokens_after": rep.tokens_after,
+                            "items_offloaded": rep.items_offloaded,
+                            "stale_turns_evicted": rep.stale_turns_evicted,
+                            "epoch": rep.epoch,
+                            "reason": rep.reason,
+                            "details": rep.details,
+                        }
+                    )
+
+                    if not is_pause_requested:
+                        return {
+                            "allowed": True,
+                            "intent_version": harness_state.intent_version,
+                            "system_prompt": combined_sys,
+                            "messages": msgs,
+                            "report": report_dict,
+                        }
+
+                    # Safe recursive serialization helper
+                    def _sanitize_val(v: Any) -> Any:
+                        if v is None or isinstance(v, (int, float, str, bool)):
+                            return v
+                        if hasattr(v, "__dataclass_fields__"):
+                            return {k: _sanitize_val(val) for k, val in asdict(v).items() if not callable(val)}
+                        if hasattr(v, "model_dump") and callable(getattr(v, "model_dump")):
+                            return {k: _sanitize_val(val) for k, val in v.model_dump().items() if not callable(val)}
+                        if isinstance(v, dict):
+                            return {str(k): _sanitize_val(val) for k, val in v.items() if not callable(val)}
+                        if isinstance(v, (list, tuple, set)):
+                            return [_sanitize_val(x) for x in v if not callable(x)]
+                        if isinstance(v, Path):
+                            return str(v)
+                        return None
+
+                    sanitized_scratchpad: dict[str, Any] = {}
+                    for k, v in (harness_state.working_scratchpad or {}).items():
+                        if not callable(v):
+                            sanitized_scratchpad[str(k)] = _sanitize_val(v)
+
+                    curr_epoch = (
+                        report_dict.get("epoch")
+                        if "epoch" in report_dict and report_dict["epoch"] is not None
+                        else getattr(harness_state, "context_epoch", 1)
+                    )
+
+                    collector_ctx = getattr(self.collector, "_runs", {}).get(r_id) if self.collector else None
+                    collector_provs = []
+                    collector_summaries = []
+                    collector_env = {}
+                    if collector_ctx:
+                        for p in collector_ctx.provenances:
+                            if hasattr(p, "__dataclass_fields__"):
+                                collector_provs.append(asdict(p))
+                            elif isinstance(p, dict):
+                                collector_provs.append(p)
+                        collector_summaries = list(collector_ctx.action_summaries)
+                        collector_env = {
+                            k: _sanitize_val(val)
+                            for k, val in collector_ctx.environment.items()
+                            if not callable(val)
+                        }
+
+                    rt_provs = []
+                    for p in self._provenances.get(r_id, []):
+                        if hasattr(p, "__dataclass_fields__"):
+                            rt_provs.append(asdict(p))
+                        elif isinstance(p, dict):
+                            rt_provs.append(p)
+
+                    cur_run = self.get_run(r_id)
+                    f_body = body
+                    if not f_body:
+                        try:
+                            f_body = self.get_run_body(run_id=r_id)
+                        except Exception:
+                            f_body = ""
+                    body_sha256 = hashlib.sha256((f_body or "").encode("utf-8")).hexdigest()
+
+                    model_binding = {
+                        k: model_config[k]
+                        for k in ("provider", "model_id", "model", "temperature", "max_tokens")
+                        if isinstance(model_config, dict) and k in model_config and model_config[k] is not None
+                    }
+
+                    tool_schemas = {}
+                    for tname in sorted(target_tools):
+                        params = self.tool_broker.get_parameters(tname)
+                        tool_schemas[tname] = tool_parameters_to_json_schema(params)
+
+                    allowlist = (
+                        sorted(list(self.tool_broker.application_allowlist))
+                        if self.tool_broker.application_allowlist is not None
+                        else None
+                    )
+
+                    val = self._run_artifact_validators.get(r_id)
+                    val_binding = None
+                    if val:
+                        val_binding = {
+                            "id": getattr(val, "validator_id", getattr(val, "id", str(type(val).__name__))),
+                            "version": getattr(val, "validator_version", getattr(val, "version", "1.0.0")),
+                            "config_hash": getattr(val, "config_hash", getattr(val, "hash", "")),
+                        }
+
+                    task_ctx_binding = None
+                    if self.candidate_store and hasattr(self.candidate_store, "get_task_context") and cur_run:
+                        tc = self.candidate_store.get_task_context(cur_run.task_id)
+                        if tc:
+                            task_ctx_binding = {
+                                "intent_revision": tc.intent_revision,
+                                "contract_fingerprint": tc.compute_fingerprint(),
+                                "constraints": sorted(list(tc.constraints)),
+                                "acceptance_criteria": tc.acceptance_criteria,
+                            }
+
+                    recovery_binding = {
+                        "run_id": cur_run.run_id if cur_run else r_id,
+                        "task_id": cur_run.task_id if cur_run else "",
+                        "intent_revision": cur_run.intent_revision if cur_run else 1,
+                        "task_spec_hash": cur_run.task_spec_hash or "" if cur_run else "",
+                        "content_hash": cur_run.content_hash or "" if cur_run else "",
+                        "body_sha256": body_sha256,
+                        "model_config": model_binding,
+                        "tools": sorted(target_tools),
+                        "tool_schemas": tool_schemas,
+                        "application_allowlist": allowlist,
+                        "artifact_validator": val_binding,
+                        "task_context": task_ctx_binding,
+                    }
+
+                    working_state_data = {
+                        "goal": harness_state.goal,
+                        "intent_version": harness_state.intent_version,
+                        "context_epoch": curr_epoch,
+                        "step_count": harness_state.step_count,
+                        "working_scratchpad": sanitized_scratchpad,
+                        "base_system_prompt": base_system_prompt,
+                        "collector_provenances": collector_provs,
+                        "collector_action_summaries": collector_summaries,
+                        "collector_environment": collector_env,
+                        "runtime_provenances": rt_provs,
+                        "recovery_binding": recovery_binding,
+                    }
+
+                    model_cfg_clean = {
+                        k: model_config[k]
+                        for k in ("provider", "model_id", "model", "temperature", "max_tokens")
+                        if isinstance(model_config, dict) and k in model_config
+                    }
+
+                    checkpoint_id = f"chk_{uuid.uuid4().hex[:16]}"
+                    now_iso = datetime.now(timezone.utc).isoformat()
+
+                    conn = self._get_conn()
+                    with self._lock:
+                        try:
+                            with conn:
+                                conn.execute(
+                                    """INSERT INTO runtime_pi_checkpoints (
+                                        checkpoint_id, run_id, format_version, messages_json,
+                                        system_prompt, frozen_body, intent_version, epoch,
+                                        working_state_json, model_config_json, tools_json, created_at
+                                    ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                    (
+                                        checkpoint_id,
+                                        r_id,
+                                        json.dumps(msgs),
+                                        combined_sys,
+                                        f_body,
+                                        harness_state.intent_version,
+                                        int(curr_epoch or 1),
+                                        json.dumps(working_state_data),
+                                        json.dumps(model_cfg_clean),
+                                        json.dumps(target_tools),
+                                        now_iso,
+                                    ),
+                                )
+                                conn.execute(
+                                    """UPDATE runtime_runs
+                                       SET status = 'PAUSED', updated_at = ?
+                                       WHERE run_id = ? AND terminal_at IS NULL""",
+                                    (now_iso, r_id),
+                                )
+                            self._pause_requested_runs.discard(r_id)
+                        except Exception:
+                            raise
+
+                    return {
+                        "allowed": False,
+                        "error_type": "PAUSED",
+                        "error": f"Execution paused cooperatively at checkpoint {checkpoint_id}",
+                        "intent_version": harness_state.intent_version,
+                        "system_prompt": combined_sys,
+                        "messages": msgs,
+                        "report": report_dict,
+                    }
+
+                if not context_compressor:
+                    from .context_engine.rebuilder import ContextRebuilder
+                    from .context_engine.schemas import HierarchicalContext
+                    combined_sys = harness_state.system_prompt
+                    if auth_protected:
+                        h_ctx = HierarchicalContext(
+                            protected=auth_protected,
+                            summary=harness_state.working_scratchpad.get("work_summary", WorkSummary()),
+                            memory_index=harness_state.working_scratchpad.get("memory_index", MemoryIndex()),
+                            recent_messages=converted_msgs,
+                        )
+                        rebuilder = ContextRebuilder()
+                        rendered = rebuilder.render_to_messages(h_ctx, base_system_prompt=base_system_prompt)
+                        for r_m in rendered:
+                            if r_m.get("role") == "system":
+                                combined_sys = r_m.get("content", "")
+                                break
+                    return checkpoint_response(converted_msgs, combined_sys, {"triggered": False, "level": "none"})
+
+                # Hook: pre_compress
+                if hooks and hasattr(hooks, "pre_compress") and hooks.pre_compress:
+                    pre_dec = await AsyncHarnessLoop._execute_hook(hooks.pre_compress, "pre_compress", harness_state, default_critical=False)
+                    if isinstance(pre_dec, HookDecision) and pre_dec.action in ("deny", "abort"):
+                        return {"allowed": False, "error_type": "HOOK_DENIED", "error": f"Pre-compress hook denied: {pre_dec.reason_code}"}
+                    if harness_state.status in ("BUDGET_EXHAUSTED", "FAILED", "PAUSED_FOR_REVIEW"):
+                        return {"allowed": False, "error_type": harness_state.status, "error": harness_state.error_message or "Terminated by pre_compress"}
+
+                pre_compress_messages = copy.deepcopy(harness_state.messages)
+                pre_compress_scratchpad = copy.deepcopy(harness_state.working_scratchpad)
+                pre_compress_epoch = getattr(harness_state, "context_epoch", 1)
+
+                report = await context_compressor.compress(harness_state)
+
+                post_compress_integrity = check_canonical_integrity()
+                if not post_compress_integrity["allowed"]:
+                    harness_state.messages = pre_compress_messages
+                    harness_state.working_scratchpad = pre_compress_scratchpad
+                    harness_state.context_epoch = pre_compress_epoch
+                    if hasattr(report, "deprecated_stale_summary"):
+                        report.deprecated_stale_summary = True
+                    return post_compress_integrity
+
+                # Hook: post_compress
+                if hooks and hasattr(hooks, "post_compress") and hooks.post_compress:
+                    post_dec = await AsyncHarnessLoop._execute_hook(hooks.post_compress, "post_compress", harness_state, report, default_critical=False)
+                    if isinstance(post_dec, HookDecision) and post_dec.action in ("deny", "abort"):
+                        return {"allowed": False, "error_type": "HOOK_DENIED", "error": f"Post-compress hook denied: {post_dec.reason_code}"}
+                    if harness_state.status in ("BUDGET_EXHAUSTED", "FAILED", "PAUSED_FOR_REVIEW"):
+                        return {"allowed": False, "error_type": harness_state.status, "error": harness_state.error_message or "Terminated by post_compress"}
+
+                rendered = harness_state.messages
+                combined_system_prompt = harness_state.system_prompt
+                final_recent_messages: list[dict[str, Any]] = []
+
+                for r_msg in rendered:
+                    if r_msg.get("role") == "system":
+                        combined_system_prompt = r_msg.get("content", "")
+                    else:
+                        final_recent_messages.append(r_msg)
+
+                if not report.triggered and auth_protected:
+                    from .context_engine.rebuilder import ContextRebuilder
+                    from .context_engine.schemas import HierarchicalContext
+                    h_ctx = HierarchicalContext(
+                        protected=auth_protected,
+                        summary=harness_state.working_scratchpad.get("work_summary", WorkSummary()),
+                        memory_index=harness_state.working_scratchpad.get("memory_index", MemoryIndex()),
+                        recent_messages=final_recent_messages,
+                    )
+                    rebuilder = ContextRebuilder()
+                    full_rendered = rebuilder.render_to_messages(h_ctx, base_system_prompt=base_system_prompt)
+                    for f_msg in full_rendered:
+                        if f_msg.get("role") == "system":
+                            combined_system_prompt = f_msg.get("content", "")
+                            break
+
+                return checkpoint_response(final_recent_messages, combined_system_prompt, report)
+
+            eff_sys_prompt = (
+                checkpoint.system_prompt
+                if (checkpoint and checkpoint.system_prompt)
+                else system_prompt
+            )
+            await asyncio.wait_for(
+                client.init_run(
+                    run_id=run_id,
+                    system_prompt=eff_sys_prompt,
+                    tools=pi_tools,
+                    model_config=model_config,
+                    tool_handler=handle_tool_call,
+                    turn_handler=handle_turn_request,
+                    context_handler=handle_context_transform,
+                    receipt_handler=handle_turn_receipt,
+                    intent_version=eff_intent,
+                    is_test=is_test,
+                    initial_messages=checkpoint.messages if checkpoint else None,
+                ),
+                timeout=timeout,
+            )
+
+            if checkpoint:
+                res = await asyncio.wait_for(
+                    client.continue_run(run_id=run_id, intent_version=eff_intent, timeout=timeout),
+                    timeout=timeout,
+                )
+            else:
+                res = await asyncio.wait_for(
+                    client.prompt(run_id=run_id, text=input_text, intent_version=eff_intent),
+                    timeout=timeout,
+                )
+
+            with self._lock:
+                self._last_pi_result = res
+                self._last_pi_results[run_id] = res
+
+            if res.stop_reason in ("error", "aborted"):
+                # Pi can return an error assistant message instead of raising.
+                detail = next(
+                    (m.get("errorMessage") for m in reversed(res.messages)
+                     if m.get("role") == "assistant" and m.get("errorMessage")),
+                    res.stop_reason,
+                )
+                raise RuntimeError(f"Pi execution {res.stop_reason}: {detail}")
+
+            proposed_output = res.text
+            harness_state.working_scratchpad["proposed_output"] = proposed_output
+
+            # Hook: before_finalize
+            if hooks and hasattr(hooks, "before_finalize") and hooks.before_finalize:
+                fin_dec = await AsyncHarnessLoop._execute_hook(
+                    hooks.before_finalize,
+                    "before_finalize",
+                    harness_state,
+                    proposed_output,
+                    default_critical=True,
+                )
+                if fin_dec.action == "deny":
+                    harness_state.status = "FAILED"
+                    harness_state.final_output = f"[DELIVERY_BLOCKED]: {fin_dec.reason_code}"
+                    harness_state.error_message = f"Final delivery blocked by BeforeFinalize hook ({fin_dec.reason_code})"
+                    if "verification_evidence" not in harness_state.working_scratchpad:
+                        harness_state.working_scratchpad["verification_evidence"] = {
+                            "independent_pass": False,
+                            "failure_reason": f"Denied by BeforeFinalize hook: {fin_dec.reason_code}",
+                        }
+                    raise RuntimeError(f"BeforeFinalize hook denied: {fin_dec.reason_code}")
+                elif fin_dec.action == "review":
+                    harness_state.status = "PAUSED_FOR_REVIEW"
+                    harness_state.working_scratchpad["proposed_output"] = proposed_output
+                    harness_state.error_message = f"Final delivery paused for review: {fin_dec.reason_code}"
+                    raise RuntimeError(f"REVIEW_REQUIRED: BeforeFinalize hook requested review: {fin_dec.reason_code}")
+
+                if fin_dec.observation_view is not None:
+                    final_text = fin_dec.observation_view
+                else:
+                    final_text = proposed_output
+            else:
+                final_text = proposed_output
+
+            harness_state.final_output = final_text
+            harness_state.status = "COMPLETED"
+            return final_text
+        except (Exception, asyncio.CancelledError) as exc:
+            with self._lock:
+                now_iso = datetime.now(timezone.utc).isoformat()
+                is_cancelled = (
+                    isinstance(exc, asyncio.CancelledError)
+                    or "abort" in str(exc).lower()
+                    or "cancel" in str(exc).lower()
+                )
+                is_timeout = (
+                    isinstance(exc, (asyncio.TimeoutError, TimeoutError))
+                    or "timed out" in str(exc).lower()
+                    or "timed_out" in str(exc).lower()
+                    or "timeout" in str(exc).lower()
+                    or "deadline" in str(exc).lower()
+                )
+                is_review = (
+                    "review" in str(exc).lower()
+                    or "paused_for_review" in str(exc).lower()
+                    or getattr(harness_state, "status", None) == "PAUSED_FOR_REVIEW"
+                )
+                is_hook_denied = (
+                    "hook_denied" in str(exc).lower()
+                    or "delivery blocked" in str(exc).lower()
+                    or "beforefinalize hook denied" in str(exc).lower()
+                    or getattr(harness_state, "status", None) == "FAILED"
+                )
+                is_budget = not is_hook_denied and not is_review and "budget" in str(exc).lower()
+
+                term_status = (
+                    "INTERRUPTED" if is_review
+                    else "CANCELLED" if is_cancelled
+                    else "TIMED_OUT" if is_timeout
+                    else "BUDGET_EXHAUSTED" if is_budget
+                    else "FAILED"
+                )
+                err_type = "REVIEW_REQUIRED" if is_review else "HOOK_DENIED" if is_hook_denied else term_status
+                err_msg = str(exc) or term_status
+                harness_state.status = "PAUSED_FOR_REVIEW" if is_review else term_status
+                harness_state.error_message = err_msg
+
+                conn = self._get_conn()
+                conn.execute(
+                    """UPDATE runtime_runs
+                       SET status = ?, error_type = ?, error_message = ?, updated_at = ?, terminal_at = ?
+                       WHERE run_id = ? AND terminal_at IS NULL""",
+                    (term_status, err_type, err_msg, now_iso, now_iso, run_id),
+                )
+                conn.commit()
+
+                if self.collector and run_id in getattr(self.collector, "_runs", {}):
+                    collector_ctx = self.collector._runs[run_id]
+                    if not getattr(collector_ctx, "completed", False):
+                        try:
+                            self.collector.finish_run(
+                                run_id=run_id,
+                                model_output="",
+                                verification_evidence={
+                                    "independent_pass": None if is_review else False,
+                                    "failure_reason": f"Execution abnormal termination: {err_msg}",
+                                },
+                                infra_error=err_msg,
+                            )
+                        except Exception:
+                            pass
+            raise
+        finally:
+            try:
+                if hooks and hasattr(hooks, "task_end") and hooks.task_end:
+                    await AsyncHarnessLoop._execute_hook(
+                        hooks.task_end,
+                        "task_end",
+                        harness_state,
+                        default_critical=False,
+                    )
+            except Exception:
+                pass
+            finally:
+                with self._lock:
+                    self._active_pi_clients.pop(run_id, None)
+                await client.close()
+
+    def run_agent_with_pi(
+        self,
+        run_id: str,
+        input_text: str,
+        candidate: Optional[Any] = None,
+        tools: Optional[list[str]] = None,
+        system_prompt_header: str = "",
+        model_config: Optional[dict[str, Any]] = None,
+        test_mode: Optional[bool] = None,
+        timeout: float = 30.0,
+        context_compressor: Optional[Any] = None,
+        hooks: Optional[Any] = None,
+        initial_scratchpad: Optional[dict[str, Any]] = None,
+        goal: Optional[str] = None,
+        intent_version: Optional[str] = None,
+        active_constraints: Optional[list[str]] = None,
+        workspace_dir: Optional[Path] = None,
+        model_turn_admission: Optional[Callable[[str, int], Any]] = None,
+        model_turn_receipt: Optional[Callable[[dict[str, Any]], Any]] = None,
+    ) -> str:
+        """Synchronous wrapper for arun_agent_with_pi."""
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        coro = self.arun_agent_with_pi(
+            run_id=run_id,
+            input_text=input_text,
+            candidate=candidate,
+            tools=tools,
+            system_prompt_header=system_prompt_header,
+            model_config=model_config,
+            test_mode=test_mode,
+            timeout=timeout,
+            context_compressor=context_compressor,
+            hooks=hooks,
+            initial_scratchpad=initial_scratchpad,
+            goal=goal,
+            intent_version=intent_version,
+            active_constraints=active_constraints,
+            workspace_dir=workspace_dir,
+            model_turn_admission=model_turn_admission,
+            model_turn_receipt=model_turn_receipt,
+        )
+
+        if loop and loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                return pool.submit(asyncio.run, coro).result()
+        else:
+            return asyncio.run(coro)
+
+    async def aresume_agent_with_pi(
+        self,
+        run_id: str,
+        model_config: Optional[dict[str, Any]] = None,
+        test_mode: Optional[bool] = None,
+        timeout: float = 30.0,
+        context_compressor: Optional[Any] = None,
+        hooks: Optional[Any] = None,
+        workspace_dir: Optional[Path] = None,
+    ) -> str:
+        """Resume execution of a cooperatively paused Pi agent run from its latest checkpoint.
+
+        Guarantees:
+        - Atomic CAS transition from PAUSED -> RUNNING without mutating budget_max or deadline.
+        - Original frozen skill body snapshot is preserved (never reads modified candidate drafts).
+        - Reconstructs typed HarnessState (ProtectedState, WorkSummary, MemoryIndex) and collector context.
+        - Previous tool calls and results are restored without redispatching.
+        - Model turns and tool calls continue sharing authoritative runtime budget and deadline.
+        """
+        run_rec = self.get_run(run_id)
+        if not run_rec:
+            raise KeyError(f"Run '{run_id}' not found")
+
+        TERMINAL_STATUSES = {
+            "COMPLETED",
+            "FAILED",
+            "CANCELLED",
+            "TIMED_OUT",
+            "BUDGET_EXHAUSTED",
+            "INTERRUPTED",
+        }
+        if run_rec.status in TERMINAL_STATUSES:
+            raise ValueError(f"Cannot resume run '{run_id}' in terminal state '{run_rec.status}'")
+
+        # Query pending unsettled ADMITTED tool calls before reading/resuming checkpoint
+        conn = self._get_conn()
+        admitted = conn.execute(
+            "SELECT call_id FROM runtime_tool_calls WHERE run_id = ? AND status = 'ADMITTED' ORDER BY created_at ASC",
+            (run_id,),
+        ).fetchall()
+        if admitted:
+            admitted_ids = [r[0] for r in admitted]
+            now_iso = datetime.now(timezone.utc).isoformat()
+            msg = f"Unsettled in-flight tool calls requiring review: {', '.join(admitted_ids)}"
+            with self._lock:
+                conn.execute(
+                    """UPDATE runtime_runs
+                       SET status = 'INTERRUPTED', error_type = 'REVIEW_REQUIRED',
+                           error_message = ?, updated_at = ?, terminal_at = ?
+                       WHERE run_id = ?""",
+                    (msg, now_iso, now_iso, run_id),
+                )
+                conn.commit()
+                if (
+                    self.collector
+                    and hasattr(self.collector, "_runs")
+                    and run_id in self.collector._runs
+                ):
+                    try:
+                        self.collector.finish_run(
+                            run_id=run_id,
+                            infra_error=msg,
+                            verification_evidence={
+                                "independent_pass": None,
+                                "failure_reason": f"REVIEW_REQUIRED: {msg}",
+                            },
+                        )
+                    except Exception:
+                        pass
+            raise ValueError(f"REVIEW_REQUIRED: {msg}")
+
+        chk = self.get_pi_checkpoint(run_id)
+        if not chk:
+            raise KeyError(f"No checkpoint found for run '{run_id}'")
+
+        return await self.arun_agent_with_pi(
+            run_id=run_id,
+            input_text="",
+            model_config=model_config,
+            test_mode=test_mode,
+            timeout=timeout,
+            context_compressor=context_compressor,
+            hooks=hooks,
+            workspace_dir=workspace_dir,
+            checkpoint=chk,
+        )
+
+    def resume_agent_with_pi(
+        self,
+        run_id: str,
+        model_config: Optional[dict[str, Any]] = None,
+        test_mode: Optional[bool] = None,
+        timeout: float = 30.0,
+        context_compressor: Optional[Any] = None,
+        hooks: Optional[Any] = None,
+        workspace_dir: Optional[Path] = None,
+    ) -> str:
+        """Synchronous wrapper for aresume_agent_with_pi."""
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        coro = self.aresume_agent_with_pi(
+            run_id=run_id,
+            model_config=model_config,
+            test_mode=test_mode,
+            timeout=timeout,
+            context_compressor=context_compressor,
+            hooks=hooks,
+            workspace_dir=workspace_dir,
+        )
+
+        if loop and loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                return pool.submit(asyncio.run, coro).result()
+        else:
+            return asyncio.run(coro)
 
     def get_provenances(self, run_id: str) -> list[ToolCallProvenance]:
         """Fetch all provenances recorded for a run."""

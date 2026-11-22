@@ -234,6 +234,8 @@ class ContextCompressor:
                     data = json.loads(content)
                 except Exception:
                     pass
+                if not data and isinstance(msg.get("data"), (dict, list)):
+                    data = msg.get("data")
 
                 if self.offloader.should_offload(content, data):
                     call_id = msg.get("tool_call_id") or f"call_{i}"

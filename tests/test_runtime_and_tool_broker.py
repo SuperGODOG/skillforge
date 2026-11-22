@@ -531,13 +531,25 @@ def test_g5_idempotency_and_db_reopen(tmp_path: Path):
     rec1_dup = runtime.execute_tool(
         run_id="run_g5_idem",
         tool_name="calculator",
-        parameters={"a": 99, "b": 99},  # parameters ignored on duplicate call_id
+        parameters={"a": 3, "b": 7},
         call_id="call_fixed_123",
     )
     # Underlying tool was NOT executed again!
     assert calc.call_count == initial_calc_count + 1
     assert rec1_dup.call_id == rec1.call_id
     assert rec1_dup.output_data == rec1.output_data
+
+    conflict = runtime.execute_tool(
+        run_id="run_g5_idem",
+        tool_name="calculator",
+        parameters={"a": 99, "b": 99},
+        call_id="call_fixed_123",
+    )
+    assert conflict.status == "REJECTED"
+    assert conflict.error_type == "IDEMPOTENCY_CONFLICT"
+    assert conflict.output_data == {}
+    assert calc.call_count == initial_calc_count + 1
+    assert runtime.get_run("run_g5_idem").budget_consumed == 2
 
     # 3. Duplicate finalize_run does not create duplicate episode
     run_term1, ep1 = runtime.finalize_run(

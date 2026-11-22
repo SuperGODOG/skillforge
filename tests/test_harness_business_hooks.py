@@ -649,6 +649,10 @@ def test_t6_repeated_denial_step_bounded_and_checkpoint_resume_audit(tmp_path: P
         assert state1.step_count == 3
         assert len(state1.tool_records) == 3
         assert all(r.status == "REJECTED" and r.error_type == "HOOK_DENIED" for r in state1.tool_records)
+        assert runtime.get_run(run_id).status == "PAUSED"
+        assert runtime.get_run(run_id).terminal_at is None
+        with pytest.raises(ValueError, match="explicit larger budget"):
+            await loop.resume(run_id)
 
         # Checkpoint file on disk verification
         chk_file = workspace / "runs" / run_id / "checkpoint.json"

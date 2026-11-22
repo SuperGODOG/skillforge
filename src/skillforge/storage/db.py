@@ -247,6 +247,24 @@ CREATE TABLE IF NOT EXISTS runtime_tool_calls (
 
 CREATE INDEX IF NOT EXISTS idx_runtime_tool_calls_run ON runtime_tool_calls(run_id);
 
+CREATE TABLE IF NOT EXISTS runtime_pi_checkpoints (
+    checkpoint_id        TEXT PRIMARY KEY,
+    run_id               TEXT NOT NULL,
+    format_version       INTEGER NOT NULL DEFAULT 1,
+    messages_json        TEXT NOT NULL,
+    system_prompt        TEXT,
+    frozen_body          TEXT,
+    intent_version       TEXT,
+    epoch                INTEGER NOT NULL DEFAULT 0,
+    working_state_json   TEXT,
+    model_config_json    TEXT,
+    tools_json           TEXT,
+    created_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (run_id) REFERENCES runtime_runs(run_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_runtime_pi_checkpoints_run ON runtime_pi_checkpoints(run_id);
+
 CREATE TABLE IF NOT EXISTS semantic_facts (
     fact_id             TEXT PRIMARY KEY,
     statement           TEXT NOT NULL,
@@ -383,6 +401,28 @@ def init_db(db_path: Path) -> sqlite3.Connection:
     )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_task_contexts_cand ON task_contexts(active_candidate_id)"
+    )
+
+    # Ensure runtime_pi_checkpoints table exists for pre-existing DBs
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS runtime_pi_checkpoints (
+            checkpoint_id        TEXT PRIMARY KEY,
+            run_id               TEXT NOT NULL,
+            format_version       INTEGER NOT NULL DEFAULT 1,
+            messages_json        TEXT NOT NULL,
+            system_prompt        TEXT,
+            frozen_body          TEXT,
+            intent_version       TEXT,
+            epoch                INTEGER NOT NULL DEFAULT 0,
+            working_state_json   TEXT,
+            model_config_json    TEXT,
+            tools_json           TEXT,
+            created_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (run_id) REFERENCES runtime_runs(run_id)
+        )"""
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_runtime_pi_checkpoints_run ON runtime_pi_checkpoints(run_id)"
     )
 
     # Ensure validation_records table exists for pre-existing DBs

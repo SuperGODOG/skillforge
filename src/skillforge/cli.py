@@ -11,8 +11,11 @@ import argparse
 import json
 import os
 from pathlib import Path
+from typing import Any, Optional
 
 from . import SkillRegistry, IntentRouter, SkillEvaluator, SkillEvolver, ReleaseStateMachine
+from .models import EvolveBudget
+from .evolver import EvolveOutcome
 
 
 def cmd_demo(args: argparse.Namespace) -> None:
@@ -127,41 +130,12 @@ def cmd_route(args: argparse.Namespace) -> None:
     reg.close()
 
 
-def cmd_evaluate(args: argparse.Namespace) -> int:
-    """Phase 3 演示：八维评估器（结构分 + Judge 配对 + 客观指标 + 棘轮）"""
-    repo_root: Path = args.root
-    db_path = repo_root / "runs" / "skillforge.db"
-    skills_dir = repo_root / "skills"
-
-    _print_hr(f"SkillEvaluator · skill={args.skill}  eval_set={args.eval_set}")
-
-    reg = SkillRegistry(db_path=db_path, skills_dir=skills_dir, repo_root=repo_root)
-    reg.load_skills_from_dir()
-
-    # 执行端与 Judge 使用独立配置点和 client/session。
-    try:
-        from dotenv import load_dotenv
-        from .evaluator.llm_factory import build_llm_pair
-        load_dotenv(repo_root / ".env")
-        llm, judge_llm = build_llm_pair()
-    except KeyError as e:
-        print(f"  ❌ .env 缺失 {e}，评估无法进行（Phase 3 强依赖 LLM）")
-        return 2
-
-    evaluator = SkillEvaluator(registry=reg, llm=llm, judge_llm=judge_llm)
-
-    print(f"  ▶ 开始评估...（每个 case 3 次 LLM 调用 + Judge 3 维 × 每维 1 次 = 6 次调用）")
-    result = evaluator.evaluate_skill(
-        args.skill,
-        eval_set=args.eval_set,
-        verbose=args.verbose,
-    )
-
+def _format_and_return_eval_result(result) -> int:
+    """Format and print evaluation result, safely handling nullable metrics without fabricating 0."""
     if not result.valid:
         print("\n❌ 评估 INVALID，已按 fail-closed 停止评分：")
         for reason in result.invalid_reasons:
             print(f"  - {reason}")
-        reg.close()
         return 2
 
     print()
@@ -181,48 +155,215 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
 
     print(f"\n客观指标（平均）:")
     for k, v in result.objective_metrics.items():
-        print(f"  {k:24s}: {v:>8.2f}")
+        if v is None:
+            val_str = f"{'unknown':>8s}"
+        elif isinstance(v, (int, float)):
+            val_str = f"{v:>8.2f}"
+        else:
+            val_str = f"{str(v):>8s}"
+        print(f"  {k:24s}: {val_str}")
 
+    if getattr(result, "critical_fail", False):
+        print(f"❌ 关键安全/业务 Oracle 拦截 (critical_fail)")
     print(f"\nP0 用例: {'✓ 全通过' if result.p0_pass else '❌ 有失败（棘轮硬门槛 5 触发）'}")
-
-    reg.close()
     _print_hr("完成")
+
+    if getattr(result, "critical_fail", False):
+        return 1
+
     return 0
 
 
-def cmd_evolve(args: argparse.Namespace) -> None:
-    """Phase 4 演示：SkillEvolver 元 Agent 六步迭代"""
+def _validate_cli_backend_and_skill(
+    args: argparse.Namespace,
+    repo_root: Path,
+) -> tuple[int, Optional[dict[str, Any]]]:
+    """Validate execution-backend and Pi flags upfront before DB creation or model invocation.
+
+    Returns (exit_code, backend_info_or_None).
+    If exit_code != 0, validation failed and caller should return exit_code immediately.
+    """
+    backend_mode = getattr(args, "execution_backend", "legacy")
+
+    if backend_mode == "legacy" and any(
+        getattr(args, name, None) is not None
+        for name in ("pi_provider", "pi_model", "pi_scenario")
+    ):
+        print("❌ Pi parameters require --execution-backend pi")
+        return 2, None
+
+    max_calls = getattr(args, "max_calls", None)
+    if max_calls is not None and max_calls <= 0:
+        print("❌ --max-calls must be a positive integer")
+        return 2, None
+
+    deadline_seconds = getattr(args, "deadline_seconds", None)
+    if deadline_seconds is not None and deadline_seconds <= 0:
+        print("❌ --deadline-seconds must be a positive number")
+        return 2, None
+
+    if backend_mode == "pi":
+        provider = getattr(args, "pi_provider", None)
+        model = getattr(args, "pi_model", None)
+        scenario = getattr(args, "pi_scenario", None)
+
+        if not provider:
+            print("❌ --execution-backend pi requires --pi-provider")
+            return 2, None
+        if not model:
+            print("❌ --execution-backend pi requires --pi-model")
+            return 2, None
+        if not scenario:
+            print("❌ --execution-backend pi requires --pi-scenario")
+            return 2, None
+
+        from .pi_assembly import validate_pi_scenario_and_dependencies
+
+        try:
+            validate_pi_scenario_and_dependencies(scenario, None)
+        except ValueError as err:
+            print(f"❌ {err}")
+            return 2, None
+
+        skills_dir = repo_root / "skills"
+        skill_file = skills_dir / args.skill / "SKILL.md"
+        if not skill_file.is_file():
+            print(f"❌ Skill '{args.skill}' not found at {skill_file}")
+            return 2, None
+
+        try:
+            import yaml
+            content = skill_file.read_text(encoding="utf-8")
+            parts = content.split("---", 2)
+            deps = []
+            if len(parts) >= 3:
+                fm = yaml.safe_load(parts[1]) or {}
+                deps = fm.get("dependencies", []) or []
+            validate_pi_scenario_and_dependencies(scenario, deps)
+        except ValueError as err:
+            print(f"❌ Incompatible dependencies for scenario '{scenario}': {err}")
+            return 2, None
+        except Exception as err:
+            print(f"❌ Failed to parse skill metadata: {err}")
+            return 2, None
+
+        return 0, {
+            "backend": "pi",
+            "provider": provider,
+            "model": model,
+            "scenario": scenario,
+        }
+
+    return 0, {"backend": "legacy"}
+
+
+def cmd_evaluate(args: argparse.Namespace) -> int:
+    """Phase 3 / Phase 4A1 演示：八维评估器（结构分 + Judge 配对 + 客观指标 + 棘轮）"""
     repo_root: Path = args.root
+    code, backend_info = _validate_cli_backend_and_skill(args, repo_root)
+    if code != 0 or backend_info is None:
+        return code
+
+    backend_mode = backend_info["backend"]
+
+    if backend_mode == "pi":
+        provider = backend_info["provider"]
+        model = backend_info["model"]
+        scenario = backend_info["scenario"]
+
+        from .pi_assembly import assemble_pi_resources
+
+        try:
+            from dotenv import load_dotenv
+            from .evaluator.llm_factory import build_llm_pair, build_judge_llm
+            load_dotenv(repo_root / ".env")
+            try:
+                llm, judge_llm = build_llm_pair()
+            except KeyError:
+                judge_llm = build_judge_llm()
+                llm = judge_llm
+        except KeyError as e:
+            print(f"  ❌ .env 缺失 {e}，评估无法进行（Judge 依赖 LLM）")
+            return 2
+        except Exception as e:
+            print(f"  ❌ LLM 初始化失败: {e}")
+            return 2
+
+        _print_hr(
+            f"SkillEvaluator · backend=pi · scenario={scenario} (synthetic) · "
+            f"skill={args.skill}  eval_set={args.eval_set}"
+        )
+        print(f"  ▶ 启动 Pi 执行后端 (provider={provider}, model={model}, scenario={scenario})")
+
+        try:
+            with assemble_pi_resources(
+                scenario=scenario,
+                provider=provider,
+                model=model,
+                repo_root=repo_root,
+            ) as bundle:
+                bundle.registry.load_skills_from_dir()
+
+                evaluator = SkillEvaluator(
+                    registry=bundle.registry,
+                    llm=llm,
+                    judge_llm=judge_llm,
+                    execution_backend=bundle.backend,
+                    runtime=bundle.runtime,
+                    tool_broker=bundle.broker,
+                    scoring_policy="criteria_v1",
+                )
+
+                print(f"  ▶ 开始评估... (cases 来自 eval_set={args.eval_set})")
+                result = evaluator.evaluate_skill(
+                    args.skill,
+                    eval_set=args.eval_set,
+                    verbose=args.verbose,
+                    runtime=bundle.runtime,
+                    tool_broker=bundle.broker,
+                )
+
+                return _format_and_return_eval_result(result)
+        except Exception as exc:
+            print(f"\n❌ Pi 评估执行失败: {exc}")
+            return 1
+
+    # Legacy execution path
     db_path = repo_root / "runs" / "skillforge.db"
     skills_dir = repo_root / "skills"
 
-    _print_hr(f"SkillEvolver · skill={args.skill}  eval_set={args.eval_set}  max_candidates={args.max_candidates}")
+    _print_hr(f"SkillEvaluator · backend=legacy · skill={args.skill}  eval_set={args.eval_set}")
 
     reg = SkillRegistry(db_path=db_path, skills_dir=skills_dir, repo_root=repo_root)
     reg.load_skills_from_dir()
 
+    # 执行端与 Judge 使用独立配置点和 client/session。
     try:
         from dotenv import load_dotenv
         from .evaluator.llm_factory import build_llm_pair
         load_dotenv(repo_root / ".env")
         llm, judge_llm = build_llm_pair()
     except KeyError as e:
-        print(f"  ❌ .env 缺失 {e}，元 Agent 无法启动")
-        return
+        print(f"  ❌ .env 缺失 {e}，评估无法进行（Phase 3 强依赖 LLM）")
+        reg.close()
+        return 2
 
     evaluator = SkillEvaluator(registry=reg, llm=llm, judge_llm=judge_llm)
-    sm = ReleaseStateMachine(db_path=db_path, repo_root=repo_root)
 
-    evolver = SkillEvolver(
-        registry=reg, evaluator=evaluator, llm=llm, state_machine=sm,
-    )
-    outcome = evolver.evolve_full(
-        args.skill,
-        max_candidates=args.max_candidates,
-        eval_set_for_iter=args.eval_set,
-        verbose=True,
-    )
+    print(f"  ▶ 开始评估...（每个 case 3 次 LLM 调用 + Judge 3 维 × 每维 1 次 = 6 次调用）")
+    try:
+        result = evaluator.evaluate_skill(
+            args.skill,
+            eval_set=args.eval_set,
+            verbose=args.verbose,
+        )
+    finally:
+        reg.close()
 
+    return _format_and_return_eval_result(result)
+
+
+def _print_evolve_outcome(outcome: EvolveOutcome) -> None:
     print()
     _print_hr("迭代产出")
     print(f"skill:            {outcome.skill_name}")
@@ -237,10 +378,185 @@ def cmd_evolve(args: argparse.Namespace) -> None:
         print(f"    · {p}")
     if outcome.error:
         print(f"error: {outcome.error}")
-
-    reg.close()
-    sm.close()
     _print_hr("完成")
+
+
+def cmd_evolve(args: argparse.Namespace) -> int:
+    """Phase 4 演示：SkillEvolver 元 Agent 六步迭代"""
+    repo_root: Path = args.root
+    code, backend_info = _validate_cli_backend_and_skill(args, repo_root)
+    if code != 0 or backend_info is None:
+        return code
+
+    backend_mode = backend_info["backend"]
+
+    if backend_mode == "pi":
+        provider = backend_info["provider"]
+        model = backend_info["model"]
+        scenario = backend_info["scenario"]
+
+        from .pi_assembly import assemble_pi_resources
+
+        try:
+            from dotenv import load_dotenv
+            from .evaluator.llm_factory import build_llm_pair, build_judge_llm
+            load_dotenv(repo_root / ".env")
+            try:
+                llm, judge_llm = build_llm_pair()
+            except KeyError:
+                judge_llm = build_judge_llm()
+                llm = judge_llm
+        except KeyError as e:
+            print(f"  ❌ .env 缺失 {e}，元 Agent 无法启动（Judge/Patcher 依赖 LLM）")
+            return 2
+        except Exception as e:
+            print(f"  ❌ LLM 初始化失败: {e}")
+            return 2
+
+        max_calls = args.max_calls if getattr(args, "max_calls", None) is not None else 200
+        deadline_seconds = args.deadline_seconds if getattr(args, "deadline_seconds", None) is not None else 600.0
+        budget = EvolveBudget(
+            max_candidates=args.max_candidates,
+            max_calls=max_calls,
+            deadline_seconds=deadline_seconds,
+            shadow_mode=True,
+            auto_publish_enabled=False,
+        )
+
+        _print_hr(
+            f"SkillEvolver · backend=pi · scenario={scenario} (synthetic) · "
+            f"skill={args.skill}  eval_set={args.eval_set}  max_candidates={args.max_candidates}"
+        )
+        print(f"  ▶ 启动 Pi 执行后端 (provider={provider}, model={model}, scenario={scenario})")
+
+        sm = None
+        try:
+            with assemble_pi_resources(
+                scenario=scenario,
+                provider=provider,
+                model=model,
+                repo_root=repo_root,
+                budget_max=10,
+            ) as bundle:
+                bundle.registry.load_skills_from_dir()
+                sm = ReleaseStateMachine(db_path=bundle.registry.db_path, repo_root=repo_root)
+
+                evaluator = SkillEvaluator(
+                    registry=bundle.registry,
+                    llm=llm,
+                    judge_llm=judge_llm,
+                    execution_backend=bundle.backend,
+                    runtime=bundle.runtime,
+                    tool_broker=bundle.broker,
+                    scoring_policy="criteria_v1",
+                )
+
+                evolver = SkillEvolver(
+                    registry=bundle.registry,
+                    evaluator=evaluator,
+                    llm=llm,
+                    state_machine=sm,
+                    budget=budget,
+                )
+
+                outcome = evolver.evolve_full(
+                    args.skill,
+                    max_candidates=args.max_candidates,
+                    eval_set_for_iter=args.eval_set,
+                    verbose=True,
+                    budget=budget,
+                    shadow_mode=True,
+                    auto_publish_enabled=False,
+                )
+
+                _print_evolve_outcome(outcome)
+
+                if outcome.error:
+                    return 1
+                return 0
+        except Exception as exc:
+            print(f"\n❌ Pi 演进执行失败: {exc}")
+            return 1
+        finally:
+            if sm is not None:
+                sm.close()
+
+    # Legacy execution path
+    db_path = repo_root / "runs" / "skillforge.db"
+    skills_dir = repo_root / "skills"
+
+    _print_hr(f"SkillEvolver · backend=legacy · skill={args.skill}  eval_set={args.eval_set}  max_candidates={args.max_candidates}")
+
+    reg = SkillRegistry(db_path=db_path, skills_dir=skills_dir, repo_root=repo_root)
+    reg.load_skills_from_dir()
+    sm = None
+
+    try:
+        from dotenv import load_dotenv
+        from .evaluator.llm_factory import build_llm_pair
+        load_dotenv(repo_root / ".env")
+        try:
+            llm, judge_llm = build_llm_pair()
+        except KeyError as e:
+            print(f"  ❌ .env 缺失 {e}，元 Agent 无法启动")
+            return 2
+
+        sm = ReleaseStateMachine(db_path=db_path, repo_root=repo_root)
+        evaluator = SkillEvaluator(registry=reg, llm=llm, judge_llm=judge_llm)
+        budget = EvolveBudget(
+            max_candidates=args.max_candidates,
+            max_calls=getattr(args, "max_calls", None),
+            deadline_seconds=getattr(args, "deadline_seconds", None),
+        )
+        evolver = SkillEvolver(
+            registry=reg, evaluator=evaluator, llm=llm, state_machine=sm, budget=budget,
+        )
+        outcome = evolver.evolve_full(
+            args.skill,
+            max_candidates=args.max_candidates,
+            eval_set_for_iter=args.eval_set,
+            verbose=True,
+        )
+
+        _print_evolve_outcome(outcome)
+
+        if outcome.error:
+            return 1
+        return 0
+    except Exception as exc:
+        print(f"\n❌ Legacy 演进执行失败: {exc}")
+        return 1
+    finally:
+        if sm is not None:
+            sm.close()
+        reg.close()
+
+
+def cmd_pi_demo(args: argparse.Namespace) -> int:
+    """Phase 3C 演示：Pi 架构与执行核心脱机闭环演示"""
+    from .scenarios.pi_demo import run_pi_demo
+
+    try:
+        report = run_pi_demo(output_dir=args.output_dir)
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+        oracle = report.get("oracle") or {}
+        oracle_pass = (
+            oracle.get("verdict") == "PASS" and oracle.get("independent_pass") is True
+        )
+        ep_success = report.get("episode_outcome") == "success"
+        if oracle_pass and ep_success:
+            return 0
+        return 1
+    except Exception as exc:
+        err_report = {
+            "error": str(exc),
+            "execution": "failed_before_completion",
+            "model": "faux",
+            "data": "synthetic",
+            "os_sandbox": "not_exercised",
+        }
+        print(json.dumps(err_report, indent=2, ensure_ascii=False))
+        return 1
 
 
 def _simple_rule_match(reg: SkillRegistry, query: str) -> str | None:
@@ -289,6 +605,27 @@ def main() -> None:
     eval_p.add_argument("--eval-set", default="baseline_dev",
                         help="评估集（默认 baseline_dev；可选 repair_set, experiment_holdout, final_audit 等）")
     eval_p.add_argument("--verbose", action="store_true", help="逐 case 打印进度")
+    eval_p.add_argument(
+        "--execution-backend",
+        choices=["legacy", "pi"],
+        default="legacy",
+        help="执行后端（默认: legacy；可选: pi）",
+    )
+    eval_p.add_argument(
+        "--pi-provider",
+        default=None,
+        help="Pi 原生模型 Provider（当 --execution-backend pi 时必需，如 anthropic, openai 等）",
+    )
+    eval_p.add_argument(
+        "--pi-model",
+        default=None,
+        help="Pi 原生模型 ID（当 --execution-backend pi 时必需，如 claude-haiku-4-5 等）",
+    )
+    eval_p.add_argument(
+        "--pi-scenario",
+        default=None,
+        help="Pi 评估场景（当 --execution-backend pi 时必需，当前仅支持 logistics）",
+    )
 
     evolve_p = sub.add_parser("evolve", help="Phase 4：元 Agent 六步迭代（半自动）")
     evolve_p.add_argument("--skill", required=True, help="要迭代的 skill_name")
@@ -296,6 +633,47 @@ def main() -> None:
                           help="一次生成候选数（默认 3）")
     evolve_p.add_argument("--eval-set", default="repair_set",
                           help="迭代评估用哪个集（默认 repair_set，22 条）")
+    evolve_p.add_argument(
+        "--execution-backend",
+        choices=["legacy", "pi"],
+        default="legacy",
+        help="执行后端（默认: legacy；可选: pi）",
+    )
+    evolve_p.add_argument(
+        "--pi-provider",
+        default=None,
+        help="Pi 原生模型 Provider（当 --execution-backend pi 时必需，如 anthropic, openai 等）",
+    )
+    evolve_p.add_argument(
+        "--pi-model",
+        default=None,
+        help="Pi 原生模型 ID（当 --execution-backend pi 时必需，如 claude-haiku-4-5 等）",
+    )
+    evolve_p.add_argument(
+        "--pi-scenario",
+        default=None,
+        help="Pi 评估场景（当 --execution-backend pi 时必需，当前仅支持 logistics）",
+    )
+    evolve_p.add_argument(
+        "--max-calls",
+        type=int,
+        default=None,
+        help="最大 LLM 调用预算（默认 200）",
+    )
+    evolve_p.add_argument(
+        "--deadline-seconds",
+        type=float,
+        default=None,
+        help="总执行时限秒数（默认 600.0）",
+    )
+
+    pi_demo_p = sub.add_parser("pi-demo", help="Phase 3C：Pi 架构与执行核心脱机闭环演示")
+    pi_demo_p.add_argument(
+        "--output-dir",
+        type=Path,
+        required=True,
+        help="演示产物输出根目录（将创建独立子目录）",
+    )
 
     args = parser.parse_args()
 
@@ -306,7 +684,9 @@ def main() -> None:
     elif args.cmd == "evaluate":
         return cmd_evaluate(args)
     elif args.cmd == "evolve":
-        cmd_evolve(args)
+        return cmd_evolve(args)
+    elif args.cmd == "pi-demo":
+        return cmd_pi_demo(args)
     else:
         print(f"[skillforge] cmd={args.cmd}")
 
