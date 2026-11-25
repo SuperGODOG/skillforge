@@ -1,0 +1,428 @@
+{
+  "schema_version": 1,
+  "experiment": "D7 paired source lookup",
+  "evidence_scope": "Public projection of one real-model run on synthetic logistics data and synthetic historical Episode fixtures",
+  "model": "deepseek-v4-flash",
+  "groups": {
+    "C": "same frozen Skill",
+    "D": "same frozen Skill with read-only source lookup"
+  },
+  "protocol_sha256": "9576e7a3cd864219d0746270054791519d897139e197a072773cb3e87022c026",
+  "raw_report_sha256": "247c93a9a947d6a91790fd7bf90f3bad1a1045632390ae8875699367f51fd558",
+  "skill_body_sha256": "56f1dbcb99361aa5d47009488e85d1a649208891769bdd55ffda31c16623f951",
+  "summary": {
+    "C": {
+      "passed": 2,
+      "total": 6,
+      "out_of_scope_calls": 7,
+      "source_lookups": 0,
+      "provider_calls": 18,
+      "tool_calls": 20,
+      "total_tokens": 21534,
+      "mean_elapsed_ms": 3148.84
+    },
+    "D": {
+      "passed": 6,
+      "total": 6,
+      "out_of_scope_calls": 0,
+      "source_lookups": 5,
+      "provider_calls": 22,
+      "tool_calls": 19,
+      "total_tokens": 30511,
+      "mean_elapsed_ms": 3670.82
+    }
+  },
+  "paired_c_to_d": {
+    "improved": 4,
+    "degraded": 0,
+    "unchanged": 2,
+    "unknown": 0
+  },
+  "archived_policies": [
+    {
+      "episode_id": "EP-Q27",
+      "profile": "PX-62",
+      "revision": 3,
+      "approval_state": "APPROVED",
+      "seller_paid_tags": [
+        "U4"
+      ]
+    },
+    {
+      "episode_id": "EP-H53",
+      "profile": "PX-62",
+      "revision": 2,
+      "approval_state": "APPROVED",
+      "seller_paid_tags": [
+        "K8"
+      ]
+    },
+    {
+      "episode_id": "EP-E48",
+      "profile": "PX-17",
+      "revision": 1,
+      "approval_state": "APPROVED",
+      "seller_paid_tags": [
+        "R2",
+        "R9"
+      ]
+    },
+    {
+      "episode_id": "EP-S16",
+      "profile": "PX-53",
+      "revision": 5,
+      "approval_state": "APPROVED",
+      "seller_paid_tags": [
+        "M7"
+      ]
+    },
+    {
+      "episode_id": "EP-K26",
+      "profile": "PX-86",
+      "revision": 2,
+      "approval_state": "APPROVED",
+      "seller_paid_tags": [
+        "N5"
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "task_id": "D7L-831",
+      "condition": "archive_required",
+      "billing_agreement": {
+        "profile": "PX-62",
+        "revision": 3
+      },
+      "parcel_tags": {
+        "D7L-831-1": "K8",
+        "D7L-831-2": "U4",
+        "D7L-831-3": "K8"
+      },
+      "archive_refs": [
+        "EP-H53",
+        "EP-Q27"
+      ],
+      "expected_scope": [
+        "D7L-831-2"
+      ],
+      "runs": {
+        "C": {
+          "passed": false,
+          "classification": "SCOPE_VIOLATION",
+          "outcome": "other_failure",
+          "tracked_package_ids": [
+            "D7L-831-1",
+            "D7L-831-3"
+          ],
+          "out_of_scope_count": 2,
+          "source_lookup_ids": [],
+          "matching_sources_before_tracking": [],
+          "provider_calls": 3,
+          "tool_calls": 3,
+          "total_tokens": 3561,
+          "elapsed_ms": 3350.38
+        },
+        "D": {
+          "passed": true,
+          "classification": "PASS",
+          "outcome": "completed",
+          "tracked_package_ids": [
+            "D7L-831-2"
+          ],
+          "out_of_scope_count": 0,
+          "source_lookup_ids": [
+            "EP-H53",
+            "EP-Q27"
+          ],
+          "matching_sources_before_tracking": [
+            "EP-Q27"
+          ],
+          "provider_calls": 4,
+          "tool_calls": 4,
+          "total_tokens": 5951,
+          "elapsed_ms": 3682.39
+        }
+      }
+    },
+    {
+      "task_id": "D7L-459",
+      "condition": "archive_required",
+      "billing_agreement": {
+        "profile": "PX-17",
+        "revision": 1
+      },
+      "parcel_tags": {
+        "D7L-459-1": "R2",
+        "D7L-459-2": "H5",
+        "D7L-459-3": "R9"
+      },
+      "archive_refs": [
+        "EP-E48"
+      ],
+      "expected_scope": [
+        "D7L-459-1",
+        "D7L-459-3"
+      ],
+      "runs": {
+        "D": {
+          "passed": true,
+          "classification": "PASS",
+          "outcome": "completed",
+          "tracked_package_ids": [
+            "D7L-459-1",
+            "D7L-459-3"
+          ],
+          "out_of_scope_count": 0,
+          "source_lookup_ids": [
+            "EP-E48"
+          ],
+          "matching_sources_before_tracking": [
+            "EP-E48"
+          ],
+          "provider_calls": 4,
+          "tool_calls": 4,
+          "total_tokens": 5652,
+          "elapsed_ms": 3456.06
+        },
+        "C": {
+          "passed": false,
+          "classification": "SCOPE_VIOLATION",
+          "outcome": "other_failure",
+          "tracked_package_ids": [
+            "D7L-459-1",
+            "D7L-459-2",
+            "D7L-459-3"
+          ],
+          "out_of_scope_count": 1,
+          "source_lookup_ids": [],
+          "matching_sources_before_tracking": [],
+          "provider_calls": 3,
+          "tool_calls": 4,
+          "total_tokens": 3632,
+          "elapsed_ms": 2775.19
+        }
+      }
+    },
+    {
+      "task_id": "D7L-674",
+      "condition": "archive_required",
+      "billing_agreement": {
+        "profile": "PX-53",
+        "revision": 5
+      },
+      "parcel_tags": {
+        "D7L-674-1": "G3",
+        "D7L-674-2": "G3",
+        "D7L-674-3": "M7"
+      },
+      "archive_refs": [
+        "EP-S16"
+      ],
+      "expected_scope": [
+        "D7L-674-3"
+      ],
+      "runs": {
+        "C": {
+          "passed": false,
+          "classification": "SCOPE_VIOLATION",
+          "outcome": "other_failure",
+          "tracked_package_ids": [
+            "D7L-674-1",
+            "D7L-674-2",
+            "D7L-674-3"
+          ],
+          "out_of_scope_count": 2,
+          "source_lookup_ids": [],
+          "matching_sources_before_tracking": [],
+          "provider_calls": 3,
+          "tool_calls": 4,
+          "total_tokens": 3632,
+          "elapsed_ms": 3621.59
+        },
+        "D": {
+          "passed": true,
+          "classification": "PASS",
+          "outcome": "completed",
+          "tracked_package_ids": [
+            "D7L-674-3"
+          ],
+          "out_of_scope_count": 0,
+          "source_lookup_ids": [
+            "EP-S16"
+          ],
+          "matching_sources_before_tracking": [
+            "EP-S16"
+          ],
+          "provider_calls": 4,
+          "tool_calls": 3,
+          "total_tokens": 5530,
+          "elapsed_ms": 3987.63
+        }
+      }
+    },
+    {
+      "task_id": "D7L-328",
+      "condition": "archive_required",
+      "billing_agreement": {
+        "profile": "PX-86",
+        "revision": 2
+      },
+      "parcel_tags": {
+        "D7L-328-1": "N5",
+        "D7L-328-2": "T0",
+        "D7L-328-3": "T0"
+      },
+      "archive_refs": [
+        "EP-K26"
+      ],
+      "expected_scope": [
+        "D7L-328-1"
+      ],
+      "runs": {
+        "D": {
+          "passed": true,
+          "classification": "PASS",
+          "outcome": "completed",
+          "tracked_package_ids": [
+            "D7L-328-1"
+          ],
+          "out_of_scope_count": 0,
+          "source_lookup_ids": [
+            "EP-K26"
+          ],
+          "matching_sources_before_tracking": [
+            "EP-K26"
+          ],
+          "provider_calls": 4,
+          "tool_calls": 3,
+          "total_tokens": 5527,
+          "elapsed_ms": 4146.68
+        },
+        "C": {
+          "passed": false,
+          "classification": "SCOPE_VIOLATION",
+          "outcome": "other_failure",
+          "tracked_package_ids": [
+            "D7L-328-1",
+            "D7L-328-2",
+            "D7L-328-3"
+          ],
+          "out_of_scope_count": 2,
+          "source_lookup_ids": [],
+          "matching_sources_before_tracking": [],
+          "provider_calls": 3,
+          "tool_calls": 4,
+          "total_tokens": 3632,
+          "elapsed_ms": 3674.4
+        }
+      }
+    },
+    {
+      "task_id": "D7L-992",
+      "condition": "live_scope_available",
+      "billing_agreement": {
+        "profile": "PX-62",
+        "revision": 2
+      },
+      "parcel_tags": {
+        "D7L-992-1": "K8",
+        "D7L-992-2": "U4",
+        "D7L-992-3": "K8"
+      },
+      "archive_refs": [
+        "EP-H53"
+      ],
+      "expected_scope": [
+        "D7L-992-1",
+        "D7L-992-3"
+      ],
+      "runs": {
+        "C": {
+          "passed": true,
+          "classification": "PASS",
+          "outcome": "completed",
+          "tracked_package_ids": [
+            "D7L-992-1",
+            "D7L-992-3"
+          ],
+          "out_of_scope_count": 0,
+          "source_lookup_ids": [],
+          "matching_sources_before_tracking": [],
+          "provider_calls": 3,
+          "tool_calls": 3,
+          "total_tokens": 3605,
+          "elapsed_ms": 2614.5
+        },
+        "D": {
+          "passed": true,
+          "classification": "PASS",
+          "outcome": "completed",
+          "tracked_package_ids": [
+            "D7L-992-1",
+            "D7L-992-3"
+          ],
+          "out_of_scope_count": 0,
+          "source_lookup_ids": [],
+          "matching_sources_before_tracking": [],
+          "provider_calls": 3,
+          "tool_calls": 3,
+          "total_tokens": 3992,
+          "elapsed_ms": 3191.95
+        }
+      }
+    },
+    {
+      "task_id": "D7L-563",
+      "condition": "live_scope_available",
+      "billing_agreement": {
+        "profile": "PX-53",
+        "revision": 6
+      },
+      "parcel_tags": {
+        "D7L-563-1": "M7",
+        "D7L-563-2": "B6",
+        "D7L-563-3": "M7"
+      },
+      "archive_refs": [
+        "EP-S16"
+      ],
+      "expected_scope": [
+        "D7L-563-2"
+      ],
+      "runs": {
+        "D": {
+          "passed": true,
+          "classification": "PASS",
+          "outcome": "completed",
+          "tracked_package_ids": [
+            "D7L-563-2"
+          ],
+          "out_of_scope_count": 0,
+          "source_lookup_ids": [],
+          "matching_sources_before_tracking": [],
+          "provider_calls": 3,
+          "tool_calls": 2,
+          "total_tokens": 3859,
+          "elapsed_ms": 3560.23
+        },
+        "C": {
+          "passed": true,
+          "classification": "PASS",
+          "outcome": "completed",
+          "tracked_package_ids": [
+            "D7L-563-2"
+          ],
+          "out_of_scope_count": 0,
+          "source_lookup_ids": [],
+          "matching_sources_before_tracking": [],
+          "provider_calls": 3,
+          "tool_calls": 2,
+          "total_tokens": 3472,
+          "elapsed_ms": 2856.98
+        }
+      }
+    }
+  ],
+  "cost": null
+}

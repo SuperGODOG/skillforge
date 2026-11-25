@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>SkillForge · 证据工作台</title>
+<style>
+:root{--bg:#f4f6f8;--paper:#fff;--ink:#192734;--muted:#6d7c89;--line:#e4e9ee;--accent:#087e78;--mint:#e6f4f0;--nav:#14272c;--amber:#996711;--red:#b4424d;--blue:#42729e;--radius:14px}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif}button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:wait;opacity:.65}button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid #55b8ad;outline-offset:3px}button,input,select{border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink)}button{padding:8px 13px}button:hover{border-color:#98b5b3;background:#f5faf9}input,select{padding:9px 11px}input{min-width:200px}h1,h2,h3,p{margin:0}h1{font-size:28px;letter-spacing:-.8px;line-height:1.3}h2{font-size:17px}h3{font-size:14px}small{font-size:12px}pre,code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;background:#f7f9fa;border:1px solid var(--line);padding:14px;border-radius:9px;max-height:340px;overflow:auto;margin:10px 0}code{font-size:12px;overflow-wrap:anywhere}a{color:var(--accent)}
+.layout{display:grid;grid-template-columns:226px minmax(0,1fr);min-height:100vh}.sidebar{background:var(--nav);color:#f0f7f7;padding:30px 18px;position:sticky;top:0;height:100vh;display:flex;flex-direction:column}.brand{display:flex;align-items:center;gap:11px;margin:0 12px 38px;font-size:20px;font-weight:750;letter-spacing:-.5px}.brand-mark{display:grid;place-items:center;border-radius:10px;background:#9be2cd;color:#11362f;width:35px;height:35px;font-size:21px}.brand small{display:block;font-size:10px;color:#8ca8ad;font-weight:500;letter-spacing:2px}.nav-label{font-size:10px;letter-spacing:2px;color:#829e9f;margin:0 13px 10px}.nav{display:grid;gap:6px}.nav button{background:transparent;color:#b6cacc;border:0;text-align:left;display:flex;align-items:center;gap:12px;padding:13px 15px;font-weight:550}.nav button.active{background:#28464a;color:#b4efdb;box-shadow:inset 3px 0 #8edfc4}.nav svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.6}.side-foot{margin-top:auto;font-size:12px;color:#9ab3b5;border-top:1px solid #355052;padding:22px 12px 0}.side-foot strong{color:#d7e9e6;font-weight:500}.dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:#8edfc4;margin-right:7px}
+.main{min-width:0;padding:29px 38px 45px;max-width:1740px;width:100%;margin:auto}.topline{display:flex;align-items:center;justify-content:space-between;gap:15px;margin-bottom:29px}.eyebrow{font-size:11px;letter-spacing:1.6px;color:var(--muted)}.actions{display:flex;gap:9px;align-items:center}.read-only{font-size:11px;border:1px solid #c9ded7;color:var(--accent);padding:4px 9px;border-radius:5px;background:#eff8f5}.hero{display:flex;gap:20px;align-items:flex-end;justify-content:space-between;margin-bottom:24px}.hero p{color:var(--muted);margin-top:8px;max-width:760px}.timestamp{white-space:nowrap;color:var(--muted);font-size:12px}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:26px}.metric{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);padding:17px 20px;position:relative}.metric .num{font-size:30px;font-weight:650;letter-spacing:-1px;line-height:1.4}.metric .label{font-size:12px;color:var(--muted)}.metric .hint{font-size:11px;color:var(--muted);margin-top:3px}.metric .index{position:absolute;top:18px;right:17px;color:#aebfc7;font:11px ui-monospace,monospace}.toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:17px}.toolbar .count{margin-left:auto;font-size:12px;color:var(--muted)}.split{display:grid;grid-template-columns:minmax(290px,.85fr) minmax(0,1.5fr);gap:20px;align-items:start}.panel{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}.panel-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:17px 20px;border-bottom:1px solid var(--line)}.panel-body{padding:20px}.muted{color:var(--muted)}.tiny{font-size:11px}.list{max-height:740px;overflow:auto}.item{display:block;text-align:left;border:0;border-bottom:1px solid var(--line);border-radius:0;width:100%;padding:17px 20px;background:white}.item:last-child{border-bottom:0}.item:hover{background:#f7faf9}.item.selected{background:#eff8f5;box-shadow:inset 3px 0 var(--accent)}.item-title{display:flex;align-items:start;justify-content:space-between;gap:10px;font-weight:600;margin-bottom:7px}.item-meta{color:var(--muted);font-size:12px;overflow-wrap:anywhere}.item-bottom{display:flex;gap:7px;margin-top:10px;flex-wrap:wrap}.badge{display:inline-flex;align-items:center;border-radius:5px;padding:2px 7px;font-size:10px;font-weight:600;line-height:1.7;background:#edf1f4;color:#5e7180;white-space:nowrap}.badge.good{background:#e5f4ec;color:#237454}.badge.bad{background:#fbecee;color:var(--red)}.badge.warn{background:#fff2d9;color:var(--amber)}.badge.info{background:#eaf1fa;color:var(--blue)}.badge.real{background:#e4f2ef;color:var(--accent)}.detail-title{font-size:17px;margin-bottom:10px;overflow-wrap:anywhere}.tags{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:18px}.kv{display:grid;grid-template-columns:114px minmax(0,1fr);gap:8px 12px;font-size:12px;margin:14px 0 23px}.kv dt{color:var(--muted)}.kv dd{margin:0;overflow-wrap:anywhere}.section{margin-top:25px}.section-title{display:flex;align-items:center;gap:9px;margin-bottom:10px}.section-title small{color:var(--muted);font-weight:400}.answer{border-left:3px solid #89c9b7;background:#f5faf8;padding:14px 16px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:300px;overflow:auto;font-size:13px}.empty{padding:46px 22px;text-align:center;color:var(--muted);font-size:13px}.empty strong{color:#4f6774;display:block;margin-bottom:7px;font-size:15px}.tool{border:1px solid var(--line);border-radius:9px;margin-top:9px;overflow:hidden}.tool summary{padding:12px 14px;cursor:pointer;font-size:12px;display:flex;justify-content:space-between;gap:10px;align-items:center}.tool .body{padding:0 14px 10px}.tool summary::before{content:'↳';color:#9aacb6;margin-right:3px}.tool summary .name{margin-right:auto}.tool pre{max-height:200px}.source{margin-top:19px;padding-top:13px;border-top:1px solid var(--line);color:var(--muted);font-size:11px;overflow-wrap:anywhere}.source code{font-size:11px}.notice{border:1px solid #ecd9b6;background:#fffbf2;color:#8a6735;padding:12px 15px;border-radius:9px;font-size:12px;margin-bottom:18px}.notice.error{background:#fff1f2;border-color:#edc8cc;color:var(--red)}.notice details summary{cursor:pointer}.hidden,[hidden]{display:none!important}.flow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:14px;background:#f5f9f8;border-radius:9px;font-size:12px}.flow .stage{background:white;border:1px solid #d7e5df;border-radius:6px;padding:6px 9px}.flow .arrow{color:#94aaa4}.link-button{border:0;padding:2px;color:var(--accent);background:none;font-size:12px;text-align:left}.link-button:hover{text-decoration:underline;background:none}.diff{display:grid;grid-template-columns:1fr 1fr;gap:12px}.diff label{font-size:11px;color:var(--muted)}.diff pre{margin-top:5px;font-size:11px;max-height:250px}.benchmark-layout{display:grid;grid-template-columns:270px minmax(0,1fr);gap:20px}.item-title,.bench-title{overflow-wrap:anywhere;min-width:0}.bench-title{font-size:21px;margin:0 0 9px}.partition-tabs{display:flex;gap:7px;margin:19px 0}.partition-tabs button{font-size:12px}.partition-tabs .active{background:var(--mint);color:var(--accent);border-color:#b7dace}.score-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.score{background:#f7f9fb;border:1px solid var(--line);border-radius:10px;padding:15px}.score .score-num{font-size:26px;font-weight:600;letter-spacing:-.5px}.score .bar{height:5px;background:#e4e9ed;border-radius:3px;overflow:hidden;margin:13px 0 8px}.score .fill{height:100%;background:#8da2b3}.score.c .fill{background:var(--accent)}.score small{font-size:11px;color:var(--muted)}.paired{display:flex;gap:17px;flex-wrap:wrap;margin:18px 0;color:var(--muted);font-size:12px}.paired b{font-size:17px;margin-right:5px}.paired .positive{color:#237454}.paired .negative{color:var(--red)}.table-scroll{overflow:auto}table{border-collapse:collapse;width:100%;font-size:12px}th{text-align:left;color:var(--muted);font-weight:500;padding:11px 13px;background:#f7f9fa;white-space:nowrap}td{padding:12px 13px;border-bottom:1px solid var(--line);vertical-align:top}tr.pick{cursor:pointer}tr.pick:hover,tr.pick.selected{background:#f1f8f5}td code{font-size:11px}.family{font-size:10px;color:var(--muted)}.answer-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:14px}.four-groups{grid-template-columns:repeat(4,minmax(0,1fr))}@media(max-width:1050px){.four-groups{grid-template-columns:repeat(2,minmax(0,1fr))}}.answer-grid .answer{max-height:300px;font-size:12px;margin-top:8px}.warning-list{margin:8px 0 0;padding-left:18px}.footer{display:flex;justify-content:space-between;gap:15px;margin-top:25px;color:var(--muted);font-size:11px}.episode-button{display:block;margin:5px 0}.origin-list{max-height:280px;overflow:auto}.loading{opacity:.65;pointer-events:none}@media(min-width:1500px){.main{padding-left:48px;padding-right:48px}}@media(max-width:1100px){.layout{grid-template-columns:185px 1fr}.main{padding:24px}.split{grid-template-columns:1fr}.list{max-height:330px}.benchmark-layout{grid-template-columns:1fr}.benchmark-layout>.panel .list{max-height:230px}.hero{align-items:start}.timestamp{display:none}.brand{font-size:18px;margin-left:0}.metrics{gap:10px}.metric{padding:15px}}@media(max-width:680px){.layout{display:block}.sidebar{position:static;height:auto;padding:15px}.brand{margin:0 0 15px}.nav-label,.side-foot{display:none}.nav{grid-template-columns:repeat(3,1fr);gap:3px}.nav button{font-size:12px;padding:10px 8px;justify-content:center;gap:5px}.nav svg{width:15px}.main{padding:20px 15px}.topline{margin-bottom:21px}.eyebrow{font-size:9px;letter-spacing:.5px}.read-only{display:none}h1{font-size:25px}.hero{margin-bottom:20px}.metrics{grid-template-columns:repeat(2,1fr)}.metric .num{font-size:27px}.toolbar input{width:100%;min-width:0}.panel-body{padding:16px}.score-grid{gap:7px}.score{padding:10px}.score .score-num{font-size:22px}.answer-grid,.diff{grid-template-columns:1fr}.footer{display:block}.kv{grid-template-columns:85px 1fr}.actions button{font-size:12px}}
+</style>
+</head>
+<body>
+<div class="layout">
+ <aside class="sidebar">
+  <div class="brand"><span class="brand-mark">⌘</span><div>SkillForge<small>EVIDENCE WORKSPACE</small></div></div>
+  <div class="nav-label">工作台 / WORKSPACE</div>
+  <nav class="nav" aria-label="工作台页面">
+   <button data-view="runs" class="active" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4zM4 10h16M9 10v9"/></svg>运行证据</button>
+   <button data-view="evolution"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v12a4 4 0 0 0 4 4h6M7 10h6a4 4 0 0 0 4-4V4"/><circle cx="7" cy="4" r="2"/><circle cx="17" cy="4" r="2"/><circle cx="17" cy="20" r="2"/></svg>技能演进</button>
+   <button data-view="benchmarks"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h17M7 16v-5M12 16V4M17 16V8"/></svg>评测对照</button>
+  </nav>
+  <div class="side-foot"><strong><span class="dot"></span>本地 · 只读</strong><p style="margin-top:10px">每个结论，回到证据。<br>运行 → 经历 → 技能 → 验证</p></div>
+ </aside>
+ <main class="main" id="main">
+  <div class="topline"><span class="eyebrow">HARNESS / SKILL EVOLUTION / EVALUATION</span><div class="actions"><span class="read-only">READ ONLY</span><button id="refresh">↻ 刷新记录</button></div></div>
+  <header class="hero"><div><h1 id="page-title">运行证据</h1><p id="page-description">从一次任务的执行轨迹，追溯它的结论、依据与经历。</p></div><span class="timestamp" id="updated">正在读取本地记录…</span></header>
+  <div id="error" role="alert" hidden></div>
+  <section class="metrics" aria-label="已载入记录统计" id="metrics"></section>
+  <div id="warnings" hidden></div>
+  <section id="workspace" aria-label="记录详情"></section>
+  <footer class="footer"><span>SkillForge · 执行有边界，演进有依据</span><span id="source-count">仅查看已有记录，不触发模型调用或技能发布</span></footer>
+ </main>
+</div>
+<script id="skillforge-snapshot" type="application/json"></script>
+<script>
+'use strict';
+const state={data:null,view:'runs',query:'',status:'all',mode:'all',selectedRun:null,selectedCandidate:null,selectedBenchmark:null,partition:null,selectedTask:null,offline:false};
+const $=s=>document.querySelector(s);
+function el(tag,cls,text){const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined&&text!==null)n.textContent=String(text);return n;}
+function append(parent,...children){children.flat().forEach(n=>{if(n)parent.append(n)});return parent;}
+function clear(n){n.replaceChildren();return n;}
+function pretty(v){return v===undefined||v===null?'未采集':typeof v==='string'?v:JSON.stringify(v,null,2)}
+function value(v){return v===undefined||v===null||v===''?'未记录':String(v)}
+function badge(text,type){return el('span','badge '+(type||''),text)}
+function statusBadge(v){const s=String(v??'UNKNOWN');return badge(s,/^(PASS|SUCCESS|COMPLETED|PROMOTED|APPROVED|EXECUTED)$/i.test(s)?'good':/FAIL|DECLIN|ERROR|CANCEL|SUPERSED/i.test(s)?'bad':/REVIEW|PENDING|DRAFT|PAUS/i.test(s)?'warn':'')}
+function outcome(v){return v===true?badge('通过','good'):v===false?badge('未通过','bad'):badge('未记录','warn')}
+function empty(title,body){return append(el('div','empty'),el('strong','',title),el('span','',body))}
+function section(title,...nodes){return append(el('section','section'),el('h3','section-title',title),...nodes)}
+function kv(entries){const dl=el('dl','kv');for(const [k,v]of entries)append(dl,el('dt','',k),el('dd','',value(v)));return dl;}
+function pre(v){return el('pre','',pretty(v))}
+function source(id){return (state.data.sources||[]).find(s=>s.id===id)}
+function sourceLine(item){const s=source(item.source_id);return append(el('div','source'),el('span','','数据来源 · '),el('code','',s?.path||item.source_path||'来源未记录'),el('div','tiny','关联范围：'+value(item.scope)));}
+function uid(item,key){return item.source_id+':'+item[key]}
+function panel(title,body){return append(el('div','panel'),append(el('div','panel-head'),el('h2','',title)),body)}
+function modeOf(item){const e=item.evidence||{},m=item.model;const raw=JSON.stringify([e,m,item.execution,item.real_llm]);if(item.real_llm===true||/real API|real_model|real_llm|真实模型/i.test(raw))return 'real_model';if(/faux|scripted|fake/i.test(raw))return 'scripted';return 'unknown';}
+function modeBadge(mode){return badge(({real_model:'真实模型',scripted:'受控 / scripted',exploratory:'探索性记录',challenge:'事后挑战',unknown:'模型证据未标注'})[mode]||mode,mode==='real_model'?'real':mode==='exploratory'||mode==='challenge'?'warn':'info')}
+function sameScope(a,b){return a.scope!==undefined&&a.scope===b.scope}
+function toolbar(options){const t=el('div','toolbar');const input=el('input');input.type='search';input.placeholder=options.placeholder;input.value=state.query;input.setAttribute('aria-label',options.placeholder);input.addEventListener('input',()=>{state.query=input.value;renderContent();const field=$('input[type=search]');field?.focus();});append(t,input);if(options.statuses){const select=el('select');select.setAttribute('aria-label','按状态筛选');for(const s of ['all',...options.statuses]){const o=el('option','',s==='all'?'全部状态':s);o.value=s;select.append(o)}select.value=state.status;select.onchange=()=>{state.status=select.value;renderContent()};t.append(select)}if(options.mode){const select=el('select');select.setAttribute('aria-label','按模型证据筛选');for(const [v,label]of [['all','全部证据类型'],['real_model','真实模型'],['scripted','受控 / scripted'],['unknown','模型证据未标注']]){const o=el('option','',label);o.value=v;select.append(o)}select.value=state.mode;select.onchange=()=>{state.mode=select.value;renderContent()};t.append(select)}append(t,el('span','count',options.count+' 条记录'));return t}
+function renderMetrics(){clear($('#metrics'));const d=state.data;[['运行记录',d.runs.length,'含不同来源的复核快照'],['Episode',d.episodes.length,'可追溯的任务经历'],['版本 / 候选记录',d.candidates.length,'区分数据库候选与实验摘要'],['评测实验',d.benchmarks.length,'不同证据层分开展示']].forEach(([label,n,hint],i)=>$('#metrics').append(append(el('div','metric'),el('span','index','0'+(i+1)),el('div','label',label),el('div','num',n),el('div','hint',hint))))}
+function renderWarnings(){const box=clear($('#warnings'));const w=state.data.warnings||[];box.hidden=!w.length;if(w.length){const details=el('details');append(details,el('summary','',w.length+' 项数据读取或完整性提示 · 展开查看'),append(el('ul','warning-list'),w.map(x=>el('li','',typeof x==='string'?x:pretty(x)))));box.className='notice';box.append(details)}}
+function renderRuns(root){const all=state.data.runs;const q=state.query.toLowerCase();const rows=all.filter(r=>(state.status==='all'||r.status===state.status)&&(state.mode==='all'||modeOf(r)===state.mode)&&[r.run_id,r.task_id,r.skill_name,r.scope].some(x=>String(x||'').toLowerCase().includes(q)));root.append(toolbar({placeholder:'搜索任务、Skill 或运行 ID',statuses:[...new Set(all.map(r=>r.status).filter(Boolean))],mode:true,count:rows.length}));if(!rows.length){root.append(empty('暂无匹配的运行','可先运行 pi-demo，或将已有报告放入 runs / scratch 后刷新。'));return}let selected=rows.find(r=>uid(r,'run_id')===state.selectedRun)||rows[0];state.selectedRun=uid(selected,'run_id');const list=el('div','list');for(const r of rows){const b=el('button','item'+(r===selected?' selected':''));append(b,append(el('div','item-title'),el('span','',r.skill_name||r.task_id||'未绑定 Skill 的任务'),statusBadge(r.status)),el('div','item-meta mono',r.run_id),append(el('div','item-bottom'),modeBadge(modeOf(r)),badge(r.purpose||'用途未记录'),badge('工具 '+(r.tool_records||[]).length)));b.onclick=()=>{state.selectedRun=uid(r,'run_id');renderContent()};list.append(b)}const detail=el('div','panel-body');renderRunDetail(detail,selected);root.append(append(el('div','split'),panel('持久化运行记录',list),panel('运行证据详情',detail)))}
+function renderRunDetail(n,r){n.append(el('p','tiny muted','以下是已保存的执行记录；状态字段不代表进程当前仍然存活。'));append(n,el('h2','detail-title',r.run_id),append(el('div','tags'),statusBadge(r.status),modeBadge(modeOf(r)),badge('业务 '+value(r.oracle?.verdict||(r.oracle?.independent_pass===true?'PASS':r.oracle?.independent_pass===false?'FAIL':null)),r.oracle?.independent_pass===true?'good':'')),kv([['任务',r.task_id],['记录时间',r.created_at],['Skill / 版本',[r.skill_name,r.skill_version].filter(Boolean).join(' / ')],['意图版本',r.intent_revision],['候选',r.candidate_id],['步骤预算',r.budget_max!=null?value(r.budget_consumed)+' / '+r.budget_max:null],['正文 Hash',r.content_hash]]));if(r.superseded)n.append(el('div','notice',r.note||'此记录已被后续复核替代，保留原始证据。'));if(r.checkpoints?.length)n.append(section('上下文检查点 · 公开元数据',pre(r.checkpoints)));if(r.model||r.evidence)n.append(section('证据层与数据范围',pre({model:r.model??null,evidence:r.evidence??null})));if(r.response_text)n.append(section('最终业务回答',el('div','answer',r.response_text)));if(r.error_type||r.error_message)n.append(section('错误记录',pre({type:r.error_type,message:r.error_message})));const calls=r.tool_records||[];const tools=el('div');for(const call of calls){const d=el('details','tool');append(d,append(el('summary'),el('span','name mono',call.tool_name),statusBadge(call.status),el('span','muted',call.latency_ms!=null?Number(call.latency_ms).toFixed(1)+' ms':'')),append(el('div','body'),el('div','tiny muted',value(call.call_id)),pre({input:call.input_params,output:call.output_data??call.output_text,error_type:call.error_type,error_message:call.error_message})));tools.append(d)}n.append(section('工具执行轨迹',calls.length?tools:empty('没有工具记录','不据文字回答推定工具已经执行。')));n.append(section('Oracle · 独立业务判定',r.oracle?pre(r.oracle):el('p','muted','没有记录独立业务判据。运行完成不等于业务通过。')));const episodes=state.data.episodes.filter(e=>sameScope(r,e)&&e.run_id===r.run_id);n.append(section('Collector · 经历回收',episodes.length?pre(episodes.map(e=>({episode_id:e.episode_id,outcome:e.outcome,purpose:e.purpose,run_id:e.run_id}))):el('p','muted','本关联范围内未找到对应 Episode。')));if(r.usage)n.append(section('模型用量',pre(r.usage)));if(r.frozen_body){const d=el('details');append(d,el('summary','muted','查看执行时冻结的 Skill 正文'),pre(r.frozen_body));n.append(section('执行快照',d))}n.append(sourceLine(r))}
+function renderEvolution(root){const all=state.data.candidates;const q=state.query.toLowerCase();const rows=all.filter(c=>(state.status==='all'||c.status===state.status)&&[c.candidate_id,c.skill_name,c.decision].some(x=>String(x||'').toLowerCase().includes(q)));root.append(toolbar({placeholder:'搜索 Skill 或候选 ID',statuses:[...new Set(all.map(c=>c.status).filter(Boolean))],count:rows.length}));if(!rows.length){root.append(empty('暂无候选技能记录','读取 candidate_skills 的真实来源关系；不会从执行成功或同名 Skill 推造演进链。'));return}const selected=rows.find(c=>uid(c,'candidate_id')===state.selectedCandidate)||rows[0];state.selectedCandidate=uid(selected,'candidate_id');const list=el('div','list');for(const c of rows){const b=el('button','item'+(c===selected?' selected':''));append(b,append(el('div','item-title'),el('span','',c.skill_name||c.candidate_id),statusBadge(c.status)),el('div','item-meta mono',c.candidate_id),append(el('div','item-bottom'),badge(c.decision||'决策未记录','info'),badge((c.source_episode_ids||[]).length?(c.source_episode_ids.length+' 个来源 Episode'):c.source_type==='episode'?'Episode ID 未保存':'需求 / 其他来源')));b.onclick=()=>{state.selectedCandidate=uid(c,'candidate_id');renderContent()};list.append(b)}const detail=el('div','panel-body');renderCandidateDetail(detail,selected);root.append(append(el('div','split'),panel('候选与版本',list),panel('演进依据',detail)))}
+function candidateLinks(c){
+ const scoped=key=>state.data[key].filter(x=>sameScope(x,c));
+ const validation=scoped('validations').find(v=>v.candidate_id===c.candidate_id);
+ const release=validation?.release_id?scoped('releases').find(r=>r.release_id===validation.release_id&&r.skill_name===c.skill_name&&r.version===(c.meta?.version||c.version)):null;
+ const episodes=scoped('episodes');
+ const sources=(c.source_episode_ids||[]).map(id=>({id,episode:episodes.find(e=>e.episode_id===id)}));
+ const sourceRunIds=new Set(sources.map(s=>s.episode?.run_id).filter(Boolean));
+ const baselines=scoped('runs').filter(r=>sourceRunIds.has(r.run_id)&&r.skill_name===c.skill_name&&r.skill_version===validation?.baseline_version&&r.frozen_body);
+ const reuse=release&&(validation.promoted===1||validation.promoted===true)&&!c.body_is_preview&&c.body
+  ?scoped('runs').filter(r=>r.skill_name===release.skill_name&&r.skill_version===release.version&&r.frozen_body===c.body&&episodes.some(e=>e.run_id===r.run_id&&e.reuse?.enable_reuse===true&&e.reuse?.retrieval_hit===true&&e.reuse?.selected_skill===release.skill_name&&e.reuse?.selected_version===release.version))
+  :[];
+ return {validation,release,sources,baselines,reuse,jobs:scoped('repair_jobs').filter(j=>j.latest_candidate_id===c.candidate_id||j.candidate_id===c.candidate_id),parent:scoped('candidates').find(p=>p.candidate_id===c.parent_candidate_id)};
+}
+function runButton(r,label){const b=el('button','link-button',label||('查看运行 '+r.run_id+' →'));b.onclick=()=>{state.view='runs';state.query='';state.status='all';state.mode='all';state.selectedRun=uid(r,'run_id');render()};return b}
+function renderCandidateDetail(n,c){
+ if(c.record_kind==='experiment_summary')n.append(el('div','notice',c.note||'实验版本摘要，不代表当前权威候选或正式发布记录。'));
+ const {validation:v,release,sources,baselines,reuse,jobs,parent}=candidateLinks(c),ids=c.source_episode_ids||[];
+ append(n,el('h2','detail-title',c.skill_name||c.candidate_id),append(el('div','tags'),statusBadge(c.status),badge(c.decision||'决策未记录','info')));
+ const stages=[ids.length?ids.length+' 个来源 Episode':c.source_type==='episode'?'来源 ID 未保存':'需求 / 其他来源',jobs.length?'RepairJob 已关联':'未关联 RepairJob',c.record_kind==='experiment_summary'?'实验版本摘要':'候选 '+value(c.meta?.version||c.version),v?'验证 '+value(v.ratchet_decision):'未载入验证记录',release?'版本 '+release.version+' 已发布':'未关联正式版本',reuse.length?'检索复用 '+reuse.length+' 次':'未关联检索复用'];
+ const flow=el('div','flow');stages.forEach((label,i)=>{if(i)flow.append(el('span','arrow','→'));flow.append(el('span','stage',label))});n.append(flow);
+ n.append(kv([['候选 ID',c.candidate_id],['来源类型',c.source_type],['父候选',c.parent_candidate_id],['规范基线版本',v?.baseline_version],['当前版本',c.version||c.meta?.version],['报告的开发失败数',c.repaired_from_dev_failures],['候选内容 Hash',c.content_hash],['验证时内容 Hash',v?.content_hash],['验证配置 Hash',v?.config_hash],['数据集版本',v?.dataset_version],['发布记录',release?.release_id]]));
+ const origins=el('div','origin-list');
+ for(const {id,episode:ep}of sources){
+  const d=el('details','tool'),body=el('div','body');
+  append(d,append(el('summary'),el('span','name mono',id),statusBadge(ep?.outcome||'未找到来源')));
+  if(ep){append(body,kv([['任务',ep.task_id],['用途',ep.purpose],['失败 / 成功依据',ep.outcome_reason]]),pre(ep.oracle));const r=state.data.runs.find(r=>sameScope(r,c)&&r.run_id===ep.run_id);if(r)body.append(runButton(r,'查看此经历的工具轨迹与回答 →'));body.append(sourceLine(ep))}
+  else body.append(el('p','muted','当前读取范围未找到该 Episode；未补造来源。'));
+  append(d,body);origins.append(d);
+ }
+ n.append(section('多个 Episode 如何支持这次修改',ids.length?origins:el('p','muted',c.source_type==='episode'?'报告记载来自执行经历，但未保存可关联的 Episode ID。':c.source_requirement?'此候选来自需求输入，不冒充执行经历。':'当前读取范围未记录来源 Episode。')));
+ if(c.rationale)n.append(section('修改决策依据',el('div','answer',c.rationale)));
+ if(c.source_requirement)n.append(section('原始需求',el('div','answer',c.source_requirement)));
+ if(parent){n.append(section('父版 → 当前候选',append(el('div','diff'),append(el('div'),el('label','',(parent.body_is_preview?'父版正文预览 · ':'父版正文 · ')+parent.candidate_id),pre(parent.body)),append(el('div'),el('label','',(c.body_is_preview?'当前版本预览 · ':'当前候选 · ')+c.candidate_id),pre(c.body)))))}
+ else if(baselines.length){
+  const b=baselines[0];
+  n.append(section('基线执行快照 → 当前候选',el('p','tiny muted','左侧来自来源 Episode 对应的运行快照，版本匹配验证记录中的基线；不虚构父候选。'),append(el('div','diff'),append(el('div'),el('label','','基线 '+b.skill_version+' · '+b.run_id),pre(b.frozen_body),runButton(b)),append(el('div'),el('label','','当前候选 '+value(c.meta?.version)),pre(c.body)))));
+ }else if(c.body)n.append(section(c.body_is_preview?'正文预览（原报告未保存完整正文）':'候选正文',pre(c.body)));
+ if(jobs.length){const box=el('div');for(const j of jobs)append(box,pre(j),sourceLine(j));n.append(section('RepairJob · 归因、尝试与停止原因',box))}
+ n.append(section('共同验证与晋升凭据',v?append(el('div'),pre(v),sourceLine(v)):el('p','muted','当前读取范围未找到权威验证记录；实验摘要不替代晋升凭据。')));
+ if(release)n.append(section('正式版本记录',append(el('div'),pre(release),sourceLine(release))));
+ const future=el('div');for(const r of reuse){const eps=state.data.episodes.filter(e=>sameScope(e,c)&&e.run_id===r.run_id);append(future,kv([['新任务',r.task_id],['固定版本',r.skill_version],['新 Episode',eps.map(e=>e.episode_id).join(', ')]]),runButton(r,'查看新任务的实际执行与新 Episode →'))}
+ n.append(section('晋升后的检索复用',reuse.length?future:el('p','muted','未找到同时满足检索命中、正式版本和完整正文一致的运行证据；不按同名 Skill 推定复用。')));
+ n.append(sourceLine(c));
+}
+function normalizedGroup(row,g){const result=row[g];return result&&typeof result==='object'?result:{passed:null}}
+function computed(part,g){const v=part.computed_summary?.[g];if(v)return v;const rows=part.rows||[];const known=rows.filter(r=>typeof normalizedGroup(r,g).passed==='boolean');return {passed:known.filter(r=>r[g].passed).length,recorded:known.length,total:rows.length,unknown:rows.length-known.length};}
+function renderBenchmarks(root) {
+  const all = state.data.benchmarks;
+  if (!all.length) {
+    root.append(empty('暂无实验结果', '读取已经保存的逐任务对照。'));
+    return;
+  }
+  const chosen = all.find(b => b.id === state.selectedBenchmark) || all.find(b => b.mode === 'real_model') || all[0];
+  state.selectedBenchmark = chosen.id;
+  const groups = Object.entries(chosen.group_labels || {'A': '无 Skill', 'B': '原版 Skill', 'C': '演进候选'});
+  const list = el('div', 'list');
+  for (const b of all) {
+    const button = el('button', 'item' + (b === chosen ? ' selected' : ''));
+    append(button, el('div', 'item-title', b.name), append(el('div', 'item-bottom'), modeBadge(b.mode)),
+      el('div', 'item-meta', b.status || '状态未记录'));
+    button.onclick = () => {
+      state.selectedBenchmark = b.id;
+      state.partition = null;
+      state.selectedTask = null;
+      renderContent();
+    };
+    list.append(button);
+  }
+  const n = el('div', 'panel-body');
+  append(n, el('h2', 'bench-title', chosen.name),
+    append(el('div', 'tags'), modeBadge(chosen.mode), badge(chosen.status || '状态未记录')),
+    el('p', 'muted', chosen.model ? pretty(chosen.model) : '模型信息未记录'));
+  if (chosen.notes?.length) {
+    n.append(append(el('div', 'notice'), chosen.notes.map(x => el('div', '', typeof x === 'string' ? x : pretty(x)))));
+  }
+  const parts = chosen.partitions || [];
+  const p = parts.find(part => part.name === state.partition) || parts[0];
+  if (p) {
+    state.partition = p.name;
+    const tabs = el('div', 'partition-tabs');
+    for (const part of parts) {
+      const button = el('button', part === p ? 'active' : '', part.name);
+      button.onclick = () => {
+        state.partition = part.name;
+        state.selectedTask = null;
+        renderContent();
+      };
+      tabs.append(button);
+    }
+    n.append(tabs, el('p', 'tiny muted', '任务家族 · ' + ((p.task_families || []).join(' / ') || '未记录')));
+    const fourGroups = groups.length === 4;
+    const scores = el('div', 'score-grid' + (fourGroups ? ' four-groups' : ''));
+    for (const [g, label] of groups) {
+      const s = computed(p, g);
+      const total = s.total ?? (p.rows || []).length;
+      const known = s.recorded ?? Math.max(0, total - (s.unknown || 0));
+      const card = el('div', 'score ' + g.toLowerCase());
+      const bar = el('div', 'bar');
+      const fill = el('div', 'fill');
+      fill.style.width = (total ? Math.min(100, (s.passed || 0) / total * 100) : 0) + '%';
+      append(card, el('div', 'label', g + ' · ' + label),
+        el('div', 'score-num', (known ? (s.passed ?? 0) : '—') + ' / ' + total), append(bar, fill),
+        el('small', '', '逐项已记录 ' + known + ' · 未知 ' + (s.unknown ?? total - known)));
+      scores.append(card);
+    }
+    n.append(section('逐任务原记录判定', scores));
+    for (const [before, after] of fourGroups ? [['B', 'C'], ['C', 'D']] : [['B', 'C']]) {
+      const pair = p.computed_summary?.['paired_' + before.toLowerCase() + '_to_' + after.toLowerCase()] || {};
+      const paired = el('div', 'paired');
+      for (const [key, label, cl] of [['improved', '改善', 'positive'], ['degraded', '退化', 'negative'],
+          ['unchanged', '不变', ''], ['unknown', '不可配对', '']]) {
+        paired.append(append(el('span', cl), el('b', '', value(pair[key])), el('span', '', label)));
+      }
+      n.append(section(before + ' → ' + after + ' 配对变化', paired));
+    }
+    const rows = p.rows || [];
+    if (rows.length) {
+      const table = el('table');
+      const head = el('tr');
+      for (const h of ['任务 / 家族', ...groups.map(([g]) => g), '原始结果']) head.append(el('th', '', h));
+      table.append(append(el('thead'), head));
+      const tbody = el('tbody');
+      const selected = rows.find(r => r.task_id === state.selectedTask) || rows[0];
+      state.selectedTask = selected.task_id;
+      for (const row of rows) {
+        const tr = el('tr', 'pick' + (row === selected ? ' selected' : ''));
+        append(tr, append(el('td'), el('code', '', row.task_id), el('div', 'family', row.family || row.root_family || '未记录')));
+        for (const [g] of groups) tr.append(append(el('td'), outcome(normalizedGroup(row, g).passed)));
+        const button = el('button', 'link-button', '查看证据 →');
+        button.setAttribute('aria-label', '查看任务 ' + row.task_id);
+        const select = event => {
+          event.stopPropagation();
+          state.selectedTask = row.task_id;
+          renderContent();
+        };
+        button.onclick = select;
+        tr.onclick = select;
+        tr.append(append(el('td'), button));
+        tbody.append(tr);
+      }
+      table.append(tbody);
+      n.append(section('逐任务原始对照', append(el('div', 'table-scroll'), table)));
+      n.append(section('当前任务 · ' + selected.task_id, el('p', 'muted', selected.prompt || '原始任务指令未记录')));
+      const answers = el('div', 'answer-grid' + (fourGroups ? ' four-groups' : ''));
+      for (const [g] of groups) {
+        const v = normalizedGroup(selected, g);
+        const d = el('div');
+        append(d, append(el('div', 'tags'), badge(g, 'info'), outcome(v.passed)),
+          el('div', 'answer', v.output_text || '未记录逐任务回答'),
+          kv([['工具调用', v.tool_calls], ['耗时', v.latency_ms != null ? Number(v.latency_ms).toFixed(0) + ' ms' : null],
+            ['失败原因', v.failure_reason], ['分类', v.classification],
+            ['检索经历', v.selected_episode_ids?.join(' / ')],
+            ['实际回查', g === 'D' && Array.isArray(v.source_lookup_ids) ? v.source_lookup_ids.join(' / ') || '0 次' : null]]));
+        if (v.usage) {
+          const dt = el('details');
+          append(dt, el('summary', 'tiny muted', '查看实际 usage'), pre(v.usage));
+          d.append(dt);
+        }
+        const run = state.data.runs.find(r => r.run_id === v.run_id && sameScope(r, chosen));
+        if (run) d.append(runButton(run, '查看本组运行证据 →'));
+        answers.append(d);
+      }
+      n.append(answers);
+    } else {
+      n.append(empty('没有逐任务明细', '汇总成绩另列。'));
+    }
+    if (p.reported_summary) {
+      const d = el('details');
+      append(d, el('summary', 'muted', '查看原报告汇总'), pre(p.reported_summary));
+      n.append(section('原始汇总', d));
+    }
+    if (p.lineage) n.append(section('分区与来源血缘', pre(p.lineage)));
+  } else {
+    n.append(empty('没有逐任务分区', '本实验未提供可读取的任务分区。'));
+  }
+  n.append(sourceLine(chosen));
+  root.append(append(el('div', 'benchmark-layout'), panel('实验档案', list), append(el('div', 'panel'), n)));
+}
+function renderContent(){if(!state.data)return;const root=clear($('#workspace'));if(state.view==='runs')renderRuns(root);else if(state.view==='evolution')renderEvolution(root);else renderBenchmarks(root)}
+function render(){const text={runs:['运行证据','从一次任务的执行轨迹，追溯它的结论、依据与经历。'],evolution:['技能演进','从多个 Episode 到一个候选，查看修改依据、验证与正式版本。'],benchmarks:['评测对照','把改善与退化放在一起看，分清真实模型、受控实验与探索性结果。']}[state.view];$('#page-title').textContent=text[0];$('#page-description').textContent=text[1];document.querySelectorAll('[data-view]').forEach(b=>{const active=b.dataset.view===state.view;b.classList.toggle('active',active);if(active)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current')});renderMetrics();renderWarnings();renderContent()}
+document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{state.view=b.dataset.view;state.query='';state.status='all';state.mode='all';render()});
+function applySnapshot(d,isOffline){if(!d||d.schema_version!==1||!['runs','episodes','candidates','validations','releases','repair_jobs','benchmarks','sources'].every(k=>Array.isArray(d[k])))throw Error('数据格式不兼容，无法解析证据快照。');state.data=d;state.offline=!!isOffline;const timeStr=d.generated_at?new Date(d.generated_at).toLocaleString('zh-CN',{hour12:false}):'未记录时间';if(isOffline){const ro=$('.read-only');if(ro)ro.textContent='离线快照 · READ ONLY';$('#updated').textContent='离线快照 · '+timeStr;const b=$('#refresh');b.disabled=true;b.title='离线单文件快照，不会向本地或外部请求新记录';b.textContent='离线快照 · 不更新';b.onclick=null;const sf=document.querySelector('.side-foot strong');if(sf)sf.replaceChildren(el('span','dot'),document.createTextNode('离线快照 · 只读'));$('#source-count').textContent=d.sources.length+' 个数据源 · 离线快照（只读脱敏投影，分享前请人工核验）';}else{$('#updated').textContent='快照更新 · '+timeStr;$('#source-count').textContent=d.sources.length+' 个数据源 · 手动刷新 · 不触发模型调用';}render();}
+async function refresh(){if(state.offline)return;const b=$('#refresh');b.disabled=true;b.textContent='读取中…';$('#error').hidden=true;try{const res=await fetch('/api/snapshot',{cache:'no-store'});if(!res.ok)throw Error('读取失败（HTTP '+res.status+'）');const d=await res.json();applySnapshot(d,false);}catch(e){const err=$('#error');err.className='notice error';err.hidden=false;err.textContent=e.message;if(!state.data)$('#workspace').replaceChildren(empty('暂时无法读取本地数据','请使用项目的 dashboard 命令启动；本页不连接外部服务。'));}finally{if(!state.offline){b.disabled=false;b.textContent='↻ 刷新记录';}}}
+function init(){const snapshotEl=document.getElementById('skillforge-snapshot');const raw=snapshotEl?snapshotEl.textContent.trim():'';if(raw){try{const data=JSON.parse(raw);applySnapshot(data,true);}catch(e){const err=$('#error');err.className='notice error';err.hidden=false;err.textContent='离线数据解析失败: '+e.message;if(!state.data)$('#workspace').replaceChildren(empty('离线快照损坏','未能解析内嵌快照 JSON。'));}}else{$('#refresh').onclick=refresh;refresh();}}
+init();
+</script>
+</body>
+</html>

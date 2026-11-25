@@ -46,6 +46,7 @@ artifacts/
 
 # 样本级审计轨迹（运行时产物不入库）
 runs/eval_traces/
+runs/dashboard_evolution_*/
 
 # 本地临时脚本与面试备战材料（不入公共开源仓库）
 scratch/

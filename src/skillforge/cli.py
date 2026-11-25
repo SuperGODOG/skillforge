@@ -675,6 +675,11 @@ def main() -> None:
         help="演示产物输出根目录（将创建独立子目录）",
     )
 
+    dashboard_p = sub.add_parser("dashboard", help="本地只读运行、演进与评测证据看板")
+    dashboard_p.add_argument("--port", type=int, default=8765, help="本地端口，默认 8765")
+    dashboard_p.add_argument("--data-dir", type=Path, action="append", help="项目内数据目录，可重复指定")
+    dashboard_p.add_argument("--export-html", type=Path, default=None, help="导出离线单 HTML 快照到指定项目内路径")
+
     args = parser.parse_args()
 
     if args.cmd == "demo":
@@ -687,6 +692,15 @@ def main() -> None:
         return cmd_evolve(args)
     elif args.cmd == "pi-demo":
         return cmd_pi_demo(args)
+    elif args.cmd == "dashboard":
+        from .dashboard import main as dashboard_main
+
+        dashboard_args = ["--root", str(args.root), "--port", str(args.port)]
+        if getattr(args, "export_html", None) is not None:
+            dashboard_args.extend(["--export-html", str(args.export_html)])
+        for directory in args.data_dir or []:
+            dashboard_args.extend(["--data-dir", str(directory)])
+        return dashboard_main(dashboard_args)
     else:
         print(f"[skillforge] cmd={args.cmd}")
 

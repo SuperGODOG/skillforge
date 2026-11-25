@@ -16,6 +16,7 @@ Provides:
 from __future__ import annotations
 
 import copy
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
@@ -395,6 +396,33 @@ class RefundOrderTool(Tool):
 # 3. Authoritative Independent Business Verification Oracle
 # ==============================================================================
 
+def _delivery_claims(text: str) -> tuple[bool, bool]:
+    """Share literal claim polarity between binary and findings oracles.
+
+    shortcut: bounded phrase rules, not a semantic judge; expand using reviewed counterexamples.
+    """
+    text = text.lower()
+    all_claim = False
+    for phrase in (
+        "全部签收", "均已签收", "全部送达", "all delivered", "all signed",
+        "所有包裹已签收", "全部包裹已签收", "全部包裹已送达", "全部包裹已妥投",
+        "全部为已签收", "全部已签收", "全部为已送达", "全部为已妥投",
+    ):
+        for match in re.finditer(re.escape(phrase), text):
+            prefix = text[max(0, match.start() - 12):match.start()].rstrip(" \t\n“\"‘\'")
+            if not any(prefix.endswith(neg) for neg in (
+                "未", "尚未", "没有", "并非", "不代表", "不是", "not ", "不能确认", "无法确认", "不满足", "不符合",
+            )):
+                all_claim = True
+    # A negative abnormality is not an assertion of abnormality.
+    remaining = re.sub(r"(?:无|没有|未发现|不存在)(?:任何)?(?:异常|延迟|延误|破损)", "", text)
+    non_delivered = any(phrase in remaining for phrase in (
+        "运输中", "未签收", "未全部签收", "未全部送达", "在途中", "延迟", "延误",
+        "异常", "破损", "查询失败", "暂时无法获取", "in transit", "delayed", "exception", "not all",
+    ))
+    return all_claim, non_delivered
+
+
 def verify_logistics_fulfillment(
     model_output: str,
     order_id: str,
@@ -588,32 +616,14 @@ def verify_logistics_fulfillment(
         MOCK_PACKAGES.get(p, {}).get("status") == "DELIVERED" for p in expected_packages
     )
 
-    claims_all_delivered = False
-    for kw in [
-        "全部签收", "均已签收", "全部送达", "all delivered", "all signed",
-        "所有包裹已签收", "全部包裹已签收", "全部包裹已送达", "全部包裹已妥投"
-    ]:
-        if kw in model_output:
-            # If explicitly negated (e.g. 未全部签收, 尚未全部送达), it is NOT an all-signed claim
-            if any(neg + kw in model_output for neg in ["未", "尚未", "没有", "并非", "不代表", "not "]):
-                continue
-            claims_all_delivered = True
-            break
-
-    mentions_non_delivered = any(
-        kw in model_output
-        for kw in [
-            "运输中", "未签收", "未全部签收", "未全部送达", "在途中", "延迟", "延误",
-            "异常", "破损", "查询失败", "暂时无法获取", "in transit", "delayed", "exception", "not all",
-        ]
-    )
+    claims_all_delivered, mentions_non_delivered = _delivery_claims(model_output)
 
     # Invariant 1 & 2 Correlation: Check coverage & premature over-claim
     missing_packages = expected_packages - queried_packages - known_failing_pkgs
 
     # If model claims all delivered when ground truth is undelivered or packages were unverified,
     # it is a False Positive / Hallucination (INV_2 violation)
-    if claims_all_delivered and not mentions_non_delivered:
+    if claims_all_delivered:
         if not all_packages_delivered or missing_packages:
             return {
                 "independent_pass": False,
@@ -939,24 +949,7 @@ def verify_logistics_fulfillment_as_findings(
     all_packages_delivered = all(
         MOCK_PACKAGES.get(p, {}).get("status") == "DELIVERED" for p in expected_packages
     )
-    claims_all_delivered = False
-    for kw in [
-        "全部签收", "均已签收", "全部送达", "all delivered", "all signed",
-        "所有包裹已签收", "全部包裹已签收", "全部包裹已送达", "全部包裹已妥投"
-    ]:
-        if kw in model_output:
-            if any(neg + kw in model_output for neg in ["未", "尚未", "没有", "并非", "不代表", "not "]):
-                continue
-            claims_all_delivered = True
-            break
-
-    mentions_non_delivered = any(
-        kw in model_output
-        for kw in [
-            "运输中", "未签收", "未全部签收", "未全部送达", "在途中", "延迟", "延误",
-            "异常", "破损", "查询失败", "暂时无法获取", "in transit", "delayed", "exception", "not all",
-        ]
-    )
+    claims_all_delivered, mentions_non_delivered = _delivery_claims(model_output)
 
     if outage_fabricated:
         findings["ROBUST_EVIDENCE_FAITHFUL"] = RuleFinding(
@@ -970,7 +963,7 @@ def verify_logistics_fulfillment_as_findings(
             source="code_oracle",
             deduction=10.0,
         )
-    elif not all_packages_delivered and claims_all_delivered and not mentions_non_delivered:
+    elif not all_packages_delivered and claims_all_delivered:
         findings["ROBUST_EVIDENCE_FAITHFUL"] = RuleFinding(
             rule_id="ROBUST_EVIDENCE_FAITHFUL",
             dimension="robustness",

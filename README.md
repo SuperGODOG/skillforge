@@ -25,6 +25,7 @@
   <a href="#position">🎯 项目定位</a> •
   <a href="#architecture">🏛️ 双闭环架构</a> •
   <a href="#pi-migration">🔄 Pi 重构进展</a> •
+  <a href="#dashboard">🖥️ 证据看板</a> •
   <a href="#design">⚙️ 三大核心设计</a> •
   <a href="#validation">📊 演示与验证</a> •
   <a href="#quickstart">🚀 快速上手</a> •
@@ -138,6 +139,40 @@ CLI 的 Pi 装配目前支持 **synthetic logistics** 工具集，其他业务�
 **后续可选工作：**扩展其他业务场景装配、Pi 路径的真实模型演进或配对实验，再根据调用方迁移情况决定是否调整默认后端。旧循环继续承担兼容入口，本次不直接删除。自定义本地模型配置暂不支持跨进程恢复：配置尚未纳入完整冻结绑定，相关恢复会明确拒绝；已有内置模型／受控夹具的恢复机制与证据单列。
 
 **无需 Pi 化的部分：**业务 Oracle、Judge 的规则计分、EpisodeStore、来源与用途隔离、SkillRegistry、CandidateStore、显式晋升，以及 MCP / 子进程沙箱等 Broker 下层能力。它们为不同执行引擎提供共同约束；LangGraph 继续负责有界演进恢复，Pi 负责 Agent 执行循环。单次生成 / 修补的模型调用也无需全部包装成工具循环。
+
+---
+
+<a id="dashboard"></a>
+### 本地证据看板
+
+**沿着真实记录查看运行、演进与评测。** 本地只读看板连接已有 SQLite 与 JSON 结果：
+
+- **运行证据**：任务快照、工具轨迹、独立 Oracle 与回收的 Episode，区分执行完成和业务合格。
+- **技能演进**：来源 Episode、父候选、版本正文、验证与发布记录，按真实 ID 关联，缺失证据直接标明。
+- **评测对照**：逐任务对照、配对改善与退化，支持四组记忆复用实验。真实模型、scripted、探索和挑战实验带有各自的证据标记。
+
+```bash
+.venv/bin/python -m skillforge.dashboard --root . --port 8765
+```
+
+打开终端显示的本地地址。点击“刷新记录”读取新产物；看板不触发模型调用、恢复任务或批准发布。读取范围与使用说明见 [看板指南](docs/DASHBOARD.md)。
+
+也可导出单文件，双击离线查看三页证据：
+
+```bash
+.venv/bin/python -m skillforge.dashboard --root . --export-html scratch/evidence-share.html
+```
+
+快照内含当前记录与复核说明，无需启动服务；新记录需另行导出，已有文件不会覆盖。[三分钟演示顺序与分享说明](docs/DASHBOARD.md#三分钟讲解顺序)。
+
+
+需要一套可从头追溯的演示数据时，先运行：
+
+```bash
+env -u PI_SOURCE_ROOT .venv/bin/python -m skillforge.scenarios.dashboard_evolution_demo --output-dir runs
+```
+
+它在唯一的隔离目录中串起 **两次失败经历 → RepairJob → 正常与失败案例回归 → 确认门禁 → 临时库晋升 → 新任务检索复用**。看板可从 Episode 跳到原运行，对比基线快照与候选正文，再查看验证、发布和后续复用。模型响应与修补文本是固定脚本，Pi / Runtime / Broker / Collector 实际执行；此演示验证机制，不用于声称真实模型效果提升。
 
 ---
 
@@ -321,6 +356,7 @@ LLM Judge 输出逐规则判断与软质量比较结果，评分规则由程序�
 | 上下文、Hooks、Runtime 与 Supervisor | 相关回归记录 53 项通过 | [原始日志](docs/fixtures/context_cache_pytest.txt) |
 | Judge 真实模型校准 | 16 个合成答案、64 项主规则，匹配 52/64（81.25%） | [校准结果](docs/judge_criteria_real_calibration_results.json) |
 | 真实模型生命周期 | `glm-5.3-flash` 下分别验证失败修补、目标变向后的修订与复用 | [实验原始结果](docs/p6_real_model_abc_raw_results.json) / [进度记录](docs/QUICK_GENERATION_EVOLUTION_PROGRESS.md) |
+| Skill 与来源回查 | 同一 Skill 下，4 道需要历史协议的合成物流题从 0/4 到 4/4。两道范围已知题均通过且无需回查。全组六题总 Token 增加 41.7% | [逐题公开记录](docs/fixtures/d7_source_lookup_results.json) · [实验设计与边界](docs/DASHBOARD_WALKTHROUGH.md#d7-来源回查对照2026-11-25) |
 
 各测试套件有重叠，数量不相加。离线机制测试、真实模型调用与 OS 沙箱测试分别记录；真实模型结果来自合成业务的小样本实验，用于展示闭环行为。
 
@@ -403,6 +439,10 @@ Python 3.10+。进程组管理需要 POSIX 环境；OS 沙箱能力按平台探�
 完整业务时序见 [任务状态驱动的上下文与技能演进](docs/task_state_driven_context_and_skill_evolution_walkthrough.md)。
 
 ---
+
+## 下一版方向
+
+在现有 Supervisor 上扩展多 Agent 调度与运行看板。第一版以一个父任务派发多个子任务、收齐结果后汇总为演示。树状视图读取实际父子运行记录，展示每个节点的状态、用量、失败和取消，支持跳转到工具轨迹与交付证据。调度层复用现有执行和权限边界，Skill 的评测与晋升继续通过原有流程。
 
 ## 致谢与交流
 
